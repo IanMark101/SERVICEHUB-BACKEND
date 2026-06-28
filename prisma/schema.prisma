@@ -1,0 +1,619 @@
+// ServiceHub Cordova — Prisma Schema
+// Single source of truth for all database models.
+// Mirrors every entity in Master Prompt Section 18 exactly.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum ServiceStatus {
+  PENDING_REVIEW
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  REJECTED
+  DELETED
+}
+
+enum PriceType {
+  FIXED
+  STARTS_AT
+  PER_HOUR
+}
+
+enum RequestStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+  CANCELED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum DirectRequestStatus {
+  PENDING_APPROVAL
+  ACCEPTED
+  DECLINED
+}
+
+enum QueueStatus {
+  WAITING
+  SERVING
+  DONE
+  CANCELLED
+  REMOVED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID_HELD
+  FROZEN_HELD
+  RELEASED
+  REFUNDED
+}
+
+enum ReportReason {
+  POOR_SERVICE_QUALITY
+  INCOMPLETE_SERVICE
+  SCAM_OR_FRAUD
+  INAPPROPRIATE_BEHAVIOR
+  OVERPRICING
+  NO_SHOW
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum CategorySuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TransactionType {
+  EARNING
+  WITHDRAWAL
+  REFUND
+}
+
+enum BookingStatus {
+  WAITING
+  ONGOING
+  ACCEPTED
+  AWAITING_CONFIRMATION
+  DISPUTED
+  DECLINED
+  CANCELED
+  REMOVED
+  COMPLETED
+}
+
+// ─────────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id                  String             @id @default(cuid())
+  name                String
+  email               String             @unique
+  passwordHash        String
+  phone               String
+  location            String
+  avatarUrl           String?
+  bio                 String?
+  role                String             @default("user") // "user" | "admin"
+  trustScore          Int                @default(50)
+  verificationStatus  VerificationStatus @default(UNVERIFIED)
+  isActive            Boolean            @default(true)
+  emailVerified       Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  // Auth relations
+  refreshTokens         RefreshToken[]
+  emailVerifTokens      EmailVerificationToken[]
+  passwordResetTokens   PasswordResetToken[]
+
+  // Verification relations
+  verifications         ServiceVerification[]
+
+  // Marketplace relations — as seeker
+  serviceRequests       ServiceRequest[]
+  directRequestsSeeker  DirectRequest[]        @relation("SeekerDirectRequests")
+  queueEntries          Queue[]
+  queueNotifications    QueueNotify[]
+  bookingsAsSeeker      Booking[]              @relation("SeekerBookings")
+
+  // Marketplace relations — as provider
+  services              Service[]
+  offers                Offer[]                @relation("ProviderOffers")
+  directRequestsProvider DirectRequest[]       @relation("ProviderDirectRequests")
+  bookingsAsProvider    Booking[]              @relation("ProviderBookings")
+
+  // Completed services
+  completedAsSeeker     CompletedService[]     @relation("SeekerCompleted")
+  completedAsProvider   CompletedService[]     @relation("ProviderCompleted")
+
+  // Reviews
+  reviewsAuthored       Review[]               @relation("ReviewAuthor")
+  reviewsReceived       Review[]               @relation("ReviewTarget")
+
+  // Reports
+  reportsFiledBy        Report[]               @relation("ReporterReports")
+  reportsAgainst        Report[]               @relation("ReportedUserReports")
+
+  // Admin actions on verifications
+  verificationsReviewed ServiceVerification[]  @relation("AdminReviewer")
+
+  // Messages
+  messagesSent          Message[]              @relation("MessageSender")
+  messagesReceived      Message[]              @relation("MessageReceiver")
+
+  // Transactions (wallet)
+  transactions          Transaction[]
+
+  // Notifications
+  notifications         Notification[]
+
+  // Category suggestions
+  categorySuggestions   CategorySuggested[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("refresh_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+// ─────────────────────────────────────────────
+// COMMUNITY VERIFICATION
+// ─────────────────────────────────────────────
+
+model ServiceVerification {
+  id          String             @id @default(cuid())
+  userId      String
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      VerificationStatus @default(PENDING_REVIEW)
+  submittedAt DateTime           @default(now())
+  reviewedAt  DateTime?
+  adminId     String?
+  admin       User?              @relation("AdminReviewer", fields: [adminId], references: [id])
+  adminNotes  String?
+
+  proofs      VerificationProof[]
+
+  @@map("service_verifications")
+}
+
+model VerificationProof {
+  id             String              @id @default(cuid())
+  verificationId String
+  verification   ServiceVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  fileUrl        String
+  documentType   String              // "barangay_id" | "government_id" | "proof_of_residency" | "skill_cert"
+  uploadedAt     DateTime            @default(now())
+
+  @@map("verification_proofs")
+}
+
+// ─────────────────────────────────────────────
+// CATEGORIES
+// ─────────────────────────────────────────────
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  isActive Boolean   @default(true)
+
+  services         Service[]
+  serviceRequests  ServiceRequest[]
+
+  @@map("categories")
+}
+
+model CategorySuggested {
+  id          String                   @id @default(cuid())
+  submitterId String
+  submitter   User                     @relation(fields: [submitterId], references: [id], onDelete: Cascade)
+  name        String
+  description String
+  status      CategorySuggestionStatus @default(PENDING)
+  submittedAt DateTime                 @default(now())
+  reviewedAt  DateTime?
+
+  @@map("categories_suggested")
+}
+
+// ─────────────────────────────────────────────
+// SERVICES (Provider Listings)
+// ─────────────────────────────────────────────
+
+model Service {
+  id                   String        @id @default(cuid())
+  providerId           String
+  provider             User          @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  categoryId           String
+  category             Category      @relation(fields: [categoryId], references: [id])
+  title                String
+  description          String
+  price                Decimal       @db.Decimal(10, 2)
+  priceType            PriceType     @default(FIXED)
+  estimatedDurationMins Int
+  queueLimit           Int           @default(3)
+  // payment_methods stored as JSON: { gcash: bool, maya: bool, cash: bool }
+  paymentMethods       Json
+  status               ServiceStatus @default(PENDING_REVIEW)
+  isAvailable          Boolean       @default(false)
+  rejectionCount       Int           @default(0)
+  adminNotes           String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  directRequests  DirectRequest[]
+  queueEntries    Queue[]
+  queueNotify     QueueNotify[]
+  bookings        Booking[]
+
+  @@unique([providerId, title])
+  @@map("services")
+}
+
+// ─────────────────────────────────────────────
+// FLOW B — SERVICE REQUESTS & OFFERS
+// ─────────────────────────────────────────────
+
+model ServiceRequest {
+  id          String        @id @default(cuid())
+  seekerId    String
+  seeker      User          @relation(fields: [seekerId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    Category      @relation(fields: [categoryId], references: [id])
+  title       String
+  description String
+  budgetMin   Decimal       @db.Decimal(10, 2)
+  budgetMax   Decimal       @db.Decimal(10, 2)
+  urgency     String        // "low" | "medium" | "high"
+  status      RequestStatus @default(OPEN)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  offers      Offer[]
+
+  @@map("service_requests")
+}
+
+model Offer {
+  id                String      @id @default(cuid())
+  requestId         String
+  request           ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  providerId        String
+  provider          User        @relation("ProviderOffers", fields: [providerId], references: [id], onDelete: Cascade)
+  offeredPrice      Decimal     @db.Decimal(10, 2)
+  estimatedDuration Int         // minutes
+  availability      String?
+  message           String?
+  status            OfferStatus @default(PENDING)
+  createdAt         DateTime    @default(now())
+
+  // When accepted, creates a CompletedService anchor
+  completedService  CompletedService?
+  booking           Booking?
+
+  @@map("offers")
+}
+
+// ─────────────────────────────────────────────
+// FLOW A — DIRECT REQUESTS (Cash/Direct Arrangement)
+// ─────────────────────────────────────────────
+
+model DirectRequest {
+  id                    String              @id @default(cuid())
+  seekerId              String
+  seeker                User                @relation("SeekerDirectRequests", fields: [seekerId], references: [id], onDelete: Cascade)
+  providerId            String
+  provider              User                @relation("ProviderDirectRequests", fields: [providerId], references: [id], onDelete: Cascade)
+  serviceId             String
+  service               Service             @relation(fields: [serviceId], references: [id])
+  selectedPaymentMethod String              // "cash" only (online goes through Queue)
+  agreedPrice           Decimal             @db.Decimal(10, 2)
+  schedule              String?
+  message               String?
+  status                DirectRequestStatus @default(PENDING_APPROVAL)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  completedService  CompletedService?
+  booking           Booking?
+
+  @@map("direct_requests")
+}
+
+// ─────────────────────────────────────────────
+// FCFS QUEUE (Online payment only)
+// ─────────────────────────────────────────────
+
+model Queue {
+  id            String      @id @default(cuid())
+  serviceId     String
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  seekerId      String
+  seeker        User        @relation(fields: [seekerId], references: [id], onDelete: Cascade)
+  // bookingId references: offerId or directRequestId — stored as string for flexibility
+  // (cash bookings NEVER appear here — enforced at application layer)
+  offerId       String?     @unique // FK to accepted Offer (Flow B online path)
+  paymentId     String      @unique // PayMongo payment intent ID — required, cash never enters
+  paymentStatus PaymentStatus @default(PAID_HELD)
+  position      Int
+  status        QueueStatus @default(WAITING)
+  estimatedWait Int         // minutes
+  joinedAt      DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  completedService CompletedService?
+  bookingId        String?           @unique
+  booking          Booking?          @relation(fields: [bookingId], references: [id])
+
+  @@map("queue")
+}
+
+model QueueNotify {
+  id          String   @id @default(cuid())
+  serviceId   String
+  service     Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  seekerId    String
+  seeker      User     @relation(fields: [seekerId], references: [id], onDelete: Cascade)
+  requestedAt DateTime @default(now())
+
+  @@unique([serviceId, seekerId])
+  @@map("queue_notify")
+}
+
+// ─────────────────────────────────────────────
+// ACTIVE BOOKINGS (Seeker ↔ Provider Contracts)
+// ─────────────────────────────────────────────
+
+model Booking {
+  id              String         @id @default(cuid())
+  seekerId        String
+  seeker          User           @relation("SeekerBookings", fields: [seekerId], references: [id], onDelete: Cascade)
+  providerId      String
+  provider        User           @relation("ProviderBookings", fields: [providerId], references: [id], onDelete: Cascade)
+  serviceId       String?
+  service         Service?       @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  offerId         String?        @unique
+  offer           Offer?         @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  directRequestId String?        @unique
+  directRequest   DirectRequest? @relation(fields: [directRequestId], references: [id], onDelete: SetNull)
+  
+  paymentMethod   String         // "GCash" | "On-site Cash"
+  paymentStatus   PaymentStatus  @default(PAID_HELD)
+  status          BookingStatus  @default(WAITING)
+  queuePosition   Int?
+  started         Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  queue            Queue?
+  completedService CompletedService?
+  messages         Message[]
+  reports          Report[]
+  cancellationRequests CancellationRequest[]
+
+  @@map("bookings")
+}
+
+// ─────────────────────────────────────────────
+// COMPLETED SERVICES (anchor for reviews + reports)
+// ─────────────────────────────────────────────
+
+model CompletedService {
+  id            String        @id @default(cuid())
+  // Exactly one of the following FKs will be set depending on which flow completed
+  queueId       String?       @unique
+  queue         Queue?        @relation(fields: [queueId], references: [id])
+  directRequestId String?     @unique
+  directRequest DirectRequest? @relation(fields: [directRequestId], references: [id])
+  offerId       String?       @unique
+  offer         Offer?        @relation(fields: [offerId], references: [id])
+  bookingId     String?       @unique
+  booking       Booking?      @relation(fields: [bookingId], references: [id])
+
+  seekerId      String
+  seeker        User          @relation("SeekerCompleted", fields: [seekerId], references: [id])
+  providerId    String
+  provider      User          @relation("ProviderCompleted", fields: [providerId], references: [id])
+  finalPrice    Decimal       @db.Decimal(10, 2)
+  paymentStatus PaymentStatus @default(PAID_HELD)
+  completedAt   DateTime      @default(now())
+
+  reviews       Review[]
+
+  @@map("completed_services")
+}
+
+// ─────────────────────────────────────────────
+// REVIEWS
+// ─────────────────────────────────────────────
+
+model Review {
+  id                 String          @id @default(cuid())
+  completedServiceId String
+  completedService   CompletedService @relation(fields: [completedServiceId], references: [id], onDelete: Cascade)
+  authorId           String
+  author             User            @relation("ReviewAuthor", fields: [authorId], references: [id])
+  targetId           String
+  target             User            @relation("ReviewTarget", fields: [targetId], references: [id])
+  rating             Int             // 1–5
+  text               String?
+  tags               Json?           // string array e.g. ["On Time", "Skilled"]
+  aiSummaryUsed      Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  editableUntil      DateTime        // 24 hours after createdAt
+
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────────
+// REPORTS / DISPUTES
+// ─────────────────────────────────────────────
+
+model Report {
+  id             String       @id @default(cuid())
+  bookingId      String
+  booking        Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reporterId     String
+  reporter           User            @relation("ReporterReports", fields: [reporterId], references: [id])
+  reportedUserId     String
+  reportedUser       User            @relation("ReportedUserReports", fields: [reportedUserId], references: [id])
+  reason             ReportReason
+  description        String
+  evidenceUrl        String?
+  status             ReportStatus    @default(PENDING)
+  adminId            String?
+  adminNotes         String?
+  resolvedAt         DateTime?
+  createdAt          DateTime        @default(now())
+
+  @@map("reports")
+}
+
+// ─────────────────────────────────────────────
+// MESSAGES
+// ─────────────────────────────────────────────
+
+model Message {
+  id               String   @id @default(cuid())
+  // CRITICAL: every message must be tied to a Booking
+  // This enables: (1) unlock gate, (2) dispute evidence retrieval
+  bookingId        String
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  senderId         String
+  sender           User            @relation("MessageSender", fields: [senderId], references: [id])
+  receiverId       String
+  receiver         User            @relation("MessageReceiver", fields: [receiverId], references: [id])
+  content          String
+  imageUrl         String?
+  isRead             Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+
+  @@map("messages")
+}
+
+// ─────────────────────────────────────────────
+// TRANSACTIONS (Wallet Ledger)
+// ─────────────────────────────────────────────
+
+model Transaction {
+  id               String          @id @default(cuid())
+  walletOwnerId    String
+  walletOwner      User            @relation(fields: [walletOwnerId], references: [id], onDelete: Cascade)
+  type             TransactionType
+  amount           Decimal         @db.Decimal(10, 2)
+  status           String          @default("completed") // "completed" | "pending" | "failed"
+  relatedBookingId String?         // CompletedService id
+  paymongoRefId    String?         // PayMongo reference
+  description      String?
+  createdAt        DateTime        @default(now())
+
+  @@map("transactions")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  link      String?  // optional deep-link route
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────
+// AI CACHE
+// ─────────────────────────────────────────────
+
+model AiReviewSummary {
+  id            String   @id @default(cuid())
+  providerId    String   @unique
+  summary       String
+  reviewCount   Int      // how many reviews were in the batch
+  generatedAt   DateTime @default(now())
+
+  @@map("ai_review_summaries")
+}
+
+model CancellationRequest {
+  id           String    @id @default(cuid())
+  bookingId    String
+  booking      Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  requestedBy  String
+  reason       String?
+  status       String    // "PENDING" | "APPROVED" | "DECLINED" | "ESCALATED" | "RESOLVED"
+  providerNote String?
+  adminNote    String?
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+
+  @@map("cancellation_requests")
+}
