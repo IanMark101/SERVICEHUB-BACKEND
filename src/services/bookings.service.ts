@@ -37,6 +37,15 @@ export async function createDirectRequest(params: {
 }) {
   const { seekerId, providerId, serviceId, agreedPrice, schedule, message } = params;
 
+  // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
+  // A user must never be able to book their own service listing.
+  if (seekerId === providerId) {
+    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
+    err.status = 403;
+    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
+    throw err;
+  }
+
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
     select: { paymentMethods: true, isAvailable: true, title: true, status: true },
@@ -152,6 +161,14 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
     throw err;
   }
 
+  // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
+  if (seekerId === offer.providerId) {
+    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
+    err.status = 403;
+    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
+    throw err;
+  }
+
   // Update accepted offer
   await prisma.offer.update({
     where: { id: offerId },
@@ -218,6 +235,14 @@ export async function addToQueue(params: {
     throw err;
   }
 
+  // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
+  if (seekerId === service.providerId) {
+    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
+    err.status = 403;
+    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
+    throw err;
+  }
+
   // Count current active queue entries
   const currentSize = await prisma.queue.count({
     where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
@@ -235,6 +260,8 @@ export async function addToQueue(params: {
   const isImmediate = position === 1; // first in queue = starts now
 
   // Create Booking row
+  // When isImmediate (position 1, provider is free), the spec says service starts
+  // immediately — so both status and started flag must reflect this.
   const booking = await prisma.booking.create({
     data: {
       seekerId,
@@ -245,6 +272,7 @@ export async function addToQueue(params: {
       paymentStatus: "PAID_HELD",
       status: isImmediate ? "ONGOING" : "WAITING",
       queuePosition: position,
+      started: isImmediate, // Spec Part 3: immediate = already started
     },
   });
 
@@ -552,9 +580,11 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     },
   });
 
-  // Update trust score: successful completion gives +2 trust score to provider
+  // Update trust score: successful completion gives +2 trust to provider and +1 to seeker
+  // Spec Part 10: "Each booking that reaches COMPLETED via genuine seeker confirmation"
   const { applyTrustEvent } = await import("./trust.service");
-  await applyTrustEvent(booking.providerId, 2, "Successful service completion");
+  await applyTrustEvent(booking.providerId, 2, "Successful service completion (provider)");
+  await applyTrustEvent(booking.seekerId, 1, "Successful service completion (seeker)");
 
   // Notify provider
   await prisma.notification.create({
@@ -572,7 +602,13 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
 
 // ── Seeker: Dispute Job ───────────────────────────────────────────────────────
 
-export async function disputeJobService(bookingId: string, seekerId: string, reason: string) {
+export async function disputeJobService(
+  bookingId: string,
+  seekerId: string,
+  reason: string,
+  description?: string,
+  evidenceUrl?: string
+) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId }
   });
@@ -606,7 +642,8 @@ export async function disputeJobService(bookingId: string, seekerId: string, rea
       reporterId: seekerId,
       reportedUserId: booking.providerId,
       reason: reportReason,
-      description: `Dispute filed: ${reason}`,
+      description: description || `Dispute filed: ${reason}`,
+      evidenceUrl: evidenceUrl || null,
       status: "PENDING"
     }
   });
@@ -672,25 +709,49 @@ export async function cancelQueueEntry(queueId: string, seekerId: string) {
     await applyCancellationTrust(seekerId, false);
   }
 
-  await prisma.queue.update({ where: { id: queueId }, data: { status: "CANCELLED" } });
+  await prisma.queue.update({
+    where: { id: queueId },
+    data: { status: "CANCELLED", paymentStatus: entry.paymentStatus === "PAID_HELD" ? "REFUNDED" : entry.paymentStatus }
+  });
 
   if (entry.bookingId) {
     await prisma.booking.update({
       where: { id: entry.bookingId },
-      data: { status: "CANCELED", paymentStatus: "FROZEN_HELD" }
+      data: { status: "CANCELED", paymentStatus: entry.paymentStatus === "PAID_HELD" ? "REFUNDED" : "UNPAID" }
     });
+  }
+
+  // If an online payment was refunded, create a REFUND transaction record (Spec Part 5)
+  if (entry.paymentStatus === "PAID_HELD") {
+    const booking = await prisma.booking.findUnique({
+      where: { id: entry.bookingId || undefined },
+      include: { service: true, offer: true, directRequest: true }
+    });
+    let refundAmount = 0;
+    if (booking) {
+      if (booking.directRequest) {
+        refundAmount = Number(booking.directRequest.agreedPrice);
+      } else if (booking.offer) {
+        refundAmount = Number(booking.offer.offeredPrice);
+      } else if (booking.service) {
+        refundAmount = Number(booking.service.price);
+      }
+    }
+    if (refundAmount > 0) {
+      await prisma.transaction.create({
+        data: {
+          walletOwnerId: seekerId,
+          type: "REFUND",
+          amount: refundAmount,
+          relatedBookingId: entry.bookingId,
+          description: "Full refund for cancelled queue booking",
+        },
+      });
+    }
   }
 
   await recalculateQueue(entry.serviceId);
   await notifyWaitlist(entry.serviceId);
-
-  // If payment was made, flag for refund review
-  if (entry.paymentStatus === "PAID_HELD") {
-    await prisma.queue.update({
-      where: { id: queueId },
-      data: { paymentStatus: "FROZEN_HELD" },
-    });
-  }
 
   // ── Real-time queue update ────────────────────────────────────────────────
   safeEmit(`service:${entry.serviceId}`, "queue_update", { serviceId: entry.serviceId, delta: -1 });

@@ -367,14 +367,14 @@ export async function disputeJob(req: Request, res: Response, next: NextFunction
   try {
     const user = (req as AuthenticatedRequest).user;
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason, description, evidenceUrl } = req.body;
 
     if (!reason) {
       return res.status(400).json({ success: false, error: "reason is required" });
     }
 
     const { disputeJobService } = await import("../services/bookings.service");
-    const report = await disputeJobService(id as string, user.id, reason);
+    const report = await disputeJobService(id as string, user.id, reason, description, evidenceUrl);
 
     res.json({
       success: true,

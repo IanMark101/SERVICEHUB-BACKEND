@@ -5,16 +5,21 @@ import { recalculateQueue, notifyWaitlist } from "./queue.service";
 export async function performImmediateCancel(bookingId: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { queue: true }
+    include: { queue: true, service: true, offer: true, directRequest: true }
   });
   if (!booking) return;
+
+  // Determine the correct refund status:
+  // - If payment was held (online), issue a full refund → REFUNDED
+  // - Otherwise keep the existing status (UNPAID for cash, etc.)
+  const newPaymentStatus = booking.paymentStatus === "PAID_HELD" ? "REFUNDED" : booking.paymentStatus;
 
   // Update Booking status to CANCELED
   await prisma.booking.update({
     where: { id: bookingId },
     data: {
       status: "CANCELED",
-      paymentStatus: booking.paymentStatus === "PAID_HELD" ? "FROZEN_HELD" : booking.paymentStatus
+      paymentStatus: newPaymentStatus
     }
   });
 
@@ -23,13 +28,38 @@ export async function performImmediateCancel(bookingId: string) {
       where: { id: booking.queue.id },
       data: {
         status: "CANCELLED",
-        paymentStatus: booking.queue.paymentStatus === "PAID_HELD" ? "FROZEN_HELD" : booking.queue.paymentStatus
+        paymentStatus: booking.queue.paymentStatus === "PAID_HELD" ? "REFUNDED" : booking.queue.paymentStatus
       }
     });
 
     // Recalculate queue and notify waitlist
     await recalculateQueue(booking.queue.serviceId);
     await notifyWaitlist(booking.queue.serviceId);
+  }
+
+  // If an online payment was refunded, create a REFUND transaction record
+  if (booking.paymentStatus === "PAID_HELD") {
+    // Determine the refund amount
+    let refundAmount = 0;
+    if (booking.directRequest) {
+      refundAmount = Number(booking.directRequest.agreedPrice);
+    } else if (booking.offer) {
+      refundAmount = Number(booking.offer.offeredPrice);
+    } else if (booking.service) {
+      refundAmount = Number(booking.service.price);
+    }
+
+    if (refundAmount > 0) {
+      await prisma.transaction.create({
+        data: {
+          walletOwnerId: booking.seekerId,
+          type: "REFUND",
+          amount: refundAmount,
+          relatedBookingId: booking.id,
+          description: "Full refund for cancelled booking",
+        },
+      });
+    }
   }
 
   // Notify provider
@@ -40,6 +70,17 @@ export async function performImmediateCancel(bookingId: string) {
       body: "The booking has been cancelled.",
     }
   });
+
+  // Notify seeker about the refund (if online payment)
+  if (booking.paymentStatus === "PAID_HELD") {
+    await prisma.notification.create({
+      data: {
+        userId: booking.seekerId,
+        title: "Refund Processed 💰",
+        body: "Your online payment has been fully refunded due to the cancellation.",
+      }
+    });
+  }
 }
 
 // ── Request Cancellation ───────────────────────────────────────────────────────

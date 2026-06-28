@@ -192,11 +192,24 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
       },
     });
 
-    // Execute the action
-    if (action === "trust_deduct") {
+    // Execute the action (Spec Part 8: Warn, Reduce Trust, Suspend, Ban, Dismiss, Approve Refund)
+    if (action === "warn") {
+      // Just notify — no systemic penalty beyond the notification sent below
+      await prisma.notification.create({
+        data: {
+          userId: report.reportedUserId,
+          title: "⚠️ Official Warning from Admin",
+          body: `You have received a formal warning regarding a report. ${adminNotes || "Please review your behavior."}`,
+        },
+      });
+    } else if (action === "trust_deduct") {
       await applyTrustEvent(report.reportedUserId, -10, `Admin action on report ${report.id}`);
     } else if (action === "suspend") {
       await prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
+    } else if (action === "ban") {
+      await prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
+      // Invalidate all sessions so user is immediately logged out
+      await prisma.refreshToken.deleteMany({ where: { userId: report.reportedUserId } });
     } else if (action === "approve_refund") {
       await prisma.booking.update({
         where: { id: report.bookingId },
@@ -250,7 +263,7 @@ export async function resolveCancellationRequest(req: Request, res: Response, ne
 export async function listEscalatedCancellations(req: Request, res: Response, next: NextFunction) {
   try {
     const items = await prisma.cancellationRequest.findMany({
-      where: { status: "ESCALATED_TO_ADMIN" },
+      where: { status: "ESCALATED" },
       include: {
         booking: {
           include: {

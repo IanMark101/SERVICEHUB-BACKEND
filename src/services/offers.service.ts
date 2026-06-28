@@ -21,6 +21,15 @@ export async function submitOffer(providerId: string, params: {
     throw err;
   }
 
+  // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
+  // A provider must never be able to send an offer on their own service request.
+  if (providerId === request.seekerId) {
+    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
+    err.status = 403;
+    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
+    throw err;
+  }
+
   // Prevent duplicate offer from same provider
   const existing = await prisma.offer.findFirst({
     where: { requestId, providerId, status: "PENDING" },
@@ -127,6 +136,14 @@ export async function acceptOffer(offerId: string, seekerId: string) {
   if (offer.request.status !== "OPEN") {
     const err = new Error("Request is no longer open") as any;
     err.status = 400;
+    throw err;
+  }
+
+  // ── CRITICAL: Self-transaction prohibition (Spec Part 11) — second-layer check ─
+  if (seekerId === offer.providerId) {
+    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
+    err.status = 403;
+    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
     throw err;
   }
 

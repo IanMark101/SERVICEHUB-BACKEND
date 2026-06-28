@@ -14,6 +14,7 @@ export async function recalculateQueue(serviceId: string): Promise<void> {
   if (!service) return;
 
   // Re-number all positions sequentially and recalculate wait times
+  // ALSO sync the corresponding Booking.queuePosition (Spec Part 4)
   for (let i = 0; i < activeEntries.length; i++) {
     const newPosition = i + 1;
     const newWait = service.estimatedDurationMins * (newPosition - 1);
@@ -21,6 +22,14 @@ export async function recalculateQueue(serviceId: string): Promise<void> {
       where: { id: activeEntries[i].id },
       data: { position: newPosition, estimatedWait: newWait },
     });
+
+    // Keep Booking.queuePosition in sync
+    if (activeEntries[i].bookingId) {
+      await prisma.booking.update({
+        where: { id: activeEntries[i].bookingId! },
+        data: { queuePosition: newPosition },
+      });
+    }
   }
 }
 
