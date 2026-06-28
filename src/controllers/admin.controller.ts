@@ -244,3 +244,27 @@ export async function resolveCancellationRequest(req: Request, res: Response, ne
     next(err);
   }
 }
+
+// ── GET /admin/cancellations/escalated ───────────────────────────────────────
+
+export async function listEscalatedCancellations(req: Request, res: Response, next: NextFunction) {
+  try {
+    const items = await prisma.cancellationRequest.findMany({
+      where: { status: "ESCALATED_TO_ADMIN" },
+      include: {
+        booking: {
+          include: {
+            seeker: { select: { id: true, name: true, email: true, trustScore: true } },
+            provider: { select: { id: true, name: true, email: true, trustScore: true } },
+            service: { select: { title: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json({ success: true, data: items });
+  } catch (err) {
+    next(err);
+  }
+}
+

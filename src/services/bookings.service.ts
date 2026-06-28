@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { recalculateQueue, notifyWaitlist } from "./queue.service";
 import { applyCancellationTrust } from "./trust.service";
+import { safeEmit } from "../lib/socket";
 
 // ── FCFS Queue Logic ──────────────────────────────────────────────────────────
 
@@ -273,6 +274,11 @@ export async function addToQueue(params: {
     },
   });
 
+  // ── Real-time: notify all clients watching this service's queue ───────────
+  safeEmit(`service:${serviceId}`, "queue_update", { serviceId, delta: +1, currentSize: currentSize + 1 });
+  // Notify the provider in their personal room
+  safeEmit(`user:${service.providerId}`, "notification", { title: isImmediate ? "New Job Starting Now! 🚀" : "New Queue Entry" });
+
   return { queueEntry, isImmediate };
 }
 
@@ -380,6 +386,10 @@ export async function providerRemoveQueueEntry(queueId: string, providerId: stri
     },
   });
 
+  // ── Real-time queue update ────────────────────────────────────────────────
+  safeEmit(`service:${queueEntry.serviceId}`, "queue_update", { serviceId: queueEntry.serviceId, delta: -1 });
+  safeEmit(`user:${queueEntry.seekerId}`, "notification", { title: "Booking Cancelled by Provider ⚠️" });
+
   return { success: true };
 }
 
@@ -455,6 +465,12 @@ export async function markJobComplete(id: string, providerId: string) {
       body: "Your provider has marked the job as done. Go to Activity → Awaiting Confirmation to confirm and release payment.",
     },
   });
+
+  // ── Real-time: notify seeker to confirm ──────────────────────────────────
+  safeEmit(`user:${booking.seekerId}`, "notification", { title: "Service Completed — Please Confirm ✅" });
+  if (queueEntry) {
+    safeEmit(`service:${queueEntry.serviceId}`, "queue_update", { serviceId: queueEntry.serviceId, delta: -1 });
+  }
 
   return booking;
 }
@@ -675,6 +691,9 @@ export async function cancelQueueEntry(queueId: string, seekerId: string) {
       data: { paymentStatus: "FROZEN_HELD" },
     });
   }
+
+  // ── Real-time queue update ────────────────────────────────────────────────
+  safeEmit(`service:${entry.serviceId}`, "queue_update", { serviceId: entry.serviceId, delta: -1 });
 
   return { cancelled: true };
 }

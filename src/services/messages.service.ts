@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { safeEmit } from "../lib/socket";
 
 export async function checkMessagingUnlock(bookingId: string, userId: string) {
   const booking = await prisma.booking.findUnique({
@@ -93,5 +94,16 @@ export async function sendMessage(
     data: { isRead: true },
   });
 
+  // ── Real-time: broadcast to booking room ─────────────────────────────────
+  safeEmit(`booking:${bookingId}`, "new_message", message);
+  // Also ping the receiver's personal room so they can update unread badge
+  safeEmit(`user:${receiverId}`, "message_notification", {
+    bookingId,
+    senderId,
+    senderName: message.sender.name,
+    preview: content?.slice(0, 60) || "📷 Image",
+  });
+
   return message;
 }
+

@@ -14,6 +14,7 @@ import {
   listReports,
   resolveReport,
   resolveCancellationRequest,
+  listEscalatedCancellations,
 } from "../controllers/admin.controller";
 import {
   adminList as listPendingVerifications,
@@ -54,4 +55,8 @@ router.patch("/reports/:id/resolve", resolveReport);
 // Resolve escalated cancellation requests
 router.patch("/cancellation-requests/:id/resolve", resolveCancellationRequest);
 
+// List escalated cancellations (for admin Escalations tab)
+router.get("/cancellations/escalated", listEscalatedCancellations);
+
 export default router;
+
