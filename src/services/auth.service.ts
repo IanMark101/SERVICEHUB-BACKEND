@@ -122,6 +122,13 @@ export async function loginUser(input: LoginInput): Promise<{ user: AuthUser; to
     throw err;
   }
 
+  if (!user.emailVerified) {
+    const err = new Error("Please verify your email address to unlock account access. Check your email for the verification link.") as any;
+    err.status = 403;
+    err.code = "EMAIL_UNVERIFIED";
+    throw err;
+  }
+
   const tokens = await issueTokens(user.id, user.role);
   return { user: toPublicUser(user), tokens };
 }
