@@ -273,40 +273,28 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
   let name: string;
   let avatarUrl: string | null = null;
 
-  if (token.startsWith("mock-google-token-")) {
-    if (env.NODE_ENV === "production") {
-      const err = new Error("Mock Google authentication is disabled in production") as any;
-      err.status = 403;
-      throw err;
+  try {
+    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+    if (!response.ok) {
+      throw new Error("Token validation failed");
     }
-    try {
-      const decodedBase64 = Buffer.from(token.replace("mock-google-token-", ""), "base64").toString("utf-8");
-      const data = JSON.parse(decodedBase64) as any;
-      email = data.email;
-      name = data.name;
-      avatarUrl = data.picture || null;
-    } catch {
-      email = "mock.user@gmail.com";
-      name = "Mock Google User";
+    const data = (await response.json()) as any;
+    if (!data.email) {
+      throw new Error("Email field missing in Google profile");
     }
-  } else {
-    try {
-      const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
-      if (!response.ok) {
-        throw new Error("Token validation failed");
-      }
-      const data = (await response.json()) as any;
-      if (!data.email) {
-        throw new Error("Email field missing in Google profile");
-      }
-      email = data.email;
-      name = data.name || email.split("@")[0];
-      avatarUrl = data.picture || null;
-    } catch (err: any) {
-      const error = new Error(`Google sign-in failed: ${err.message}`) as any;
-      error.status = 401;
-      throw error;
+
+    // Secure check: Verify the Google Client ID/Audience if configured in env
+    if (env.GOOGLE_CLIENT_ID && data.aud && data.aud !== env.GOOGLE_CLIENT_ID) {
+      throw new Error("Token audience mismatch");
     }
+
+    email = data.email;
+    name = data.name || email.split("@")[0];
+    avatarUrl = data.picture || null;
+  } catch (err: any) {
+    const error = new Error(`Google sign-in failed: ${err.message}`) as any;
+    error.status = 401;
+    throw error;
   }
 
   // 1. Check for existing user by email
