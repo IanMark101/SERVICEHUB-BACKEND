@@ -13,6 +13,7 @@ import {
   verifyEmail,
   forgotPassword,
   resetPassword,
+  googleLoginUser,
 } from "../services/auth.service";
 import { env } from "../config/env";
 
@@ -160,4 +161,25 @@ export async function resetPasswordHandler(req: Request, res: Response, next: Ne
 
 export async function getMe(req: Request, res: Response) {
   res.json({ success: true, data: { user: (req as any).user } });
+}
+
+// ── POST /auth/google-login ───────────────────────────────────────────────────
+
+export async function googleLogin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ success: false, error: "Google token is required" });
+    }
+
+    const { user, tokens } = await googleLoginUser(token);
+
+    res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
+    res.json({
+      success: true,
+      data: { user, accessToken: tokens.accessToken },
+    });
+  } catch (err: any) {
+    next(err);
+  }
 }

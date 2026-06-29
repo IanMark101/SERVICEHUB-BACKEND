@@ -123,7 +123,7 @@ export async function loginUser(input: LoginInput): Promise<{ user: AuthUser; to
   }
 
   if (!user.emailVerified) {
-    const err = new Error("Please verify your email address to unlock account access. Check your email for the verification link.") as any;
+    const err = new Error("Please verify your email before logging in. Check your inbox for the verification link.") as any;
     err.status = 403;
     err.code = "EMAIL_UNVERIFIED";
     throw err;
@@ -266,4 +266,91 @@ function toPublicUser(user: any): AuthUser {
     verificationStatus: user.verificationStatus,
     emailVerified: user.emailVerified,
   };
+}
+
+export async function googleLoginUser(token: string): Promise<{ user: AuthUser; tokens: AuthTokens }> {
+  let email: string;
+  let name: string;
+  let avatarUrl: string | null = null;
+
+  if (token.startsWith("mock-google-token-")) {
+    if (env.NODE_ENV === "production") {
+      const err = new Error("Mock Google authentication is disabled in production") as any;
+      err.status = 403;
+      throw err;
+    }
+    try {
+      const decodedBase64 = Buffer.from(token.replace("mock-google-token-", ""), "base64").toString("utf-8");
+      const data = JSON.parse(decodedBase64) as any;
+      email = data.email;
+      name = data.name;
+      avatarUrl = data.picture || null;
+    } catch {
+      email = "mock.user@gmail.com";
+      name = "Mock Google User";
+    }
+  } else {
+    try {
+      const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+      if (!response.ok) {
+        throw new Error("Token validation failed");
+      }
+      const data = (await response.json()) as any;
+      if (!data.email) {
+        throw new Error("Email field missing in Google profile");
+      }
+      email = data.email;
+      name = data.name || email.split("@")[0];
+      avatarUrl = data.picture || null;
+    } catch (err: any) {
+      const error = new Error(`Google sign-in failed: ${err.message}`) as any;
+      error.status = 401;
+      throw error;
+    }
+  }
+
+  // 1. Check for existing user by email
+  let user = await prisma.user.findUnique({ where: { email } });
+
+  if (user) {
+    if (!user.isActive) {
+      const err = new Error("Your account has been suspended. Please contact support.") as any;
+      err.status = 403;
+      throw err;
+    }
+
+    // Auto-verify email upon Google sign-in since Google already verified it
+    if (!user.emailVerified) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: true },
+      });
+    }
+
+    const tokens = await issueTokens(user.id, user.role);
+    return { user: toPublicUser(user), tokens };
+  } else {
+    // 2. Auto-create new user
+    const randomPassword = crypto.randomBytes(32).toString("hex");
+    const passwordHash = await bcrypt.hash(randomPassword, SALT_ROUNDS);
+
+    user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        passwordHash,
+        phone: "+63 917 000 0000",
+        location: "Poblacion, Cordova",
+        avatarUrl,
+        trustScore: 50,
+        verificationStatus: "UNVERIFIED",
+        emailVerified: true, // Auto-verified
+        isActive: true,
+        role: "user", // Defaults to 'user', switchable to seeker/provider in frontend dashboard
+      },
+    });
+
+    const tokens = await issueTokens(user.id, user.role);
+    return { user: toPublicUser(user), tokens };
+  }
 }
