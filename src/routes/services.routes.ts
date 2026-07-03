@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { browse, getOne, getMine, create, update, toggle, remove } from "../controllers/services.controller";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { requireAuth, requireVerification } from "../middlewares/auth.middleware";
 
 const router = Router();
 
@@ -13,8 +13,8 @@ router.get("/mine", requireAuth, getMine);
 // Public single service
 router.get("/:id", getOne);
 
-// Protected mutations
-router.post("/", requireAuth, create);
+// Protected mutations — POST /services requires residency verification (Part 6)
+router.post("/", requireAuth, requireVerification, create);
 router.patch("/:id", requireAuth, update);
 router.patch("/:id/toggle", requireAuth, toggle);
 router.delete("/:id", requireAuth, remove);

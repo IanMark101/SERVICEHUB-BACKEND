@@ -83,3 +83,31 @@ export function requireEmailVerified(req: Request, res: Response, next: NextFunc
   }
   next();
 }
+
+// ── requireVerification ───────────────────────────────────────────────────────
+// Part 6 — Residency verification gate. NEVER blocks login — only blocks
+// specific ACTIONS: booking, posting requests, sending offers, creating listings.
+// Must be chained AFTER requireAuth on those routes.
+//
+// UNVERIFIED / PENDING_REVIEW → 403 VERIFICATION_REQUIRED
+// APPROVED                   → pass through
+
+export function requireVerification(req: Request, res: Response, next: NextFunction) {
+  const user = (req as AuthenticatedRequest).user;
+
+  // Admins bypass this check — they have an elevated, non-switchable role
+  if (user.role === "admin") return next();
+
+  if (user.verificationStatus !== "APPROVED") {
+    const isPending = user.verificationStatus === "PENDING_REVIEW";
+    return res.status(403).json({
+      success: false,
+      error: isPending
+        ? "Verification under review — usually within 24 hours. You cannot perform this action yet."
+        : "Please verify your Cordova residency to perform this action.",
+      code: "VERIFICATION_REQUIRED",
+      verificationStatus: user.verificationStatus,
+    });
+  }
+  next();
+}

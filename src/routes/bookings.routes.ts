@@ -17,7 +17,7 @@ import {
   respondCancellationRequestHandler,
   escalateCancellationRequestHandler,
 } from "../controllers/bookings.controller";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { requireAuth, requireVerification } from "../middlewares/auth.middleware";
 
 const router = Router();
 
@@ -27,15 +27,15 @@ router.use(requireAuth);
 // Get my engagements (active and completed)
 router.get("/my-engagements", getMyEngagements);
 
-// Cash Direct Arrangement (NEVER enters queue)
-router.post("/direct", bookDirect);
+// Cash Direct Arrangement (NEVER enters queue) — requires residency verification (Part 6)
+router.post("/direct", requireVerification, bookDirect);
 router.patch("/direct/:id/respond", respondDirectRequest);
 
-// Cash from Offer (Flow B Cash path)
-router.post("/direct-from-offer", bookDirectFromOffer);
+// Cash from Offer (Flow B Cash path) — requires residency verification (Part 6)
+router.post("/direct-from-offer", requireVerification, bookDirectFromOffer);
 
-// Online payment flow (two-step)
-router.post("/initiate-payment", initiatePayment);
+// Online payment flow (two-step) — initiate-payment requires verification (Part 6)
+router.post("/initiate-payment", requireVerification, initiatePayment);
 router.post("/confirm-online", confirmOnlineBooking); // only call after PayMongo succeeds
 
 // Queue management

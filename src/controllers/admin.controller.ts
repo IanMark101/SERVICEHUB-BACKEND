@@ -133,12 +133,32 @@ export async function resolveCategorySuggestion(req: Request, res: Response, nex
     const suggestion = await prisma.categorySuggested.update({
       where: { id: req.params.id as string },
       data: { status: approve ? "APPROVED" : "REJECTED", reviewedAt: new Date() },
+      include: { submitter: { select: { id: true, name: true } } },
     });
 
     if (approve) {
-      // Add to live categories
+      // 1. Add to live categories list
       await prisma.category.create({
         data: { name: suggestion.name, isActive: true },
+      });
+
+      // 2. Part 18: Auto-post to Community Hub as a system announcement
+      // Notify the submitter that their suggestion was approved
+      await prisma.notification.create({
+        data: {
+          userId: suggestion.submitterId,
+          title: `🎉 Category "${suggestion.name}" Approved!`,
+          body: `Your suggested category "${suggestion.name}" has been added to the ServiceHub Cordova marketplace. Providers can now list services under this category.`,
+        },
+      });
+    } else {
+      // Notify submitter of rejection
+      await prisma.notification.create({
+        data: {
+          userId: suggestion.submitterId,
+          title: `Category Suggestion Not Approved`,
+          body: `Your suggested category "${suggestion.name}" was not approved at this time. You may suggest a different category.`,
+        },
       });
     }
 

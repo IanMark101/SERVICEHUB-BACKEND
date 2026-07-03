@@ -318,7 +318,10 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
     const tokens = await issueTokens(user.id, user.role);
     return { user: toPublicUser(user), tokens };
   } else {
-    // 2. Auto-create new user
+    // 2. Auto-create new user from Google profile
+    // Note: phone and location are null — the frontend must detect this and
+    // prompt the user to complete their profile (Contact Info step) before
+    // they can perform verified actions. This is intentional per Part 4.
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const passwordHash = await bcrypt.hash(randomPassword, SALT_ROUNDS);
 
@@ -327,14 +330,14 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
         name,
         email,
         passwordHash,
-        phone: "+63 917 000 0000",
-        location: "Poblacion, Cordova",
+        phone: "",           // Will be collected during profile completion step
+        location: "",        // Will be collected during profile completion step (barangay)
         avatarUrl,
         trustScore: 50,
         verificationStatus: "UNVERIFIED",
-        emailVerified: true, // Auto-verified
+        emailVerified: true, // Auto-verified — Google already confirmed this email
         isActive: true,
-        role: "user", // Defaults to 'user', switchable to seeker/provider in frontend dashboard
+        role: "user",        // Defaults to 'user', switchable to seeker/provider in frontend dashboard
       },
     });
 
