@@ -17,6 +17,14 @@ async function submitOffer(providerId, params) {
         err.status = 400;
         throw err;
     }
+    // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
+    // A provider must never be able to send an offer on their own service request.
+    if (providerId === request.seekerId) {
+        const err = new Error("You cannot book or send an offer on your own service listing or request.");
+        err.status = 403;
+        err.code = "SELF_TRANSACTION_NOT_ALLOWED";
+        throw err;
+    }
     // Prevent duplicate offer from same provider
     const existing = await prisma_1.prisma.offer.findFirst({
         where: { requestId, providerId, status: "PENDING" },
@@ -115,24 +123,31 @@ async function acceptOffer(offerId, seekerId) {
         err.status = 400;
         throw err;
     }
-    // Accept this offer
-    const updatedOffer = await prisma_1.prisma.offer.update({
-        where: { id: offerId },
-        data: { status: "ACCEPTED" },
-    });
-    // Auto-reject all other pending offers on this request (master prompt Section 5)
-    await prisma_1.prisma.offer.updateMany({
-        where: {
-            requestId: offer.requestId,
-            id: { not: offerId },
-            status: "PENDING",
-        },
-        data: { status: "REJECTED" },
-    });
-    // Transition request status to IN_PROGRESS
-    await prisma_1.prisma.serviceRequest.update({
-        where: { id: offer.requestId },
-        data: { status: "IN_PROGRESS" },
+    // ── CRITICAL: Self-transaction prohibition (Spec Part 11) — second-layer check ─
+    if (seekerId === offer.providerId) {
+        const err = new Error("You cannot book or send an offer on your own service listing or request.");
+        err.status = 403;
+        err.code = "SELF_TRANSACTION_NOT_ALLOWED";
+        throw err;
+    }
+    const updatedOffer = await prisma_1.prisma.$transaction(async (tx) => {
+        const accepted = await tx.offer.update({
+            where: { id: offerId },
+            data: { status: "ACCEPTED" },
+        });
+        await tx.offer.updateMany({
+            where: {
+                requestId: offer.requestId,
+                id: { not: offerId },
+                status: "PENDING",
+            },
+            data: { status: "REJECTED" },
+        });
+        await tx.serviceRequest.update({
+            where: { id: offer.requestId },
+            data: { status: "IN_PROGRESS" },
+        });
+        return accepted;
     });
     // Notify provider
     await prisma_1.prisma.notification.create({

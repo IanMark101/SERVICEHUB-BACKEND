@@ -4,16 +4,22 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
+const http_1 = __importDefault(require("http"));
 const env_1 = require("./config/env"); // validates all env vars at startup
 const app_1 = __importDefault(require("./app"));
 const prisma_1 = require("./lib/prisma");
+const socket_1 = require("./lib/socket");
 const PORT = parseInt(env_1.env.PORT, 10);
 async function main() {
     try {
         // Verify database connection
         await prisma_1.prisma.$connect();
         console.log("✅ Database connected");
-        const server = app_1.default.listen(PORT, () => {
+        // Create HTTP server so Socket.io can share the same port as Express
+        const httpServer = http_1.default.createServer(app_1.default);
+        // Attach Socket.io BEFORE listening so it's ready when clients connect
+        (0, socket_1.initSocket)(httpServer);
+        httpServer.listen(PORT, () => {
             console.log(`🚀 ServiceHub Cordova API running on http://localhost:${PORT}`);
             console.log(`   Environment: ${env_1.env.NODE_ENV}`);
             console.log(`   Frontend origin: ${env_1.env.FRONTEND_URL}`);
@@ -21,7 +27,7 @@ async function main() {
         // Graceful shutdown
         const shutdown = async (signal) => {
             console.log(`\n${signal} received — shutting down gracefully...`);
-            server.close(async () => {
+            httpServer.close(async () => {
                 await prisma_1.prisma.$disconnect();
                 console.log("✅ Database disconnected. Bye!");
                 process.exit(0);

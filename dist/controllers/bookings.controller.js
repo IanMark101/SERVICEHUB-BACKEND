@@ -91,7 +91,7 @@ async function bookDirect(req, res, next) {
 async function initiatePayment(req, res, next) {
     try {
         const user = req.user;
-        const { serviceId, amount, description } = req.body;
+        const { serviceId, amount, description, paymentMethodType, returnUrl } = req.body;
         if (!serviceId || !amount) {
             return res.status(400).json({ success: false, error: "serviceId and amount are required" });
         }
@@ -99,11 +99,28 @@ async function initiatePayment(req, res, next) {
             amount: parseFloat(amount),
             description: description || "ServiceHub Cordova booking",
         });
+        let redirectUrl;
+        if (paymentMethodType) {
+            // 1. Create Payment Method
+            const methodId = await (0, paymongo_service_1.createPaymentMethod)(paymentMethodType);
+            // 2. Attach to Intent
+            const retUrl = returnUrl || `${process.env.FRONTEND_URL || "http://localhost:3000"}/seeker/seeker-activity`;
+            const attachment = await (0, paymongo_service_1.attachPaymentMethod)({
+                paymentIntentId: intent.id,
+                paymentMethodId: methodId,
+                clientKey: intent.clientKey,
+                returnUrl: retUrl,
+            });
+            if (attachment.status === "awaiting_next_action" && attachment.nextAction?.type === "redirect") {
+                redirectUrl = attachment.nextAction.redirect.url;
+            }
+        }
         res.json({
             success: true,
             data: {
                 paymentIntentId: intent.id,
                 clientKey: intent.clientKey,
+                redirectUrl,
             },
         });
     }
@@ -352,12 +369,12 @@ async function disputeJob(req, res, next) {
     try {
         const user = req.user;
         const { id } = req.params;
-        const { reason } = req.body;
+        const { reason, description, evidenceUrl } = req.body;
         if (!reason) {
             return res.status(400).json({ success: false, error: "reason is required" });
         }
         const { disputeJobService } = await Promise.resolve().then(() => __importStar(require("../services/bookings.service")));
-        const report = await disputeJobService(id, user.id, reason);
+        const report = await disputeJobService(id, user.id, reason, description, evidenceUrl);
         res.json({
             success: true,
             message: "Dispute report filed successfully.",

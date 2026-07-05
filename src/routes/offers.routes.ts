@@ -10,7 +10,7 @@ router.use(requireAuth);
 router.post("/", requireVerification, create);
 router.get("/received", getReceived);   // seeker: offers on their requests
 router.get("/mine", getMine);           // provider: their own submitted bids
-router.patch("/:id/accept", accept);
+router.patch("/:id/accept", requireVerification, accept);
 router.patch("/:id/reject", reject);
 
 export default router;

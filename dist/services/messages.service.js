@@ -4,6 +4,7 @@ exports.checkMessagingUnlock = checkMessagingUnlock;
 exports.getMessages = getMessages;
 exports.sendMessage = sendMessage;
 const prisma_1 = require("../lib/prisma");
+const socket_1 = require("../lib/socket");
 async function checkMessagingUnlock(bookingId, userId) {
     const booking = await prisma_1.prisma.booking.findUnique({
         where: { id: bookingId },
@@ -13,7 +14,8 @@ async function checkMessagingUnlock(bookingId, userId) {
             paymentStatus: true,
             directRequestId: true,
             offerId: true,
-            paymentMethod: true
+            paymentMethod: true,
+            status: true,
         },
     });
     if (!booking) {
@@ -29,9 +31,12 @@ async function checkMessagingUnlock(bookingId, userId) {
     }
     // Messaging unlock gate (master prompt Section 11)
     const isCashBooking = booking.paymentMethod === "On-site Cash";
-    const isPaymentConfirmed = ["PAID_HELD", "RELEASED"].includes(booking.paymentStatus);
-    if (!isCashBooking && !isPaymentConfirmed) {
-        const err = new Error("Messages are unlocked only after payment is confirmed");
+    const cashUnlocked = isCashBooking && booking.status === "ACCEPTED";
+    const onlineUnlocked = !isCashBooking &&
+        ["PAID_HELD", "RELEASED"].includes(booking.paymentStatus) &&
+        ["WAITING", "ONGOING", "AWAITING_CONFIRMATION", "DISPUTED", "COMPLETED"].includes(booking.status);
+    if (!cashUnlocked && !onlineUnlocked) {
+        const err = new Error("Messages unlock only after a cash booking is accepted or an online payment is confirmed");
         err.status = 403;
         err.code = "MESSAGES_LOCKED";
         throw err;
@@ -78,6 +83,15 @@ async function sendMessage(bookingId, senderId, content, imageUrl) {
             isRead: false,
         },
         data: { isRead: true },
+    });
+    // ── Real-time: broadcast to booking room ─────────────────────────────────
+    (0, socket_1.safeEmit)(`booking:${bookingId}`, "new_message", message);
+    // Also ping the receiver's personal room so they can update unread badge
+    (0, socket_1.safeEmit)(`user:${receiverId}`, "message_notification", {
+        bookingId,
+        senderId,
+        senderName: message.sender.name,
+        preview: content?.slice(0, 60) || "📷 Image",
     });
     return message;
 }

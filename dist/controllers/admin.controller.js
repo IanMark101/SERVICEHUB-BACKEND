@@ -46,6 +46,7 @@ exports.resolveCategorySuggestion = resolveCategorySuggestion;
 exports.listReports = listReports;
 exports.resolveReport = resolveReport;
 exports.resolveCancellationRequest = resolveCancellationRequest;
+exports.listEscalatedCancellations = listEscalatedCancellations;
 const prisma_1 = require("../lib/prisma");
 const services_service_1 = require("../services/services.service");
 const trust_service_1 = require("../services/trust.service");
@@ -177,11 +178,31 @@ async function resolveCategorySuggestion(req, res, next) {
         const suggestion = await prisma_1.prisma.categorySuggested.update({
             where: { id: req.params.id },
             data: { status: approve ? "APPROVED" : "REJECTED", reviewedAt: new Date() },
+            include: { submitter: { select: { id: true, name: true } } },
         });
         if (approve) {
-            // Add to live categories
+            // 1. Add to live categories list
             await prisma_1.prisma.category.create({
                 data: { name: suggestion.name, isActive: true },
+            });
+            // 2. Part 18: Auto-post to Community Hub as a system announcement
+            // Notify the submitter that their suggestion was approved
+            await prisma_1.prisma.notification.create({
+                data: {
+                    userId: suggestion.submitterId,
+                    title: `🎉 Category "${suggestion.name}" Approved!`,
+                    body: `Your suggested category "${suggestion.name}" has been added to the ServiceHub Cordova marketplace. Providers can now list services under this category.`,
+                },
+            });
+        }
+        else {
+            // Notify submitter of rejection
+            await prisma_1.prisma.notification.create({
+                data: {
+                    userId: suggestion.submitterId,
+                    title: `Category Suggestion Not Approved`,
+                    body: `Your suggested category "${suggestion.name}" was not approved at this time. You may suggest a different category.`,
+                },
             });
         }
         res.json({ success: true, data: suggestion });
@@ -232,12 +253,27 @@ async function resolveReport(req, res, next) {
                 resolvedAt: new Date(),
             },
         });
-        // Execute the action
-        if (action === "trust_deduct") {
+        // Execute the action (Spec Part 8: Warn, Reduce Trust, Suspend, Ban, Dismiss, Approve Refund)
+        if (action === "warn") {
+            // Just notify — no systemic penalty beyond the notification sent below
+            await prisma_1.prisma.notification.create({
+                data: {
+                    userId: report.reportedUserId,
+                    title: "⚠️ Official Warning from Admin",
+                    body: `You have received a formal warning regarding a report. ${adminNotes || "Please review your behavior."}`,
+                },
+            });
+        }
+        else if (action === "trust_deduct") {
             await (0, trust_service_1.applyTrustEvent)(report.reportedUserId, -10, `Admin action on report ${report.id}`);
         }
         else if (action === "suspend") {
             await prisma_1.prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
+        }
+        else if (action === "ban") {
+            await prisma_1.prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
+            // Invalidate all sessions so user is immediately logged out
+            await prisma_1.prisma.refreshToken.deleteMany({ where: { userId: report.reportedUserId } });
         }
         else if (action === "approve_refund") {
             await prisma_1.prisma.booking.update({
@@ -280,6 +316,28 @@ async function resolveCancellationRequest(req, res, next) {
         const { adminResolveCancellationRequest } = await Promise.resolve().then(() => __importStar(require("../services/cancellation.service")));
         const result = await adminResolveCancellationRequest(req.params.id, approve, adminNote);
         res.json({ success: true, data: result });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+// ── GET /admin/cancellations/escalated ───────────────────────────────────────
+async function listEscalatedCancellations(req, res, next) {
+    try {
+        const items = await prisma_1.prisma.cancellationRequest.findMany({
+            where: { status: "ESCALATED" },
+            include: {
+                booking: {
+                    include: {
+                        seeker: { select: { id: true, name: true, email: true, trustScore: true } },
+                        provider: { select: { id: true, name: true, email: true, trustScore: true } },
+                        service: { select: { title: true } },
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+        });
+        res.json({ success: true, data: items });
     }
     catch (err) {
         next(err);

@@ -101,10 +101,12 @@ enum TransactionType {
 }
 
 enum BookingStatus {
+  PENDING_APPROVAL
   WAITING
   ONGOING
   ACCEPTED
   AWAITING_CONFIRMATION
+  UNDER_REVIEW
   DISPUTED
   DECLINED
   CANCELED
@@ -349,7 +351,7 @@ model Offer {
   status            OfferStatus @default(PENDING)
   createdAt         DateTime    @default(now())
 
-  // When accepted, creates a CompletedService anchor
+  // CompletedService is created only after seeker confirmation, never at acceptance time.
   completedService  CompletedService?
   booking           Booking?
 

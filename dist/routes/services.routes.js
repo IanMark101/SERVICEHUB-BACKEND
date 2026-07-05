@@ -10,8 +10,8 @@ router.get("/", services_controller_1.browse);
 router.get("/mine", auth_middleware_1.requireAuth, services_controller_1.getMine);
 // Public single service
 router.get("/:id", services_controller_1.getOne);
-// Protected mutations
-router.post("/", auth_middleware_1.requireAuth, services_controller_1.create);
+// Protected mutations — POST /services requires residency verification (Part 6)
+router.post("/", auth_middleware_1.requireAuth, auth_middleware_1.requireVerification, services_controller_1.create);
 router.patch("/:id", auth_middleware_1.requireAuth, services_controller_1.update);
 router.patch("/:id/toggle", auth_middleware_1.requireAuth, services_controller_1.toggle);
 router.delete("/:id", auth_middleware_1.requireAuth, services_controller_1.remove);

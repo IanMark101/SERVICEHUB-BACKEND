@@ -8,14 +8,14 @@ const router = (0, express_1.Router)();
 router.use(auth_middleware_1.requireAuth);
 // Get my engagements (active and completed)
 router.get("/my-engagements", bookings_controller_1.getMyEngagements);
-// Cash Direct Arrangement (NEVER enters queue)
-router.post("/direct", bookings_controller_1.bookDirect);
-router.patch("/direct/:id/respond", bookings_controller_1.respondDirectRequest);
-// Cash from Offer (Flow B Cash path)
-router.post("/direct-from-offer", bookings_controller_1.bookDirectFromOffer);
-// Online payment flow (two-step)
-router.post("/initiate-payment", bookings_controller_1.initiatePayment);
-router.post("/confirm-online", bookings_controller_1.confirmOnlineBooking); // only call after PayMongo succeeds
+// Cash Direct Arrangement (NEVER enters queue) — requires residency verification (Part 6)
+router.post("/direct", auth_middleware_1.requireVerification, bookings_controller_1.bookDirect);
+router.patch("/direct/:id/respond", auth_middleware_1.requireVerification, bookings_controller_1.respondDirectRequest);
+// Cash from Offer (Flow B Cash path) — requires residency verification (Part 6)
+router.post("/direct-from-offer", auth_middleware_1.requireVerification, bookings_controller_1.bookDirectFromOffer);
+// Online payment flow (two-step) — initiate-payment requires verification (Part 6)
+router.post("/initiate-payment", auth_middleware_1.requireVerification, bookings_controller_1.initiatePayment);
+router.post("/confirm-online", auth_middleware_1.requireVerification, bookings_controller_1.confirmOnlineBooking); // only call after PayMongo succeeds
 // Queue management
 router.post("/waitlist", bookings_controller_1.joinWaitlistHandler);
 router.delete("/queue/:id", bookings_controller_1.cancelQueue); // seeker cancels queue entry

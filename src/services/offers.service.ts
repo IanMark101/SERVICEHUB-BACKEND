@@ -147,26 +147,27 @@ export async function acceptOffer(offerId: string, seekerId: string) {
     throw err;
   }
 
-  // Accept this offer
-  const updatedOffer = await prisma.offer.update({
-    where: { id: offerId },
-    data: { status: "ACCEPTED" },
-  });
+  const updatedOffer = await prisma.$transaction(async (tx) => {
+    const accepted = await tx.offer.update({
+      where: { id: offerId },
+      data: { status: "ACCEPTED" },
+    });
 
-  // Auto-reject all other pending offers on this request (master prompt Section 5)
-  await prisma.offer.updateMany({
-    where: {
-      requestId: offer.requestId,
-      id: { not: offerId },
-      status: "PENDING",
-    },
-    data: { status: "REJECTED" },
-  });
+    await tx.offer.updateMany({
+      where: {
+        requestId: offer.requestId,
+        id: { not: offerId },
+        status: "PENDING",
+      },
+      data: { status: "REJECTED" },
+    });
 
-  // Transition request status to IN_PROGRESS
-  await prisma.serviceRequest.update({
-    where: { id: offer.requestId },
-    data: { status: "IN_PROGRESS" },
+    await tx.serviceRequest.update({
+      where: { id: offer.requestId },
+      data: { status: "IN_PROGRESS" },
+    });
+
+    return accepted;
   });
 
   // Notify provider

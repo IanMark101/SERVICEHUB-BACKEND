@@ -10,6 +10,7 @@ exports.logoutUser = logoutUser;
 exports.verifyEmail = verifyEmail;
 exports.forgotPassword = forgotPassword;
 exports.resetPassword = resetPassword;
+exports.googleLoginUser = googleLoginUser;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = __importDefault(require("crypto"));
@@ -84,6 +85,12 @@ async function loginUser(input) {
     if (!user.isActive) {
         const err = new Error("Your account has been suspended. Please contact support.");
         err.status = 403;
+        throw err;
+    }
+    if (!user.emailVerified) {
+        const err = new Error("Please verify your email before logging in. Check your inbox for the verification link.");
+        err.status = 403;
+        err.code = "EMAIL_UNVERIFIED";
         throw err;
     }
     const tokens = await issueTokens(user.id, user.role);
@@ -195,5 +202,75 @@ function toPublicUser(user) {
         verificationStatus: user.verificationStatus,
         emailVerified: user.emailVerified,
     };
+}
+async function googleLoginUser(token) {
+    let email;
+    let name;
+    let avatarUrl = null;
+    try {
+        const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+        if (!response.ok) {
+            throw new Error("Token validation failed");
+        }
+        const data = (await response.json());
+        if (!data.email) {
+            throw new Error("Email field missing in Google profile");
+        }
+        // Secure check: Verify the Google Client ID/Audience if configured in env
+        if (env_1.env.GOOGLE_CLIENT_ID && data.aud && data.aud !== env_1.env.GOOGLE_CLIENT_ID) {
+            throw new Error("Token audience mismatch");
+        }
+        email = data.email;
+        name = data.name || email.split("@")[0];
+        avatarUrl = data.picture || null;
+    }
+    catch (err) {
+        const error = new Error(`Google sign-in failed: ${err.message}`);
+        error.status = 401;
+        throw error;
+    }
+    // 1. Check for existing user by email
+    let user = await prisma_1.prisma.user.findUnique({ where: { email } });
+    if (user) {
+        if (!user.isActive) {
+            const err = new Error("Your account has been suspended. Please contact support.");
+            err.status = 403;
+            throw err;
+        }
+        // Auto-verify email upon Google sign-in since Google already verified it
+        if (!user.emailVerified) {
+            user = await prisma_1.prisma.user.update({
+                where: { id: user.id },
+                data: { emailVerified: true },
+            });
+        }
+        const tokens = await issueTokens(user.id, user.role);
+        return { user: toPublicUser(user), tokens };
+    }
+    else {
+        // 2. Auto-create new user from Google profile
+        // Note: phone and location are null — the frontend must detect this and
+        // prompt the user to complete their profile (Contact Info step) before
+        // they can perform verified actions. This is intentional per Part 4.
+        const randomPassword = crypto_1.default.randomBytes(32).toString("hex");
+        const passwordHash = await bcryptjs_1.default.hash(randomPassword, SALT_ROUNDS);
+        user = await prisma_1.prisma.user.create({
+            data: {
+                name,
+                email,
+                passwordHash,
+                phone: "", // Will be collected during profile completion step
+                location: "", // Will be collected during profile completion step (barangay)
+                avatarUrl,
+                trustScore: 50,
+                verificationStatus: "UNVERIFIED",
+                emailVerified: true, // Auto-verified — Google already confirmed this email
+                isActive: true,
+                role: "user", // Defaults to 'user', switchable to seeker/provider in frontend dashboard
+            },
+        });
+        const tokens = await issueTokens(user.id, user.role);
+        return { user: toPublicUser(user), tokens };
+    }
 }
 //# sourceMappingURL=auth.service.js.map

@@ -17,6 +17,14 @@ const envSchema = zod_1.z.object({
     PAYMONGO_PUBLIC_KEY: zod_1.z.string().optional(),
     // Gemini AI
     GEMINI_API_KEY: zod_1.z.string().optional(),
+    // Email SMTP
+    SMTP_HOST: zod_1.z.string().optional(),
+    SMTP_PORT: zod_1.z.string().optional(),
+    SMTP_USER: zod_1.z.string().optional(),
+    SMTP_PASS: zod_1.z.string().optional(),
+    EMAIL_FROM: zod_1.z.string().optional(),
+    // Google OAuth
+    GOOGLE_CLIENT_ID: zod_1.z.string().optional(),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {

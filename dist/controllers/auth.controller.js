@@ -8,6 +8,7 @@ exports.verifyEmailHandler = verifyEmailHandler;
 exports.forgotPasswordHandler = forgotPasswordHandler;
 exports.resetPasswordHandler = resetPasswordHandler;
 exports.getMe = getMe;
+exports.googleLogin = googleLogin;
 const auth_schema_1 = require("../schema/auth.schema");
 const auth_service_1 = require("../services/auth.service");
 const env_1 = require("../config/env");
@@ -137,5 +138,23 @@ async function resetPasswordHandler(req, res, next) {
 // Returns current user from the JWT (set by requireAuth middleware)
 async function getMe(req, res) {
     res.json({ success: true, data: { user: req.user } });
+}
+// ── POST /auth/google-login ───────────────────────────────────────────────────
+async function googleLogin(req, res, next) {
+    try {
+        const { token } = req.body;
+        if (!token) {
+            return res.status(400).json({ success: false, error: "Google token is required" });
+        }
+        const { user, tokens } = await (0, auth_service_1.googleLoginUser)(token);
+        res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
+        res.json({
+            success: true,
+            data: { user, accessToken: tokens.accessToken },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
 }
 //# sourceMappingURL=auth.controller.js.map

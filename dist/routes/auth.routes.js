@@ -7,6 +7,7 @@ const router = (0, express_1.Router)();
 // Public routes
 router.post("/register", auth_controller_1.register);
 router.post("/login", auth_controller_1.login);
+router.post("/google-login", auth_controller_1.googleLogin);
 router.post("/refresh", auth_controller_1.refresh);
 router.post("/logout", auth_controller_1.logout);
 router.get("/verify-email/:token", auth_controller_1.verifyEmailHandler);

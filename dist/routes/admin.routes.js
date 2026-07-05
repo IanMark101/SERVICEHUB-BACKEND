@@ -29,5 +29,7 @@ router.get("/reports", admin_controller_1.listReports);
 router.patch("/reports/:id/resolve", admin_controller_1.resolveReport);
 // Resolve escalated cancellation requests
 router.patch("/cancellation-requests/:id/resolve", admin_controller_1.resolveCancellationRequest);
+// List escalated cancellations (for admin Escalations tab)
+router.get("/cancellations/escalated", admin_controller_1.listEscalatedCancellations);
 exports.default = router;
 //# sourceMappingURL=admin.routes.js.map

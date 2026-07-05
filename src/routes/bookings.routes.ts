@@ -29,14 +29,14 @@ router.get("/my-engagements", getMyEngagements);
 
 // Cash Direct Arrangement (NEVER enters queue) — requires residency verification (Part 6)
 router.post("/direct", requireVerification, bookDirect);
-router.patch("/direct/:id/respond", respondDirectRequest);
+router.patch("/direct/:id/respond", requireVerification, respondDirectRequest);
 
 // Cash from Offer (Flow B Cash path) — requires residency verification (Part 6)
 router.post("/direct-from-offer", requireVerification, bookDirectFromOffer);
 
 // Online payment flow (two-step) — initiate-payment requires verification (Part 6)
 router.post("/initiate-payment", requireVerification, initiatePayment);
-router.post("/confirm-online", confirmOnlineBooking); // only call after PayMongo succeeds
+router.post("/confirm-online", requireVerification, confirmOnlineBooking); // only call after PayMongo succeeds
 
 // Queue management
 router.post("/waitlist", joinWaitlistHandler);

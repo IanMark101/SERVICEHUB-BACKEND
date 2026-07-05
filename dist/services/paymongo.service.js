@@ -14,6 +14,8 @@ exports.createPaymentIntent = createPaymentIntent;
 exports.getPaymentIntent = getPaymentIntent;
 exports.verifyPaymentSuccess = verifyPaymentSuccess;
 exports.createRefund = createRefund;
+exports.createPaymentMethod = createPaymentMethod;
+exports.attachPaymentMethod = attachPaymentMethod;
 const env_1 = require("../config/env");
 const PAYMONGO_BASE = "https://api.paymongo.com/v1";
 function getAuthHeader() {
@@ -93,6 +95,39 @@ async function createRefund(params) {
     return {
         id: body.data.id,
         status: body.data.attributes.status,
+    };
+}
+// ── Create Payment Method ──────────────────────────────────────────────────────
+async function createPaymentMethod(type) {
+    const body = await paymongoFetch("/payment_methods", {
+        method: "POST",
+        body: JSON.stringify({
+            data: {
+                attributes: {
+                    type,
+                },
+            },
+        }),
+    });
+    return body.data.id;
+}
+// ── Attach Payment Method to Intent ────────────────────────────────────────────
+async function attachPaymentMethod(params) {
+    const body = await paymongoFetch(`/payment_intents/${params.paymentIntentId}/attach`, {
+        method: "POST",
+        body: JSON.stringify({
+            data: {
+                attributes: {
+                    payment_method: params.paymentMethodId,
+                    client_key: params.clientKey,
+                    return_url: params.returnUrl,
+                },
+            },
+        }),
+    });
+    return {
+        status: body.data.attributes.status,
+        nextAction: body.data.attributes.next_action,
     };
 }
 //# sourceMappingURL=paymongo.service.js.map

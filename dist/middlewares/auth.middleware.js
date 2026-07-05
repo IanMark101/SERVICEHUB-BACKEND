@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireAuth = requireAuth;
 exports.requireAdmin = requireAdmin;
 exports.requireEmailVerified = requireEmailVerified;
+exports.requireVerification = requireVerification;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const prisma_1 = require("../lib/prisma");
 const env_1 = require("../config/env");
@@ -63,6 +64,31 @@ function requireEmailVerified(req, res, next) {
             success: false,
             error: "Please verify your email address first",
             code: "EMAIL_NOT_VERIFIED",
+        });
+    }
+    next();
+}
+// ── requireVerification ───────────────────────────────────────────────────────
+// Part 6 — Residency verification gate. NEVER blocks login — only blocks
+// specific ACTIONS: booking, posting requests, sending offers, creating listings.
+// Must be chained AFTER requireAuth on those routes.
+//
+// UNVERIFIED / PENDING_REVIEW → 403 VERIFICATION_REQUIRED
+// APPROVED                   → pass through
+function requireVerification(req, res, next) {
+    const user = req.user;
+    // Admins bypass this check — they have an elevated, non-switchable role
+    if (user.role === "admin")
+        return next();
+    if (user.verificationStatus !== "APPROVED") {
+        const isPending = user.verificationStatus === "PENDING_REVIEW";
+        return res.status(403).json({
+            success: false,
+            error: isPending
+                ? "Verification under review — usually within 24 hours. You cannot perform this action yet."
+                : "Please verify your Cordova residency to perform this action.",
+            code: "VERIFICATION_REQUIRED",
+            verificationStatus: user.verificationStatus,
         });
     }
     next();

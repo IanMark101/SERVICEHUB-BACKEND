@@ -20,6 +20,7 @@ const notifications_routes_1 = __importDefault(require("./routes/notifications.r
 const admin_routes_1 = __importDefault(require("./routes/admin.routes"));
 const ai_routes_1 = __importDefault(require("./routes/ai.routes"));
 const transactions_routes_1 = __importDefault(require("./routes/transactions.routes"));
+const reviews_routes_1 = __importDefault(require("./routes/reviews.routes"));
 const app = (0, express_1.default)();
 // ─── Global Middleware ──────────────────────────────────────────────────────
 app.use((0, cors_1.default)({
@@ -47,6 +48,7 @@ app.use("/api/notifications", notifications_routes_1.default);
 app.use("/api/admin", admin_routes_1.default);
 app.use("/api/ai", ai_routes_1.default);
 app.use("/api/transactions", transactions_routes_1.default);
+app.use("/api/reviews", reviews_routes_1.default);
 // ─── Global Error Handler ────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
     console.error("Unhandled error:", err);

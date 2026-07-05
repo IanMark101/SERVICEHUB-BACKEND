@@ -10,7 +10,8 @@ export async function checkMessagingUnlock(bookingId: string, userId: string) {
       paymentStatus: true,
       directRequestId: true,
       offerId: true,
-      paymentMethod: true
+      paymentMethod: true,
+      status: true,
     },
   });
 
@@ -29,10 +30,14 @@ export async function checkMessagingUnlock(bookingId: string, userId: string) {
 
   // Messaging unlock gate (master prompt Section 11)
   const isCashBooking = booking.paymentMethod === "On-site Cash";
-  const isPaymentConfirmed = ["PAID_HELD", "RELEASED"].includes(booking.paymentStatus);
+  const cashUnlocked = isCashBooking && booking.status === "ACCEPTED";
+  const onlineUnlocked =
+    !isCashBooking &&
+    ["PAID_HELD", "RELEASED"].includes(booking.paymentStatus) &&
+    ["WAITING", "ONGOING", "AWAITING_CONFIRMATION", "DISPUTED", "COMPLETED"].includes(booking.status);
 
-  if (!isCashBooking && !isPaymentConfirmed) {
-    const err = new Error("Messages are unlocked only after payment is confirmed") as any;
+  if (!cashUnlocked && !onlineUnlocked) {
+    const err = new Error("Messages unlock only after a cash booking is accepted or an online payment is confirmed") as any;
     err.status = 403;
     err.code = "MESSAGES_LOCKED";
     throw err;
@@ -106,4 +111,3 @@ export async function sendMessage(
 
   return message;
 }
-
