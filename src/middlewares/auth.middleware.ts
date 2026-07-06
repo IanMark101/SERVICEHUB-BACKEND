@@ -51,6 +51,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(403).json({ success: false, error: "Account suspended" });
     }
 
+    if (!user.emailVerified && !(req.baseUrl === "/api/auth" && req.path === "/me")) {
+      return res.status(403).json({
+        success: false,
+        error: "Please verify your email address first",
+        code: "EMAIL_NOT_VERIFIED",
+      });
+    }
+
     (req as AuthenticatedRequest).user = user;
     next();
   } catch (err) {
@@ -65,6 +73,17 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const user = (req as AuthenticatedRequest).user;
   if (!user || user.role !== "admin") {
     return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+  next();
+}
+
+// ── requireMarketplaceUser ───────────────────────────────────────────────────
+// Must be chained AFTER requireAuth. Blocks admins from standard user actions.
+
+export function requireMarketplaceUser(req: Request, res: Response, next: NextFunction) {
+  const user = (req as AuthenticatedRequest).user;
+  if (!user || user.role === "admin") {
+    return res.status(403).json({ success: false, error: "Marketplace action restricted to standard users" });
   }
   next();
 }

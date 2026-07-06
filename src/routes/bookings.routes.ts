@@ -17,12 +17,12 @@ import {
   respondCancellationRequestHandler,
   escalateCancellationRequestHandler,
 } from "../controllers/bookings.controller";
-import { requireAuth, requireVerification } from "../middlewares/auth.middleware";
+import { requireAuth, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-// All booking routes require authentication
-router.use(requireAuth);
+// All booking routes require authentication and standard user role
+router.use(requireAuth, requireMarketplaceUser);
 
 // Get my engagements (active and completed)
 router.get("/my-engagements", getMyEngagements);
