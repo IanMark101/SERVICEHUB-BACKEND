@@ -14,6 +14,7 @@ import {
   forgotPassword,
   resetPassword,
   googleLoginUser,
+  resendVerificationEmail,
 } from "../services/auth.service";
 import { env } from "../config/env";
 
@@ -115,6 +116,22 @@ export async function verifyEmailHandler(req: Request, res: Response, next: Next
     // Redirect to frontend with success state
     res.redirect(`${env.FRONTEND_URL}?emailVerified=true`);
   } catch (err) {
+    next(err);
+  }
+}
+
+export async function resendVerificationHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: "Email is required" });
+    }
+    await resendVerificationEmail(email);
+    res.json({ success: true, message: "Verification email sent." });
+  } catch (err: any) {
+    if (err.status === 429) {
+      return res.status(429).json({ success: false, error: err.message });
+    }
     next(err);
   }
 }

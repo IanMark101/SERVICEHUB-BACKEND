@@ -191,6 +191,36 @@ export async function verifyEmail(token: string): Promise<void> {
   await prisma.emailVerificationToken.delete({ where: { token } });
 }
 
+export async function resendVerificationEmail(email: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return; // Silent return for privacy
+  if (user.emailVerified) return; // Silent return if already verified
+
+  // Rate Limiting: Check if a token was created in the last 60 seconds
+  const existingToken = await prisma.emailVerificationToken.findFirst({
+    where: { userId: user.id },
+  });
+
+  if (existingToken && Date.now() - existingToken.createdAt.getTime() < 60 * 1000) {
+    const err = new Error("Please wait 60 seconds before requesting another verification email.") as any;
+    err.status = 429;
+    throw err;
+  }
+
+  // Delete existing verification tokens for this user
+  await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
+
+  // Generate new token (24h expiry)
+  const token = generateSecureToken();
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  await prisma.emailVerificationToken.create({
+    data: { token, userId: user.id, expiresAt },
+  });
+
+  await sendVerificationEmail(user.email, user.name, token);
+}
+
 // ── Forgot Password ───────────────────────────────────────────────────────────
 
 export async function forgotPassword(email: string): Promise<void> {

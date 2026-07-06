@@ -9,6 +9,7 @@ import {
   forgotPasswordHandler,
   resetPasswordHandler,
   getMe,
+  resendVerificationHandler,
 } from "../controllers/auth.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 
@@ -23,6 +24,7 @@ router.post("/logout", logout);
 router.get("/verify-email/:token", verifyEmailHandler);
 router.post("/forgot-password", forgotPasswordHandler);
 router.post("/reset-password", resetPasswordHandler);
+router.post("/resend-verification", resendVerificationHandler);
 
 // Protected routes
 router.get("/me", requireAuth, getMe);
