@@ -130,3 +130,35 @@ export function requireVerification(req: Request, res: Response, next: NextFunct
   }
   next();
 }
+
+export async function optionalAuth(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return next();
+  }
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as { sub: string; role: string };
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        trustScore: true,
+        verificationStatus: true,
+        emailVerified: true,
+        isActive: true,
+      },
+    });
+
+    if (user && user.isActive) {
+      (req as AuthenticatedRequest).user = user;
+    }
+  } catch (err) {
+    // Ignore invalid tokens for optional auth
+  }
+  next();
+}

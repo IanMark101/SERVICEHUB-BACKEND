@@ -10,8 +10,9 @@ export async function browseServices(params: {
   categoryId?: string;
   search?: string;
   availableOnly?: boolean;
+  excludeProviderId?: string;
 }) {
-  const { categoryId, search, availableOnly } = params;
+  const { categoryId, search, availableOnly, excludeProviderId } = params;
 
   return prisma.service.findMany({
     where: {
@@ -19,6 +20,7 @@ export async function browseServices(params: {
       isAvailable: true,
       ...(categoryId && { categoryId }),
       ...(availableOnly && { isAvailable: true }),
+      ...(excludeProviderId && { providerId: { not: excludeProviderId } }),
       ...(search && {
         OR: [
           { title: { contains: search, mode: "insensitive" } },

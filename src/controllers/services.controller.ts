@@ -16,10 +16,12 @@ import {
 export async function browse(req: Request, res: Response, next: NextFunction) {
   try {
     const { categoryId, search, availableOnly } = req.query;
+    const user = (req as any).user;
     const services = await browseServices({
       categoryId: categoryId as string | undefined,
       search: search as string | undefined,
       availableOnly: availableOnly === "true",
+      excludeProviderId: user?.id,
     });
     res.json({ success: true, data: services });
   } catch (err) {

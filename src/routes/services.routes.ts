@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { browse, getOne, getMine, create, update, toggle, remove } from "../controllers/services.controller";
-import { requireAuth, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
+import { requireAuth, requireVerification, requireMarketplaceUser, optionalAuth } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-// Public
-router.get("/", browse);
+// Public (with optional user context)
+router.get("/", optionalAuth, browse);
 
 // Protected — provider's own listings (MUST be before /:id to avoid route conflict)
 router.get("/mine", requireAuth, requireMarketplaceUser, getMine);
