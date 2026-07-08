@@ -116,6 +116,7 @@ export async function createDirectRequest(params: {
       body: `A new Direct Arrangement booking request has arrived for "${service.title}". Review it in Incoming Requests.`,
     },
   });
+  safeEmit(`user:${providerId}`, "notification", { title: "New Direct Booking Request" });
 
   return { ...directRequest, booking };
 }
@@ -123,10 +124,24 @@ export async function createDirectRequest(params: {
 // ── Respond to Direct Booking (Accept / Decline) ──────────────────────────────
 
 export async function respondToDirectBookingService(requestId: string, providerId: string, accept: boolean) {
-  const directRequest = await prisma.directRequest.findUnique({
+  // Check if requestId is a directRequest ID or a booking ID
+  let directRequest = await prisma.directRequest.findUnique({
     where: { id: requestId },
     include: { booking: true },
   });
+
+  if (!directRequest) {
+    const booking = await prisma.booking.findUnique({
+      where: { id: requestId },
+      include: { directRequest: true },
+    });
+    if (booking?.directRequest) {
+      directRequest = {
+        ...booking.directRequest,
+        booking: booking
+      } as any;
+    }
+  }
 
   if (!directRequest || directRequest.providerId !== providerId) {
     const err = new Error("Direct request not found or access denied") as any;
@@ -139,7 +154,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
   if (accept) {
     const booking = await prisma.$transaction(async (tx) => {
       await tx.directRequest.update({
-        where: { id: requestId },
+        where: { id: directRequest.id },
         data: { status: "ACCEPTED" },
       });
 
@@ -170,6 +185,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
         body: "Your direct booking request has been accepted. Coordinate with the provider via chat.",
       },
     });
+    safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Accepted! 🎉" });
 
     return booking;
   } else {
@@ -182,7 +198,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
       }
 
       return tx.directRequest.update({
-        where: { id: requestId },
+        where: { id: directRequest.id },
         data: { status: "DECLINED" },
       });
     });
@@ -194,6 +210,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
         body: "Your direct booking request was declined by the provider.",
       },
     });
+    safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Declined ❌" });
 
     return updatedRequest;
   }
