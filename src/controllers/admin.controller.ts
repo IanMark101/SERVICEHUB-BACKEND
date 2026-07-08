@@ -28,21 +28,56 @@ export async function getOverview(_req: Request, res: Response, next: NextFuncti
 // ── GET /admin/users ──────────────────────────────────────────────────────────
 export async function listUsers(req: Request, res: Response, next: NextFunction) {
   try {
-    const { search } = req.query;
-    const users = await prisma.user.findMany({
-      where: search ? {
-        OR: [
-          { name: { contains: search as string, mode: "insensitive" } },
-          { email: { contains: search as string, mode: "insensitive" } },
-        ],
-      } : undefined,
-      select: {
-        id: true, name: true, email: true, phone: true, role: true,
-        trustScore: true, verificationStatus: true, emailVerified: true, isActive: true, createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
+    const { search, role, status, page = "1", limit = "10" } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search as string, mode: "insensitive" } },
+        { email: { contains: search as string, mode: "insensitive" } },
+      ];
+    }
+
+    if (role) {
+      where.role = role as string;
+    }
+
+    if (status) {
+      if (status === "active") {
+        where.isActive = true;
+      } else if (status === "suspended") {
+        where.isActive = false;
+      }
+    }
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true, name: true, email: true, phone: true, role: true,
+          trustScore: true, verificationStatus: true, emailVerified: true, isActive: true, createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limitNum,
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: users,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      }
     });
-    res.json({ success: true, data: users });
   } catch (err) {
     next(err);
   }
