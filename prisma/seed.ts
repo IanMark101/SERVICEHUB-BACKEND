@@ -108,6 +108,24 @@ async function main() {
   });
   console.log("✅ Seeded Unverified User: test.unverified@servicehub.com");
 
+  // Seed Banned User
+  await prisma.user.create({
+    data: {
+      id: "ubanned",
+      name: "Banned User Demo",
+      email: "test.banned@servicehub.com",
+      passwordHash,
+      phone: "+63 921 555 9999",
+      location: "Poblacion, Cordova",
+      role: "user",
+      trustScore: 10,
+      verificationStatus: "REJECTED",
+      isActive: false, // Banned
+      emailVerified: true
+    }
+  });
+  console.log("✅ Seeded Banned User: test.banned@servicehub.com");
+
   // Seed pending verification submission for the unverified user
   const verification = await prisma.serviceVerification.create({
     data: {
