@@ -52,6 +52,7 @@ exports.escalateCancellationRequestHandler = escalateCancellationRequestHandler;
 exports.adminResolveCancellationRequestHandler = adminResolveCancellationRequestHandler;
 const bookings_service_1 = require("../services/bookings.service");
 const paymongo_service_1 = require("../services/paymongo.service");
+const security_1 = require("../utils/security");
 // ── POST /bookings/direct ─────────────────────────────────────────────────────
 // Cash / Direct Arrangement — NEVER touches the queue
 async function bookDirect(req, res, next) {
@@ -95,6 +96,15 @@ async function initiatePayment(req, res, next) {
         if (!serviceId || !amount) {
             return res.status(400).json({ success: false, error: "serviceId and amount are required" });
         }
+        const { prisma } = await Promise.resolve().then(() => __importStar(require("../lib/prisma")));
+        const service = await prisma.service.findUnique({
+            where: { id: serviceId },
+            select: { providerId: true },
+        });
+        if (!service) {
+            return res.status(404).json({ success: false, error: "Service not found" });
+        }
+        (0, security_1.assertDistinctAccounts)(user.id, service.providerId, "book service");
         const intent = await (0, paymongo_service_1.createPaymentIntent)({
             amount: parseFloat(amount),
             description: description || "ServiceHub Cordova booking",

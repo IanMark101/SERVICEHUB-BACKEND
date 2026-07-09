@@ -1,6 +1,16 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
-import { getMessages, sendMessage } from "../services/messages.service";
+import { getMessages, sendMessage, getConversations } from "../services/messages.service";
+
+export async function listConversations(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const conversations = await getConversations(user.id);
+    res.json({ success: true, data: conversations });
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {

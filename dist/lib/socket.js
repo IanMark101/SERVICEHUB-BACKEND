@@ -31,7 +31,7 @@ function initSocket(httpServer) {
                 return next(new Error("Authentication error: no token provided"));
             }
             const payload = jsonwebtoken_1.default.verify(token, env_1.env.JWT_ACCESS_SECRET);
-            socket.userId = payload.userId;
+            socket.userId = payload.sub;
             socket.role = payload.role;
             next();
         }

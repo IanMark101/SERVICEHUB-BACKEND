@@ -5,8 +5,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireAuth = requireAuth;
 exports.requireAdmin = requireAdmin;
+exports.requireMarketplaceUser = requireMarketplaceUser;
 exports.requireEmailVerified = requireEmailVerified;
 exports.requireVerification = requireVerification;
+exports.optionalAuth = optionalAuth;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const prisma_1 = require("../lib/prisma");
 const env_1 = require("../config/env");
@@ -39,6 +41,13 @@ async function requireAuth(req, res, next) {
         if (!user.isActive) {
             return res.status(403).json({ success: false, error: "Account suspended" });
         }
+        if (!user.emailVerified && !(req.baseUrl === "/api/auth" && req.path === "/me")) {
+            return res.status(403).json({
+                success: false,
+                error: "Please verify your email address first",
+                code: "EMAIL_NOT_VERIFIED",
+            });
+        }
         req.user = user;
         next();
     }
@@ -52,6 +61,15 @@ function requireAdmin(req, res, next) {
     const user = req.user;
     if (!user || user.role !== "admin") {
         return res.status(403).json({ success: false, error: "Admin access required" });
+    }
+    next();
+}
+// ── requireMarketplaceUser ───────────────────────────────────────────────────
+// Must be chained AFTER requireAuth. Blocks admins from standard user actions.
+function requireMarketplaceUser(req, res, next) {
+    const user = req.user;
+    if (!user || user.role === "admin") {
+        return res.status(403).json({ success: false, error: "Marketplace action restricted to standard users" });
     }
     next();
 }
@@ -90,6 +108,36 @@ function requireVerification(req, res, next) {
             code: "VERIFICATION_REQUIRED",
             verificationStatus: user.verificationStatus,
         });
+    }
+    next();
+}
+async function optionalAuth(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+        return next();
+    }
+    const token = authHeader.split(" ")[1];
+    try {
+        const payload = jsonwebtoken_1.default.verify(token, env_1.env.JWT_ACCESS_SECRET);
+        const user = await prisma_1.prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                trustScore: true,
+                verificationStatus: true,
+                emailVerified: true,
+                isActive: true,
+            },
+        });
+        if (user && user.isActive) {
+            req.user = user;
+        }
+    }
+    catch (err) {
+        // Ignore invalid tokens for optional auth
     }
     next();
 }

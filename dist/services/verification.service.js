@@ -6,6 +6,7 @@ exports.listPendingVerifications = listPendingVerifications;
 exports.reviewVerification = reviewVerification;
 const prisma_1 = require("../lib/prisma");
 const trust_service_1 = require("./trust.service");
+const socket_1 = require("../lib/socket");
 // ── Submit Verification ────────────────────────────────────────────────────────
 async function submitVerification(userId, proofs) {
     // Invalidate any existing verification in REJECTED or UNVERIFIED state
@@ -103,8 +104,10 @@ async function reviewVerification(verificationId, adminId, approve, adminNotes) 
             body: approve
                 ? 'You are now a Verified Resident of Cordova! Your "Verified" badge is now active.'
                 : `Your verification was not approved. Reason: ${adminNotes || "Please resubmit with clearer documents."}`,
+            link: `/provider/provider-activity`,
         },
     });
+    (0, socket_1.safeEmit)(`user:${verification.userId}`, "notification", { title: approve ? "Verification Approved ✅" : "Verification Rejected" });
     return { status: newStatus };
 }
 //# sourceMappingURL=verification.service.js.map

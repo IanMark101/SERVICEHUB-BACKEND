@@ -7,6 +7,8 @@ exports.escalateCancellationRequest = escalateCancellationRequest;
 exports.adminResolveCancellationRequest = adminResolveCancellationRequest;
 const prisma_1 = require("../lib/prisma");
 const queue_service_1 = require("./queue.service");
+const socket_1 = require("../lib/socket");
+const messages_service_1 = require("./messages.service");
 // ── Perform Immediate Cancel & Process Refund/Escrow ──────────────────────────
 async function performImmediateCancel(bookingId) {
     const booking = await prisma_1.prisma.booking.findUnique({
@@ -27,6 +29,7 @@ async function performImmediateCancel(bookingId) {
             paymentStatus: newPaymentStatus
         }
     });
+    await (0, messages_service_1.sendMessage)(bookingId, booking.seekerId, "Booking cancelled.", undefined, true);
     if (booking.queue) {
         await prisma_1.prisma.queue.update({
             where: { id: booking.queue.id },
@@ -70,6 +73,7 @@ async function performImmediateCancel(bookingId) {
             userId: booking.providerId,
             title: "Booking Cancelled ⚠️",
             body: "The booking has been cancelled.",
+            link: `/provider/provider-activity?tab=canceled&booking=${booking.id}`,
         }
     });
     // Notify seeker about the refund (if online payment)
@@ -79,6 +83,7 @@ async function performImmediateCancel(bookingId) {
                 userId: booking.seekerId,
                 title: "Refund Processed 💰",
                 body: "Your online payment has been fully refunded due to the cancellation.",
+                link: `/seeker/seeker-activity?tab=canceled&booking=${booking.id}`,
             }
         });
     }
@@ -122,6 +127,7 @@ async function requestCancellation(bookingId, seekerId, reason) {
                 userId: booking.providerId,
                 title: "Cancellation Request Received ⚠️",
                 body: `The seeker has requested to cancel your active booking. Please review and respond in your activity tab.`,
+                link: `/provider/provider-activity?tab=in_progress&booking=${booking.id}`,
             }
         });
         return { cancelled: false, immediate: false, request: cancelReq };
@@ -158,6 +164,7 @@ async function respondToCancellationRequest(requestId, providerId, approve, prov
                 userId: cancelReq.booking.seekerId,
                 title: "Cancellation Request Approved 🎉",
                 body: "The provider has approved your cancellation request. Payout is refunded/cancelled.",
+                link: `/seeker/seeker-activity?tab=canceled&booking=${cancelReq.bookingId}`,
             }
         });
         return { resolved: true, approved: true };
@@ -177,6 +184,7 @@ async function respondToCancellationRequest(requestId, providerId, approve, prov
                 userId: cancelReq.booking.seekerId,
                 title: "Cancellation Request Declined ❌",
                 body: `The provider declined your cancellation request. Reason: "${providerNote || "No reason provided"}". You can escalate to Admin if needed.`,
+                link: `/seeker/seeker-activity?tab=active&booking=${cancelReq.bookingId}`,
             }
         });
         return { resolved: true, approved: false, request: updated };
@@ -219,8 +227,10 @@ async function escalateCancellationRequest(requestId, seekerId) {
             userId: cancelReq.booking.providerId,
             title: "Cancellation Escalated to Admin ⚠️",
             body: "The seeker has escalated their declined cancellation request to a Moderator/Admin.",
+            link: `/provider/provider-activity?tab=disputed&booking=${cancelReq.bookingId}`,
         }
     });
+    (0, socket_1.safeEmit)(`user:${cancelReq.booking.providerId}`, "notification", { title: "Cancellation Escalated to Admin ⚠️" });
     return updated;
 }
 // ── Resolve Cancellation Request (Admin/Moderator Action) ─────────────────────
@@ -274,6 +284,8 @@ async function adminResolveCancellationRequest(requestId, approve, adminNote) {
                 }
             ]
         });
+        (0, socket_1.safeEmit)(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Admin Resolved Cancellation in your favor 🎉" });
+        (0, socket_1.safeEmit)(`user:${cancelReq.booking.providerId}`, "notification", { title: "Admin Cancelled Booking ⚠️" });
     }
     else {
         // Reject cancellation request -> booking stays as-is (ONGOING)
@@ -291,6 +303,8 @@ async function adminResolveCancellationRequest(requestId, approve, adminNote) {
                 }
             ]
         });
+        (0, socket_1.safeEmit)(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Admin Rejected Cancellation Request" });
+        (0, socket_1.safeEmit)(`user:${cancelReq.booking.providerId}`, "notification", { title: "Admin Ruled in your favor on cancellation" });
     }
     return updatedRequest;
 }

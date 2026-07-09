@@ -8,6 +8,7 @@ exports.loginUser = loginUser;
 exports.refreshAccessToken = refreshAccessToken;
 exports.logoutUser = logoutUser;
 exports.verifyEmail = verifyEmail;
+exports.resendVerificationEmail = resendVerificationEmail;
 exports.forgotPassword = forgotPassword;
 exports.resetPassword = resetPassword;
 exports.googleLoginUser = googleLoginUser;
@@ -142,6 +143,31 @@ async function verifyEmail(token) {
         data: { emailVerified: true },
     });
     await prisma_1.prisma.emailVerificationToken.delete({ where: { token } });
+}
+async function resendVerificationEmail(email) {
+    const user = await prisma_1.prisma.user.findUnique({ where: { email } });
+    if (!user)
+        return; // Silent return for privacy
+    if (user.emailVerified)
+        return; // Silent return if already verified
+    // Rate Limiting: Check if a token was created in the last 60 seconds
+    const existingToken = await prisma_1.prisma.emailVerificationToken.findFirst({
+        where: { userId: user.id },
+    });
+    if (existingToken && Date.now() - existingToken.createdAt.getTime() < 60 * 1000) {
+        const err = new Error("Please wait 60 seconds before requesting another verification email.");
+        err.status = 429;
+        throw err;
+    }
+    // Delete existing verification tokens for this user
+    await prisma_1.prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
+    // Generate new token (24h expiry)
+    const token = generateSecureToken();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await prisma_1.prisma.emailVerificationToken.create({
+        data: { token, userId: user.id, expiresAt },
+    });
+    await (0, email_1.sendVerificationEmail)(user.email, user.name, token);
 }
 // ── Forgot Password ───────────────────────────────────────────────────────────
 async function forgotPassword(email) {

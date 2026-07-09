@@ -550,6 +550,7 @@ model Message {
   content          String
   imageUrl         String?
   isRead             Boolean         @default(false)
+  isSystem         Boolean         @default(false)
   createdAt          DateTime        @default(now())
 
   @@map("messages")

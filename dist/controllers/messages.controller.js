@@ -1,8 +1,19 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.listConversations = listConversations;
 exports.list = list;
 exports.create = create;
 const messages_service_1 = require("../services/messages.service");
+async function listConversations(req, res, next) {
+    try {
+        const user = req.user;
+        const conversations = await (0, messages_service_1.getConversations)(user.id);
+        res.json({ success: true, data: conversations });
+    }
+    catch (err) {
+        next(err);
+    }
+}
 async function list(req, res, next) {
     try {
         const user = req.user;

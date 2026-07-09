@@ -50,6 +50,7 @@ exports.listEscalatedCancellations = listEscalatedCancellations;
 const prisma_1 = require("../lib/prisma");
 const services_service_1 = require("../services/services.service");
 const trust_service_1 = require("../services/trust.service");
+const socket_1 = require("../lib/socket");
 // ── GET /admin/overview ───────────────────────────────────────────────────────
 async function getOverview(_req, res, next) {
     try {
@@ -73,21 +74,51 @@ async function getOverview(_req, res, next) {
 // ── GET /admin/users ──────────────────────────────────────────────────────────
 async function listUsers(req, res, next) {
     try {
-        const { search } = req.query;
-        const users = await prisma_1.prisma.user.findMany({
-            where: search ? {
-                OR: [
-                    { name: { contains: search, mode: "insensitive" } },
-                    { email: { contains: search, mode: "insensitive" } },
-                ],
-            } : undefined,
-            select: {
-                id: true, name: true, email: true, phone: true, role: true,
-                trustScore: true, verificationStatus: true, emailVerified: true, isActive: true, createdAt: true,
-            },
-            orderBy: { createdAt: "desc" },
+        const { search, role, status, page = "1", limit = "10" } = req.query;
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+        const skip = (pageNum - 1) * limitNum;
+        const where = {};
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+            ];
+        }
+        if (role) {
+            where.role = role;
+        }
+        if (status) {
+            if (status === "active") {
+                where.isActive = true;
+            }
+            else if (status === "suspended") {
+                where.isActive = false;
+            }
+        }
+        const [users, total] = await Promise.all([
+            prisma_1.prisma.user.findMany({
+                where,
+                select: {
+                    id: true, name: true, email: true, phone: true, role: true,
+                    trustScore: true, verificationStatus: true, emailVerified: true, isActive: true, createdAt: true,
+                },
+                orderBy: { createdAt: "desc" },
+                skip,
+                take: limitNum,
+            }),
+            prisma_1.prisma.user.count({ where }),
+        ]);
+        res.json({
+            success: true,
+            data: users,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum),
+            }
         });
-        res.json({ success: true, data: users });
     }
     catch (err) {
         next(err);
@@ -194,6 +225,7 @@ async function resolveCategorySuggestion(req, res, next) {
                     body: `Your suggested category "${suggestion.name}" has been added to the ServiceHub Cordova marketplace. Providers can now list services under this category.`,
                 },
             });
+            (0, socket_1.safeEmit)(`user:${suggestion.submitterId}`, "notification", { title: `🎉 Category "${suggestion.name}" Approved!` });
         }
         else {
             // Notify submitter of rejection
@@ -204,6 +236,7 @@ async function resolveCategorySuggestion(req, res, next) {
                     body: `Your suggested category "${suggestion.name}" was not approved at this time. You may suggest a different category.`,
                 },
             });
+            (0, socket_1.safeEmit)(`user:${suggestion.submitterId}`, "notification", { title: `Category Suggestion Not Approved` });
         }
         res.json({ success: true, data: suggestion });
     }
@@ -263,6 +296,7 @@ async function resolveReport(req, res, next) {
                     body: `You have received a formal warning regarding a report. ${adminNotes || "Please review your behavior."}`,
                 },
             });
+            (0, socket_1.safeEmit)(`user:${report.reportedUserId}`, "notification", { title: "⚠️ Official Warning from Admin" });
         }
         else if (action === "trust_deduct") {
             await (0, trust_service_1.applyTrustEvent)(report.reportedUserId, -10, `Admin action on report ${report.id}`);
@@ -300,6 +334,8 @@ async function resolveReport(req, res, next) {
                 },
             ],
         });
+        (0, socket_1.safeEmit)(`user:${report.reporterId}`, "notification", { title: "Report Resolved" });
+        (0, socket_1.safeEmit)(`user:${report.reportedUserId}`, "notification", { title: "Report Against You Resolved" });
         res.json({ success: true });
     }
     catch (err) {

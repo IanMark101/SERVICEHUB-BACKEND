@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { assertDistinctAccounts } from "../utils/security";
 
 export async function submitOffer(providerId: string, params: {
   requestId: string;
@@ -22,13 +23,7 @@ export async function submitOffer(providerId: string, params: {
   }
 
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
-  // A provider must never be able to send an offer on their own service request.
-  if (providerId === request.seekerId) {
-    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
-    err.status = 403;
-    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
-    throw err;
-  }
+  assertDistinctAccounts(providerId, request.seekerId, "submit offer");
 
   // Prevent duplicate offer from same provider
   const existing = await prisma.offer.findFirst({
@@ -70,6 +65,7 @@ export async function submitOffer(providerId: string, params: {
       userId: request.seekerId,
       title: "New Offer Received",
       body: `A provider submitted an offer of ₱${offeredPrice} on your request. Check Incoming Offers.`,
+      link: `/seeker/incoming-offers?offer=${offer.id}`,
     },
   });
 
@@ -176,6 +172,7 @@ export async function acceptOffer(offerId: string, seekerId: string) {
       userId: offer.providerId,
       title: "Offer Accepted! 🎉",
       body: `Your offer was accepted. Please proceed to payment to confirm your booking and queue position.`,
+      link: `/provider/provider-activity?tab=pending_offers`,
     },
   });
 

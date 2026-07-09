@@ -21,7 +21,6 @@ export async function browse(req: Request, res: Response, next: NextFunction) {
       categoryId: categoryId as string | undefined,
       search: search as string | undefined,
       availableOnly: availableOnly === "true",
-      excludeProviderId: user?.id,
     });
     res.json({ success: true, data: services });
   } catch (err) {

@@ -2,6 +2,8 @@ import { prisma } from "../lib/prisma";
 import { recalculateQueue, notifyWaitlist } from "./queue.service";
 import { applyCancellationTrust } from "./trust.service";
 import { safeEmit } from "../lib/socket";
+import { assertDistinctAccounts } from "../utils/security";
+import { sendMessage } from "./messages.service";
 
 // ── FCFS Queue Logic ──────────────────────────────────────────────────────────
 
@@ -52,13 +54,7 @@ export async function createDirectRequest(params: {
   const { seekerId, providerId, serviceId, agreedPrice, schedule, message } = params;
 
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
-  // A user must never be able to book their own service listing.
-  if (seekerId === providerId) {
-    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
-    err.status = 403;
-    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
-    throw err;
-  }
+  assertDistinctAccounts(seekerId, providerId, "book service");
 
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
@@ -114,6 +110,7 @@ export async function createDirectRequest(params: {
       userId: providerId,
       title: "New Direct Booking Request",
       body: `A new Direct Arrangement booking request has arrived for "${service.title}". Review it in Incoming Requests.`,
+      link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
     },
   });
   safeEmit(`user:${providerId}`, "notification", { title: "New Direct Booking Request" });
@@ -183,9 +180,11 @@ export async function respondToDirectBookingService(requestId: string, providerI
         userId: directRequest.seekerId,
         title: "Direct Booking Accepted! 🎉",
         body: "Your direct booking request has been accepted. Coordinate with the provider via chat.",
+        link: `/seeker/seeker-activity?tab=active&booking=${booking.id}`,
       },
     });
     safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Accepted! 🎉" });
+    await sendMessage(booking.id, providerId, "Booking accepted.", undefined, true);
 
     return booking;
   } else {
@@ -208,6 +207,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
         userId: directRequest.seekerId,
         title: "Direct Booking Declined ❌",
         body: "Your direct booking request was declined by the provider.",
+        link: `/seeker/seeker-activity?tab=canceled&booking=${directRequest.id}`,
       },
     });
     safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Declined ❌" });
@@ -231,12 +231,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
   }
 
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
-  if (seekerId === offer.providerId) {
-    const err = new Error("You cannot book or send an offer on your own service listing or request.") as any;
-    err.status = 403;
-    err.code = "SELF_TRANSACTION_NOT_ALLOWED";
-    throw err;
-  }
+  assertDistinctAccounts(seekerId, offer.providerId, "accept offer");
 
   const booking = await prisma.$transaction(async (tx) => {
     await tx.offer.update({
@@ -275,8 +270,10 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
       userId: offer.providerId,
       title: "Offer Accepted! 💰",
       body: `Your offer on "${offer.request.title}" has been accepted. Cash on-site arranged.`,
+      link: `/provider/provider-activity?tab=in_progress&booking=${booking.id}`,
     },
   });
+  await sendMessage(booking.id, seekerId, "Booking accepted.", undefined, true);
 
   return booking;
 }
@@ -356,6 +353,8 @@ export async function addToQueue(params: {
     },
   });
 
+  await sendMessage(booking.id, seekerId, "Payment received.", undefined, true);
+
   const queueEntry = isImmediate
     ? {
         id: null,
@@ -388,6 +387,7 @@ export async function addToQueue(params: {
       body: isImmediate
         ? `A new client is at position 1 for "${service.title}". Payment confirmed.`
         : `A new client joined your queue at position ${position} for "${service.title}".`,
+      link: `/provider/provider-activity?tab=${isImmediate ? 'in_progress' : 'waiting'}&booking=${booking.id}`,
     },
   });
 
@@ -456,8 +456,11 @@ export async function providerStartJob(id: string, providerId: string) {
       userId: booking.seekerId,
       title: "Provider Started Job! 🚀",
       body: "Your provider has started serving your request. Coordinates are active.",
+      link: `/seeker/seeker-activity?tab=active&booking=${booking.id}`,
     },
   });
+  safeEmit(`user:${booking.seekerId}`, "notification", { title: "Provider Started Job! 🚀" });
+  await sendMessage(booking.id, booking.providerId, "Provider started the job.", undefined, true);
 
   return updatedBooking;
 }
@@ -488,6 +491,7 @@ export async function providerRemoveQueueEntry(queueId: string, providerId: stri
       where: { id: queueEntry.bookingId },
       data: { status: "REMOVED", paymentStatus: "FROZEN_HELD" }
     });
+    await sendMessage(queueEntry.bookingId, providerId, "Booking cancelled.", undefined, true);
   }
 
   // Deduct provider trust score (-5 for cancellation/removal at fault)
@@ -503,6 +507,7 @@ export async function providerRemoveQueueEntry(queueId: string, providerId: stri
       userId: queueEntry.seekerId,
       title: "Booking Cancelled by Provider ⚠️",
       body: "The provider removed your booking from their queue. Refund is being processed.",
+      link: `/seeker/seeker-activity?tab=canceled&booking=${queueEntry.bookingId}`,
     },
   });
 
@@ -567,6 +572,7 @@ export async function markJobComplete(id: string, providerId: string) {
       userId: booking.seekerId,
       title: "Service Completed — Please Confirm ✅",
       body: "Your provider has marked the job as done. Go to Activity → Awaiting Confirmation to confirm and release payment.",
+      link: `/seeker/seeker-activity?tab=action_required&booking=${booking.id}`,
     },
   });
 
@@ -622,6 +628,12 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     }
   });
 
+  if (booking.paymentMethod === 'GCash') {
+    await sendMessage(booking.id, seekerId, "Funds released.", undefined, true);
+  } else {
+    await sendMessage(booking.id, seekerId, "Transaction completed.", undefined, true);
+  }
+
   // Release escrow / log earning transaction for provider
   await prisma.transaction.create({
     data: {
@@ -635,11 +647,12 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     },
   });
 
-  // Update trust score: successful completion gives +2 trust to provider and +1 to seeker
-  // Spec Part 10: "Each booking that reaches COMPLETED via genuine seeker confirmation"
-  const { applyTrustEvent } = await import("./trust.service");
-  await applyTrustEvent(booking.providerId, 2, "Successful service completion (provider)");
-  await applyTrustEvent(booking.seekerId, 1, "Successful service completion (seeker)");
+  // Update trust score: successful completion gives +2 trust to provider and +1 to seeker (if distinct)
+  if (booking.providerId !== booking.seekerId) {
+    const { applyTrustEvent } = await import("./trust.service");
+    await applyTrustEvent(booking.providerId, 2, "Successful service completion (provider)");
+    await applyTrustEvent(booking.seekerId, 1, "Successful service completion (seeker)");
+  }
 
   // Notify provider
   await prisma.notification.create({
@@ -649,8 +662,10 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
       body: booking.paymentMethod === "GCash"
         ? `₱${finalPrice} has been released to your wallet.`
         : `Seeker confirmed completion of cash-based job for ₱${finalPrice}.`,
+      link: `/provider/transaction-history?booking=${booking.id}`,
     },
   });
+  safeEmit(`user:${booking.providerId}`, "notification", { title: "Payment Confirmed 💰" });
 
   return completedService;
 }
@@ -679,6 +694,8 @@ export async function disputeJobService(
     err.status = 400;
     throw err;
   }
+
+  assertDistinctAccounts(seekerId, booking.providerId, "dispute job");
 
   // Update Booking status to DISPUTED and paymentStatus to FROZEN_HELD
   await prisma.booking.update({
@@ -723,6 +740,7 @@ export async function disputeJobService(
       userId: booking.providerId,
       title: "Job Disputed ⚠️",
       body: `Seeker has raised a dispute for your booking. Administration will review.`,
+      link: `/provider/provider-activity?tab=disputed&booking=${booking.id}`,
     },
   });
 
@@ -780,6 +798,7 @@ export async function cancelQueueEntry(queueId: string, seekerId: string) {
       where: { id: entry.bookingId },
       data: { status: "CANCELED", paymentStatus: entry.paymentStatus === "PAID_HELD" ? "REFUNDED" : "UNPAID" }
     });
+    await sendMessage(entry.bookingId, seekerId, "Booking cancelled.", undefined, true);
   }
 
   // If an online payment was refunded, create a REFUND transaction record (Spec Part 5)

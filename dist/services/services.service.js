@@ -14,13 +14,14 @@ const trust_service_1 = require("./trust.service");
 const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
 // ── Browse (Public — ACTIVE listings only) ────────────────────────────────────
 async function browseServices(params) {
-    const { categoryId, search, availableOnly } = params;
+    const { categoryId, search, availableOnly, excludeProviderId } = params;
     return prisma_1.prisma.service.findMany({
         where: {
             status: "ACTIVE",
             isAvailable: true,
             ...(categoryId && { categoryId }),
             ...(availableOnly && { isAvailable: true }),
+            ...(excludeProviderId && { providerId: { not: excludeProviderId } }),
             ...(search && {
                 OR: [
                     { title: { contains: search, mode: "insensitive" } },
@@ -231,6 +232,7 @@ async function adminReviewService(serviceId, adminId, approve, adminNotes) {
                 userId: service.providerId,
                 title: "Listing Approved ✅",
                 body: `Your service "${service.title}" is now live and visible to seekers.`,
+                link: "/provider/service-manager"
             },
         });
     }
@@ -265,6 +267,7 @@ async function adminReviewService(serviceId, adminId, approve, adminNotes) {
                 userId: service.providerId,
                 title: "Listing Rejected",
                 body: notifBody,
+                link: "/provider/service-manager"
             },
         });
     }

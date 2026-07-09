@@ -4,8 +4,8 @@ const express_1 = require("express");
 const bookings_controller_1 = require("../controllers/bookings.controller");
 const auth_middleware_1 = require("../middlewares/auth.middleware");
 const router = (0, express_1.Router)();
-// All booking routes require authentication
-router.use(auth_middleware_1.requireAuth);
+// All booking routes require authentication and standard user role
+router.use(auth_middleware_1.requireAuth, auth_middleware_1.requireMarketplaceUser);
 // Get my engagements (active and completed)
 router.get("/my-engagements", bookings_controller_1.getMyEngagements);
 // Cash Direct Arrangement (NEVER enters queue) — requires residency verification (Part 6)

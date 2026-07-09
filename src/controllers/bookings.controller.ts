@@ -8,6 +8,7 @@ import {
   markJobComplete,
 } from "../services/bookings.service";
 import { createPaymentIntent, verifyPaymentSuccess, createPaymentMethod, attachPaymentMethod } from "../services/paymongo.service";
+import { assertDistinctAccounts } from "../utils/security";
 
 // ── POST /bookings/direct ─────────────────────────────────────────────────────
 // Cash / Direct Arrangement — NEVER touches the queue
@@ -60,6 +61,18 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
     if (!serviceId || !amount) {
       return res.status(400).json({ success: false, error: "serviceId and amount are required" });
     }
+
+    const { prisma } = await import("../lib/prisma");
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: { providerId: true },
+    });
+
+    if (!service) {
+      return res.status(404).json({ success: false, error: "Service not found" });
+    }
+
+    assertDistinctAccounts(user.id, service.providerId, "book service");
 
     const intent = await createPaymentIntent({
       amount: parseFloat(amount),

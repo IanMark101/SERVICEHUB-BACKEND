@@ -7,8 +7,8 @@ const router = (0, express_1.Router)();
 // GET /categories — public list of all active categories
 router.get("/", categories_controller_1.getCategories);
 // POST /categories/suggest — suggest category (requires auth)
-router.post("/suggest", auth_middleware_1.requireAuth, categories_controller_1.suggestCategory);
+router.post("/suggest", auth_middleware_1.requireAuth, auth_middleware_1.requireMarketplaceUser, categories_controller_1.suggestCategory);
 // GET /categories/suggestions/mine — user's suggestions list (requires auth)
-router.get("/suggestions/mine", auth_middleware_1.requireAuth, categories_controller_1.getMySuggestions);
+router.get("/suggestions/mine", auth_middleware_1.requireAuth, auth_middleware_1.requireMarketplaceUser, categories_controller_1.getMySuggestions);
 exports.default = router;
 //# sourceMappingURL=categories.routes.js.map
