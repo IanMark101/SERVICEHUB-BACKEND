@@ -5,6 +5,7 @@ exports.login = login;
 exports.refresh = refresh;
 exports.logout = logout;
 exports.verifyEmailHandler = verifyEmailHandler;
+exports.resendVerificationHandler = resendVerificationHandler;
 exports.forgotPasswordHandler = forgotPasswordHandler;
 exports.resetPasswordHandler = resetPasswordHandler;
 exports.getMe = getMe;
@@ -97,6 +98,22 @@ async function verifyEmailHandler(req, res, next) {
         res.redirect(`${env_1.env.FRONTEND_URL}?emailVerified=true`);
     }
     catch (err) {
+        next(err);
+    }
+}
+async function resendVerificationHandler(req, res, next) {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ success: false, error: "Email is required" });
+        }
+        await (0, auth_service_1.resendVerificationEmail)(email);
+        res.json({ success: true, message: "Verification email sent." });
+    }
+    catch (err) {
+        if (err.status === 429) {
+            return res.status(429).json({ success: false, error: err.message });
+        }
         next(err);
     }
 }

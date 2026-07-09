@@ -278,6 +278,7 @@ export async function adminReviewService(
         userId: service.providerId,
         title: "Listing Approved ✅",
         body: `Your service "${service.title}" is now live and visible to seekers.`,
+        link: "/provider/service-manager"
       },
     });
   } else {
@@ -315,6 +316,7 @@ export async function adminReviewService(
         userId: service.providerId,
         title: "Listing Rejected",
         body: notifBody,
+        link: "/provider/service-manager"
       },
     });
   }

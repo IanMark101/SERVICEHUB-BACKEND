@@ -29,7 +29,7 @@ async function summarizeProviderReviews(providerId) {
         .map((r) => `Rating: ${r.rating}/5 — "${r.text}"`)
         .join("\n");
     // Call Gemini API
-    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${env_1.env.GEMINI_API_KEY}`, {
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env_1.env.GEMINI_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -76,7 +76,7 @@ async function matchProvidersToRequest(requestId) {
         return { suggestions: [], reason: "No providers in this category" };
     }
     const providerList = providers.map((p) => `Provider: ${p.provider.name} | Trust: ${p.provider.trustScore} | Service: ${p.title} | Price: ₱${p.price}`).join("\n");
-    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${env_1.env.GEMINI_API_KEY}`, {
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env_1.env.GEMINI_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

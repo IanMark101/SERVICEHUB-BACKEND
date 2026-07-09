@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { applyReviewTrust } from "../services/trust.service";
+import { assertDistinctAccounts } from "../utils/security";
 
 export async function submitReview(req: Request, res: Response, next: NextFunction) {
   try {
@@ -29,6 +30,8 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
     }
 
     const targetId = isSeeker ? completedService.providerId : completedService.seekerId;
+
+    assertDistinctAccounts(user.id, targetId, "write review");
 
     // Check for duplicate review
     const existing = await prisma.review.findFirst({
@@ -59,6 +62,18 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
 
     // Update target trust score
     await applyReviewTrust(targetId, parseInt(rating));
+
+    // Create notification if provider was reviewed
+    if (isSeeker) {
+      await prisma.notification.create({
+        data: {
+          userId: targetId,
+          title: "New Review Received ⭐",
+          body: `You received a ${rating}-star review. Check your profile.`,
+          link: `/provider/user-profile?id=${targetId}&tab=reviews`
+        }
+      });
+    }
 
     res.status(201).json({
       success: true,

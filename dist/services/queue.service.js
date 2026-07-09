@@ -55,6 +55,7 @@ async function notifyWaitlist(serviceId) {
                     userId: firstWaiting.seekerId,
                     title: "Queue Slot Available! 🎉",
                     body: "A slot just opened up for a service you were waiting for. Book now before it fills up.",
+                    link: `/seeker/seek-services`,
                 },
             });
             // Remove from waitlist

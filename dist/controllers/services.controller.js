@@ -13,6 +13,7 @@ const services_service_1 = require("../services/services.service");
 async function browse(req, res, next) {
     try {
         const { categoryId, search, availableOnly } = req.query;
+        const user = req.user;
         const services = await (0, services_service_1.browseServices)({
             categoryId: categoryId,
             search: search,

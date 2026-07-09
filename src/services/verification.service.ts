@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { applyTrustEvent } from "./trust.service";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
+import { safeEmit } from "../lib/socket";
 
 // ── Submit Verification ────────────────────────────────────────────────────────
 
@@ -126,8 +127,10 @@ export async function reviewVerification(
       body: approve
         ? 'You are now a Verified Resident of Cordova! Your "Verified" badge is now active.'
         : `Your verification was not approved. Reason: ${adminNotes || "Please resubmit with clearer documents."}`,
+      link: `/provider/provider-activity`,
     },
   });
+  safeEmit(`user:${verification.userId}`, "notification", { title: approve ? "Verification Approved ✅" : "Verification Rejected" });
 
   return { status: newStatus };
 }

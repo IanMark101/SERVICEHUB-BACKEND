@@ -29,8 +29,8 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         return next(new Error("Authentication error: no token provided"));
       }
 
-      const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as { userId: string; role: string };
-      (socket as any).userId = payload.userId;
+      const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as { sub: string; role: string };
+      (socket as any).userId = payload.sub;
       (socket as any).role = payload.role;
       next();
     } catch {

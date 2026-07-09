@@ -4,6 +4,7 @@ exports.submitReview = submitReview;
 exports.getProviderReviews = getProviderReviews;
 const prisma_1 = require("../lib/prisma");
 const trust_service_1 = require("../services/trust.service");
+const security_1 = require("../utils/security");
 async function submitReview(req, res, next) {
     try {
         const user = req.user;
@@ -24,6 +25,7 @@ async function submitReview(req, res, next) {
             return res.status(403).json({ success: false, error: "Not authorized to review this service" });
         }
         const targetId = isSeeker ? completedService.providerId : completedService.seekerId;
+        (0, security_1.assertDistinctAccounts)(user.id, targetId, "write review");
         // Check for duplicate review
         const existing = await prisma_1.prisma.review.findFirst({
             where: {
@@ -49,6 +51,17 @@ async function submitReview(req, res, next) {
         });
         // Update target trust score
         await (0, trust_service_1.applyReviewTrust)(targetId, parseInt(rating));
+        // Create notification if provider was reviewed
+        if (isSeeker) {
+            await prisma_1.prisma.notification.create({
+                data: {
+                    userId: targetId,
+                    title: "New Review Received ⭐",
+                    body: `You received a ${rating}-star review. Check your profile.`,
+                    link: `/provider/user-profile?id=${targetId}&tab=reviews`
+                }
+            });
+        }
         res.status(201).json({
             success: true,
             data: review

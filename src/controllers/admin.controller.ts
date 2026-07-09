@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../lib/prisma";
 import { adminReviewService, listPendingServices as adminListPendingServices } from "../services/services.service";
 import { applyTrustEvent } from "../services/trust.service";
+import { safeEmit } from "../lib/socket";
 
 // ── GET /admin/overview ───────────────────────────────────────────────────────
 export async function getOverview(_req: Request, res: Response, next: NextFunction) {
@@ -186,6 +187,7 @@ export async function resolveCategorySuggestion(req: Request, res: Response, nex
           body: `Your suggested category "${suggestion.name}" has been added to the ServiceHub Cordova marketplace. Providers can now list services under this category.`,
         },
       });
+      safeEmit(`user:${suggestion.submitterId}`, "notification", { title: `🎉 Category "${suggestion.name}" Approved!` });
     } else {
       // Notify submitter of rejection
       await prisma.notification.create({
@@ -195,6 +197,7 @@ export async function resolveCategorySuggestion(req: Request, res: Response, nex
           body: `Your suggested category "${suggestion.name}" was not approved at this time. You may suggest a different category.`,
         },
       });
+      safeEmit(`user:${suggestion.submitterId}`, "notification", { title: `Category Suggestion Not Approved` });
     }
 
     res.json({ success: true, data: suggestion });
@@ -257,6 +260,7 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
           body: `You have received a formal warning regarding a report. ${adminNotes || "Please review your behavior."}`,
         },
       });
+      safeEmit(`user:${report.reportedUserId}`, "notification", { title: "⚠️ Official Warning from Admin" });
     } else if (action === "trust_deduct") {
       await applyTrustEvent(report.reportedUserId, -10, `Admin action on report ${report.id}`);
     } else if (action === "suspend") {
@@ -291,6 +295,8 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
         },
       ],
     });
+    safeEmit(`user:${report.reporterId}`, "notification", { title: "Report Resolved" });
+    safeEmit(`user:${report.reportedUserId}`, "notification", { title: "Report Against You Resolved" });
 
     res.json({ success: true });
   } catch (err) {

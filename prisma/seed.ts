@@ -292,7 +292,34 @@ async function main() {
       status: "PENDING"
     }
   });
-  console.log("✅ Seeded Dispute / Report for review");
+
+  // Seed chat logs for dispute evidence (Spec Part 8)
+  await prisma.message.createMany({
+    data: [
+      {
+        bookingId: disputeBooking.id,
+        senderId: dualUser.id,
+        receiverId: provider.id,
+        content: "Hi Maria, the kitchen faucet is still leaking a bit. Did you tighten the locknut?",
+        createdAt: new Date(Date.now() - 3600000 * 2) // 2 hours ago
+      },
+      {
+        bookingId: disputeBooking.id,
+        senderId: provider.id,
+        receiverId: dualUser.id,
+        content: "I tightened it as much as possible. I already packed up and left Cordova though.",
+        createdAt: new Date(Date.now() - 3600000 * 1.5) // 1.5 hours ago
+      },
+      {
+        bookingId: disputeBooking.id,
+        senderId: dualUser.id,
+        receiverId: provider.id,
+        content: "But the water is still spraying and flooding the cabinet floor! Please return to finish it.",
+        createdAt: new Date(Date.now() - 3600000 * 1) // 1 hour ago
+      }
+    ]
+  });
+  console.log("✅ Seeded Dispute / Report and chat logs for review");
 
   // 10. Seed 1 escalated cancellation
   const cancelBooking = await prisma.booking.create({

@@ -9,10 +9,11 @@ exports.RegisterSchema = zod_1.z.object({
     password: zod_1.z
         .string()
         .min(8, "Password must be at least 8 characters")
-        .regex(/\d/, "Password must contain at least one number"),
+        .regex(/\d/, "Password must contain at least one number")
+        .regex(/[A-Z]/, "Password must contain at least one uppercase letter"),
     phone: zod_1.z
         .string()
-        .regex(/^\+63\s?9\d{2}\s?\d{3}\s?\d{4}$/, "Phone must be a valid PH mobile number (e.g. +63 917 123 4567)"),
+        .regex(/^(\+63\s?9|09)\d{2}\s?\d{3}\s?\d{4}$/, "Phone must be a valid PH mobile number (e.g. 0917 123 4567 or +63 917 123 4567)"),
     location: zod_1.z.string().min(1, "Location is required"),
     bio: zod_1.z.string().optional(),
     avatarUrl: zod_1.z.string().url().optional(),
@@ -32,7 +33,8 @@ exports.ResetPasswordSchema = zod_1.z.object({
     password: zod_1.z
         .string()
         .min(8, "Password must be at least 8 characters")
-        .regex(/\d/, "Password must contain at least one number"),
+        .regex(/\d/, "Password must contain at least one number")
+        .regex(/[A-Z]/, "Password must contain at least one uppercase letter"),
 });
 // ── Change Password (authenticated) ─────────────────────────────────────────
 exports.ChangePasswordSchema = zod_1.z.object({
@@ -40,6 +42,7 @@ exports.ChangePasswordSchema = zod_1.z.object({
     newPassword: zod_1.z
         .string()
         .min(8, "Password must be at least 8 characters")
-        .regex(/\d/, "Password must contain at least one number"),
+        .regex(/\d/, "Password must contain at least one number")
+        .regex(/[A-Z]/, "Password must contain at least one uppercase letter"),
 });
 //# sourceMappingURL=auth.schema.js.map
