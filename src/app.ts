@@ -23,7 +23,7 @@ const app = express();
 // ─── Global Middleware ──────────────────────────────────────────────────────
 
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: env.FRONTEND_URL || `env.FRONTEND_URL${"/"}`,
   credentials: true, // allow cookies (refresh token)
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 }));

@@ -32,8 +32,14 @@ const REFRESH_COOKIE_OPTIONS = {
 
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
-    const input = RegisterSchema.parse(req.body);
-    const { user, tokens } = await registerUser(input);
+    const result = RegisterSchema.safeParse(req.body);
+
+    if (!result.success) {
+        return res.status(400).json({
+        errors: result.error.flatten(),
+      });
+    }
+    const { user, tokens } = await registerUser(result.data);
 
     res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
 
@@ -109,16 +115,25 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
 
 // ── GET /auth/verify-email/:token ─────────────────────────────────────────────
 
-export async function verifyEmailHandler(req: Request, res: Response, next: NextFunction) {
+export async function verifyEmailHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const { token } = req.params;
-    await verifyEmail(token as string);
-    // Redirect to frontend with success state
-    res.redirect(`${env.FRONTEND_URL}?emailVerified=true`);
+    const { token } = req.params as { token: string };
+
+    await verifyEmail(token);
+
+    res.status(200).json({
+      success: true,
+      message: "Email verified successfully.",
+    });
   } catch (err) {
     next(err);
   }
 }
+
 
 export async function resendVerificationHandler(req: Request, res: Response, next: NextFunction) {
   try {

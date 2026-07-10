@@ -45,5 +45,10 @@
     "tsc-alias": "^1.8.17",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.8.0": true,
+    "esbuild@0.28.0": true,
+    "prisma@7.8.0": true
   }
 }

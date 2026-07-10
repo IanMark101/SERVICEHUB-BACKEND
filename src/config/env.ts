@@ -9,7 +9,7 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   PORT: z.string().default("3001"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  FRONTEND_URL: z.string().default("http://localhost:5173"),
+  FRONTEND_URL: z.string().default("http://localhost:3000"),
   // PayMongo (test mode for capstone)
   PAYMONGO_SECRET_KEY: z.string().optional(),
   PAYMONGO_PUBLIC_KEY: z.string().optional(),
