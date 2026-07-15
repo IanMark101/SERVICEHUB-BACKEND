@@ -39,9 +39,9 @@ router.post("/initiate-payment", requireVerification, initiatePayment);
 router.post("/confirm-online", requireVerification, confirmOnlineBooking); // only call after PayMongo succeeds
 
 // Queue management
-router.post("/waitlist", joinWaitlistHandler);
+router.post("/waitlist", requireVerification, joinWaitlistHandler);
 router.delete("/queue/:id", cancelQueue); // seeker cancels queue entry
-router.patch("/queue/:id/start", startJob); // provider starts job
+router.patch("/queue/:id/start", requireVerification, startJob); // provider starts job
 router.delete("/queue/:id/provider", providerRemoveFromQueue); // provider removes entry
 router.patch("/queue/:id/complete", completeJob); // provider marks job complete
 

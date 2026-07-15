@@ -16,7 +16,7 @@ export async function submitOffer(providerId: string, params: {
     select: { status: true, seekerId: true },
   });
 
-  if (!request || request.status !== "OPEN") {
+  if (!request || (request.status !== "OPEN" && request.status !== "IN_PROGRESS")) {
     const err = new Error("Request is not open for offers") as any;
     err.status = 400;
     throw err;

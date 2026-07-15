@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "node",
-    "ignoreDeprecations": "6.0",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "rootDir": "src",
+    "types": ["node"],
+    "rootDir": ".",
     "outDir": "dist",
     "strict": true,
     "noImplicitAny": true,
@@ -21,7 +21,9 @@
     }
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "prisma.config.ts",
+    "prisma/**/*"
   ],
   "exclude": [
     "node_modules",

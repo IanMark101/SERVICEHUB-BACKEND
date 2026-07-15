@@ -127,7 +127,7 @@ export async function reviewVerification(
       body: approve
         ? 'You are now a Verified Resident of Cordova! Your "Verified" badge is now active.'
         : `Your verification was not approved. Reason: ${adminNotes || "Please resubmit with clearer documents."}`,
-      link: `/provider/provider-activity`,
+      link: verification.user.role === "provider" ? `/provider/user-profile?id=${verification.userId}` : `/seeker/user-profile?id=${verification.userId}`,
     },
   });
   safeEmit(`user:${verification.userId}`, "notification", { title: approve ? "Verification Approved ✅" : "Verification Rejected" });

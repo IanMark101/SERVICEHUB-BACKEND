@@ -229,7 +229,9 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
           }
         },
         directRequest: {
-          include: {
+          select: {
+            message: true,
+            agreedPrice: true,
             service: {
               select: { title: true }
             }

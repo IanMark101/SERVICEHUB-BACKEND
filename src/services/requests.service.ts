@@ -50,7 +50,7 @@ export async function createRequest(seekerId: string, params: {
 export async function listRequests(categoryId?: string) {
   return prisma.serviceRequest.findMany({
     where: {
-      status: "OPEN",
+      status: { in: ["OPEN", "IN_PROGRESS"] },
       ...(categoryId && { categoryId }),
     },
     include: {
