@@ -15,6 +15,9 @@ import {
   resetPassword,
   googleLoginUser,
   resendVerificationEmail,
+  getUserPublicProfile,
+  updateUserProfile,
+  changeUserPassword,
 } from "../services/auth.service";
 import { env } from "../config/env";
 
@@ -121,14 +124,9 @@ export async function verifyEmailHandler(
   next: NextFunction
 ) {
   try {
-    const { token } = req.params as { token: string };
-
-    await verifyEmail(token);
-
-    res.status(200).json({
-      success: true,
-      message: "Email verified successfully.",
-    });
+    const { token } = req.params;
+    await verifyEmail(token as string);
+    res.json({ success: true, message: "Email verified successfully." });
   } catch (err) {
     next(err);
   }
@@ -215,3 +213,41 @@ export async function googleLogin(req: Request, res: Response, next: NextFunctio
     next(err);
   }
 }
+
+// ── GET /auth/profile/:id ────────────────────────────────────────────────────
+
+export async function getPublicProfileHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const profile = await getUserPublicProfile(id as string);
+    res.json({ success: true, data: profile });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── PUT /auth/profile ────────────────────────────────────────────────────────
+
+export async function updateProfileHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as any).user?.id;
+    const updated = await updateUserProfile(userId, req.body);
+    res.json({ success: true, data: updated, message: "Profile updated successfully" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── POST /auth/change-password ───────────────────────────────────────────────
+
+export async function changePasswordHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as any).user?.id;
+    const { currentPassword, newPassword } = req.body;
+    await changeUserPassword(userId, currentPassword, newPassword);
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (err) {
+    next(err);
+  }
+}
+

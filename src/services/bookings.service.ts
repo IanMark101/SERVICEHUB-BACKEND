@@ -207,7 +207,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
         userId: directRequest.seekerId,
         title: "Direct Booking Declined ❌",
         body: "Your direct booking request was declined by the provider.",
-        link: `/seeker/seeker-activity?tab=canceled&booking=${directRequest.id}`,
+        link: `/seeker/seeker-activity?tab=canceled&booking=${existingBooking?.id || directRequest.id}`,
       },
     });
     safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Declined ❌" });
@@ -628,6 +628,20 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     }
   });
 
+  // Reset related ServiceRequest status back to OPEN so card remains available on Browse Jobs
+  if (booking.offerId) {
+    const offerObj = await prisma.offer.findUnique({
+      where: { id: booking.offerId },
+      select: { requestId: true }
+    });
+    if (offerObj?.requestId) {
+      await prisma.serviceRequest.update({
+        where: { id: offerObj.requestId },
+        data: { status: "OPEN" }
+      });
+    }
+  }
+
   if (booking.paymentMethod === 'GCash') {
     await sendMessage(booking.id, seekerId, "Funds released.", undefined, true);
   } else {
@@ -662,7 +676,7 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
       body: booking.paymentMethod === "GCash"
         ? `₱${finalPrice} has been released to your wallet.`
         : `Seeker confirmed completion of cash-based job for ₱${finalPrice}.`,
-      link: `/provider/transaction-history?booking=${booking.id}`,
+      link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
     },
   });
   safeEmit(`user:${booking.providerId}`, "notification", { title: "Payment Confirmed 💰" });

@@ -4,7 +4,8 @@ import { summarizeProviderReviews, matchProvidersToRequest } from "../services/a
 export async function getProviderSummary(req: Request, res: Response, next: NextFunction) {
   try {
     const { providerId } = req.params;
-    const result = await summarizeProviderReviews(providerId as string);
+    const { serviceId } = req.query;
+    const result = await summarizeProviderReviews(providerId as string, serviceId as string | undefined);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

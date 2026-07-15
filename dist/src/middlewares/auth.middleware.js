@@ -1,0 +1,132 @@
+import jwt from "jsonwebtoken";
+import { prisma } from "../lib/prisma";
+import { env } from "../config/env";
+import { getUserPermissions } from "../utils/permissions";
+// ── requireAuth ───────────────────────────────────────────────────────────────
+// Validates Bearer JWT, attaches full user object to req.user
+export async function requireAuth(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+        return res.status(401).json({ success: false, error: "Authentication required" });
+    }
+    const token = authHeader.split(" ")[1];
+    try {
+        const payload = jwt.verify(token, env.JWT_ACCESS_SECRET);
+        const user = await prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                trustScore: true,
+                verificationStatus: true,
+                emailVerified: true,
+                isActive: true,
+            },
+        });
+        if (!user) {
+            return res.status(401).json({ success: false, error: "User not found" });
+        }
+        if (!user.isActive) {
+            return res.status(403).json({ success: false, error: "Account suspended" });
+        }
+        if (!user.emailVerified && !(req.baseUrl === "/api/auth" && req.path === "/me")) {
+            return res.status(403).json({
+                success: false,
+                error: "Please verify your email address first",
+                code: "EMAIL_NOT_VERIFIED",
+            });
+        }
+        req.user = user;
+        next();
+    }
+    catch (err) {
+        return res.status(401).json({ success: false, error: "Invalid or expired token" });
+    }
+}
+// ── requireAdmin ──────────────────────────────────────────────────────────────
+// Must be chained AFTER requireAuth
+export function requireAdmin(req, res, next) {
+    const user = req.user;
+    if (!user || user.role !== "admin") {
+        return res.status(403).json({ success: false, error: "Admin access required" });
+    }
+    next();
+}
+// ── requireMarketplaceUser ───────────────────────────────────────────────────
+// Must be chained AFTER requireAuth. Blocks admins from standard user actions.
+export function requireMarketplaceUser(req, res, next) {
+    const user = req.user;
+    if (!user || user.role === "admin") {
+        return res.status(403).json({ success: false, error: "Marketplace action restricted to standard users" });
+    }
+    next();
+}
+// ── requireEmailVerified ──────────────────────────────────────────────────────
+// Blocks access for unverified email users on sensitive endpoints
+export function requireEmailVerified(req, res, next) {
+    const user = req.user;
+    if (!user.emailVerified) {
+        return res.status(403).json({
+            success: false,
+            error: "Please verify your email address first",
+            code: "EMAIL_NOT_VERIFIED",
+        });
+    }
+    next();
+}
+// ── requireVerification ───────────────────────────────────────────────────────
+// Part 6 — Residency verification gate. NEVER blocks login — only blocks
+// specific ACTIONS: booking, posting requests, sending offers, creating listings.
+// Must be chained AFTER requireAuth on those routes.
+//
+// UNVERIFIED / PENDING_REVIEW → 403 VERIFICATION_REQUIRED
+// APPROVED                   → pass through
+export function requireVerification(req, res, next) {
+    const user = req.user;
+    const permissions = getUserPermissions(user);
+    if (!permissions.canTransact) {
+        const isPending = user.verificationStatus === "PENDING_REVIEW";
+        return res.status(403).json({
+            success: false,
+            error: isPending
+                ? "Verification under review — usually within 24 hours. You cannot perform this action yet."
+                : "Please verify your Cordova residency to perform this action.",
+            code: "VERIFICATION_REQUIRED",
+            verificationStatus: user.verificationStatus,
+        });
+    }
+    next();
+}
+export async function optionalAuth(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+        return next();
+    }
+    const token = authHeader.split(" ")[1];
+    try {
+        const payload = jwt.verify(token, env.JWT_ACCESS_SECRET);
+        const user = await prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                trustScore: true,
+                verificationStatus: true,
+                emailVerified: true,
+                isActive: true,
+            },
+        });
+        if (user && user.isActive) {
+            req.user = user;
+        }
+    }
+    catch (err) {
+        // Ignore invalid tokens for optional auth
+    }
+    next();
+}
+//# sourceMappingURL=auth.middleware.js.map

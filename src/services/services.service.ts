@@ -18,6 +18,10 @@ export async function browseServices(params: {
     where: {
       status: "ACTIVE",
       isAvailable: true,
+      provider: {
+        verificationStatus: "APPROVED",
+        isActive: true,
+      },
       ...(categoryId && { categoryId }),
       ...(availableOnly && { isAvailable: true }),
       ...(excludeProviderId && { providerId: { not: excludeProviderId } }),

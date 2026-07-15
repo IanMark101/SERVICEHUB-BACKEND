@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
+import { getUserPermissions } from "../utils/permissions";
 
 export interface AuthenticatedRequest extends Request {
   user: {
@@ -114,10 +115,8 @@ export function requireEmailVerified(req: Request, res: Response, next: NextFunc
 export function requireVerification(req: Request, res: Response, next: NextFunction) {
   const user = (req as AuthenticatedRequest).user;
 
-  // Admins bypass this check — they have an elevated, non-switchable role
-  if (user.role === "admin") return next();
-
-  if (user.verificationStatus !== "APPROVED") {
+  const permissions = getUserPermissions(user);
+  if (!permissions.canTransact) {
     const isPending = user.verificationStatus === "PENDING_REVIEW";
     return res.status(403).json({
       success: false,

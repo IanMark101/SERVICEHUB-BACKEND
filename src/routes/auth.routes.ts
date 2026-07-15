@@ -10,6 +10,9 @@ import {
   resetPasswordHandler,
   getMe,
   resendVerificationHandler,
+  getPublicProfileHandler,
+  updateProfileHandler,
+  changePasswordHandler,
 } from "../controllers/auth.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 
@@ -25,8 +28,11 @@ router.get("/verify-email/:token", verifyEmailHandler);
 router.post("/forgot-password", forgotPasswordHandler);
 router.post("/reset-password", resetPasswordHandler);
 router.post("/resend-verification", resendVerificationHandler);
+router.get("/profile/:id", getPublicProfileHandler);
 
 // Protected routes
 router.get("/me", requireAuth, getMe);
+router.put("/profile", requireAuth, updateProfileHandler);
+router.post("/change-password", requireAuth, changePasswordHandler);
 
 export default router;
