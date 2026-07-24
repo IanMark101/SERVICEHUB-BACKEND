@@ -57,12 +57,28 @@ async function main() {
   });
   console.log("✅ Created Provider: test.provider@servicehub.com");
 
+  // 3. Create Admin Account
+  const admin = await prisma.user.create({
+    data: {
+      name: "Admin Moderator",
+      email: "admin@servicehub.com",
+      passwordHash,
+      phone: "+63 917 000 0000",
+      location: "Poblacion, Cordova",
+      role: "admin",
+      emailVerified: true,
+      trustScore: 100,
+      verificationStatus: "APPROVED"
+    }
+  });
+  console.log("✅ Created Admin: admin@servicehub.com (password: Password123!)");
+
   // Create Plumbing category
   const plumbingCategory = await prisma.category.create({
     data: { name: "Plumbing", isActive: true }
   });
 
-  // 3. Create Service Listing for Provider
+  // 4. Create Service Listing for Provider
   const service = await prisma.service.create({
     data: {
       providerId: provider.id,
