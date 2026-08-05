@@ -426,7 +426,7 @@ export async function getUserPublicProfile(userId: string) {
   return {
     ...user,
     completedServiceCount: completedCount,
-    averageRating: avgRatingResult._avg.rating || 5.0,
+    averageRating: avgRatingResult._avg.rating ? Number(avgRatingResult._avg.rating.toFixed(1)) : 0,
     reviews: reviews.map(r => ({
       id: r.id,
       authorName: r.author.name,

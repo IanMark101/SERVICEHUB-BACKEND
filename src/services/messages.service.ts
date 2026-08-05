@@ -2,7 +2,7 @@ import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
 import { assertDistinctAccounts } from "../utils/security";
 
-export async function checkMessagingAccess(bookingId: string, userId: string) {
+export async function checkMessagingAccess(bookingId: string, userId: string, userRole?: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: {
@@ -17,6 +17,11 @@ export async function checkMessagingAccess(bookingId: string, userId: string) {
     const err = new Error("Booking not found") as any;
     err.status = 404;
     throw err;
+  }
+
+  // Admin users can access any booking's messages for dispute/report investigation
+  if (userRole === 'admin') {
+    return booking;
   }
 
   // Authorization: only the seeker or provider of this booking can access
@@ -36,8 +41,8 @@ export async function getConversations(userId: string) {
         { seekerId: userId },
         { providerId: userId }
       ],
-      // Exclude pending bookings
-      status: { not: "PENDING_APPROVAL" }
+      // Only show bookings where both parties have entered an agreement
+      status: { notIn: ["PENDING_APPROVAL", "DECLINED"] }
     },
     include: {
       seeker: { select: { id: true, name: true, avatarUrl: true } },
@@ -94,32 +99,37 @@ export async function getConversations(userId: string) {
   });
 }
 
-export async function getMessages(bookingId: string, userId: string) {
-  // Validate basic access (seeker or provider check)
-  await checkMessagingAccess(bookingId, userId);
+export async function getMessages(bookingId: string, userId: string, userRole?: string) {
+  // Validate basic access (seeker or provider check, admin bypass)
+  await checkMessagingAccess(bookingId, userId, userRole);
 
-  // Mark receiver's messages as read
-  await prisma.message.updateMany({
-    where: {
-      bookingId,
-      receiverId: userId,
-      isRead: false,
-    },
-    data: { isRead: true },
-  });
+  // Only mark messages as read if the user is a participant (not admin viewing)
+  if (userRole !== 'admin') {
+    await prisma.message.updateMany({
+      where: {
+        bookingId,
+        receiverId: userId,
+        isRead: false,
+      },
+      data: { isRead: true },
+    });
 
-  // Auto mark matching notification alerts as read
-  await prisma.notification.updateMany({
-    where: {
-      userId,
-      isRead: false,
-      OR: [
-        { link: `/seeker/messages?booking=${bookingId}` },
-        { link: `/provider/messages?booking=${bookingId}` }
-      ]
-    },
-    data: { isRead: true }
-  });
+    // Auto mark matching notification alerts as read
+    await prisma.notification.updateMany({
+      where: {
+        userId,
+        isRead: false,
+        OR: [
+          { link: `/seeker/seeker-activity?booking=${bookingId}` },
+          { link: `/provider/provider-activity?booking=${bookingId}` },
+          // Legacy links for backwards compatibility
+          { link: `/seeker/messages?booking=${bookingId}` },
+          { link: `/provider/messages?booking=${bookingId}` }
+        ]
+      },
+      data: { isRead: true }
+    });
+  }
 
   return prisma.message.findMany({
     where: { bookingId },
@@ -128,6 +138,47 @@ export async function getMessages(bookingId: string, userId: string) {
     },
     orderBy: { createdAt: "asc" },
   });
+}
+
+/**
+ * Admin-only: Get all messages for a specific booking (for dispute/report investigation).
+ * Returns booking context + full message history.
+ */
+export async function getBookingMessagesForAdmin(bookingId: string) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      seeker: { select: { id: true, name: true, avatarUrl: true, email: true } },
+      provider: { select: { id: true, name: true, avatarUrl: true, email: true } },
+      service: { select: { title: true } },
+      offer: { include: { request: { select: { title: true } } } },
+      directRequest: { include: { service: { select: { title: true } } } },
+      messages: {
+        include: {
+          sender: { select: { id: true, name: true, avatarUrl: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (!booking) {
+    const err = new Error("Booking not found") as any;
+    err.status = 404;
+    throw err;
+  }
+
+  const title = booking.service?.title || booking.offer?.request?.title || booking.directRequest?.service?.title || "Job Engagement";
+
+  return {
+    bookingId: booking.id,
+    status: booking.status,
+    title,
+    seeker: booking.seeker,
+    provider: booking.provider,
+    messages: booking.messages,
+    messageCount: booking.messages.length,
+  };
 }
 
 export async function sendMessage(

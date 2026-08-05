@@ -20,6 +20,7 @@ import {
   adminList as listPendingVerifications,
   adminReview as reviewVerification,
 } from "../controllers/verification.controller";
+import { adminViewMessages } from "../controllers/messages.controller";
 
 const router = Router();
 
@@ -57,6 +58,9 @@ router.patch("/cancellation-requests/:id/resolve", resolveCancellationRequest);
 
 // List escalated cancellations (for admin Escalations tab)
 router.get("/cancellations/escalated", listEscalatedCancellations);
+
+// Booking Messages Investigation (for dispute/report review)
+router.get("/bookings/:bookingId/messages", adminViewMessages);
 
 export default router;
 

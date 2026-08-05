@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
-import { getMessages, sendMessage, getConversations } from "../services/messages.service";
+import { getMessages, sendMessage, getConversations, getBookingMessagesForAdmin } from "../services/messages.service";
 
 export async function listConversations(req: Request, res: Response, next: NextFunction) {
   try {
@@ -17,7 +17,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
     const user = (req as AuthenticatedRequest).user;
     const bookingId = req.params.bookingId || req.params.completedServiceId;
 
-    const messages = await getMessages(bookingId as string, user.id);
+    const messages = await getMessages(bookingId as string, user.id, user.role);
     res.json({ success: true, data: messages });
   } catch (err: any) {
     if (err.code === "MESSAGES_LOCKED") {
@@ -50,3 +50,17 @@ export async function create(req: Request, res: Response, next: NextFunction) {
     next(err);
   }
 }
+
+/**
+ * Admin-only: View all messages for a specific booking (dispute/report investigation).
+ */
+export async function adminViewMessages(req: Request, res: Response, next: NextFunction) {
+  try {
+    const bookingId = req.params.bookingId as string;
+    const data = await getBookingMessagesForAdmin(bookingId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+

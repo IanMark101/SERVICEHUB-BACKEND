@@ -88,7 +88,11 @@ export async function listUsers(req: Request, res: Response, next: NextFunction)
 export async function updateTrustScore(req: Request, res: Response, next: NextFunction) {
   try {
     const { delta, reason } = req.body;
-    await applyTrustEvent(req.params.id as string, parseInt(delta), reason || "Admin manual override");
+    const parsedDelta = parseInt(delta, 10);
+    if (isNaN(parsedDelta)) {
+      return res.status(400).json({ success: false, error: "delta must be a number" });
+    }
+    await applyTrustEvent(req.params.id as string, parsedDelta, reason || "Admin manual override");
     res.json({ success: true });
   } catch (err) {
     next(err);
@@ -267,8 +271,9 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
       await prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
     } else if (action === "ban") {
       await prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
-      // Invalidate all sessions so user is immediately logged out
+      // Invalidate all sessions immediately
       await prisma.refreshToken.deleteMany({ where: { userId: report.reportedUserId } });
+      safeEmit(`user:${report.reportedUserId}`, "forceLogout", { reason: "Account permanently banned by administrator" });
     } else if (action === "approve_refund") {
       await prisma.booking.update({
         where: { id: report.bookingId },

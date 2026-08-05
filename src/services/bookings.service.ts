@@ -175,16 +175,30 @@ export async function respondToDirectBookingService(requestId: string, providerI
       });
     });
 
+    // Notify Seeker
     await prisma.notification.create({
       data: {
         userId: directRequest.seekerId,
         title: "Direct Booking Accepted! 🎉",
-        body: "Your direct booking request has been accepted. Coordinate with the provider via chat.",
-        link: `/seeker/seeker-activity?tab=active&booking=${booking.id}`,
+        body: "Your direct booking request was accepted! Messaging is now enabled — coordinate details with your provider via chat.",
+        link: `/seeker/seeker-activity?tab=all&booking=${booking.id}`,
       },
     });
     safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Accepted! 🎉" });
-    await sendMessage(booking.id, providerId, "Booking accepted.", undefined, true);
+
+    // Notify Provider
+    await prisma.notification.create({
+      data: {
+        userId: providerId,
+        title: "Booking Confirmed! 🎉",
+        body: "You accepted the direct booking request. Messaging is now open to coordinate with the seeker.",
+        link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
+      },
+    });
+    safeEmit(`user:${providerId}`, "notification", { title: "Booking Confirmed! 🎉" });
+
+    // System Message in Conversation
+    await sendMessage(booking.id, providerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", undefined, true);
 
     return booking;
   } else {
@@ -264,16 +278,30 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
     });
   });
 
-  // Notify provider
+  // Notify Provider
   await prisma.notification.create({
     data: {
       userId: offer.providerId,
       title: "Offer Accepted! 💰",
-      body: `Your offer on "${offer.request.title}" has been accepted. Cash on-site arranged.`,
+      body: `Your offer on "${offer.request.title}" was accepted! Messaging is now enabled — chat to coordinate service details.`,
       link: `/provider/provider-activity?tab=in_progress&booking=${booking.id}`,
     },
   });
-  await sendMessage(booking.id, seekerId, "Booking accepted.", undefined, true);
+  safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 💰" });
+
+  // Notify Seeker
+  await prisma.notification.create({
+    data: {
+      userId: seekerId,
+      title: "Booking Confirmed! 🎉",
+      body: `You accepted the offer for "${offer.request.title}". Messaging is now enabled to coordinate with your provider.`,
+      link: `/seeker/seeker-activity?tab=in_progress&booking=${booking.id}`,
+    },
+  });
+  safeEmit(`user:${seekerId}`, "notification", { title: "Booking Confirmed! 🎉" });
+
+  // Automated System Message
+  await sendMessage(booking.id, seekerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", undefined, true);
 
   return booking;
 }
