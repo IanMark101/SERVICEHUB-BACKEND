@@ -142,9 +142,9 @@ export async function requestCancellation(bookingId: string, seekerId: string, r
 
 // ── Respond to Cancellation Request (Provider Action) ─────────────────────────
 export async function respondToCancellationRequest(
-  requestId: string, 
-  providerId: string, 
-  approve: boolean, 
+  requestId: string,
+  providerId: string,
+  approve: boolean,
   providerNote?: string
 ) {
   const cancelReq = await prisma.cancellationRequest.findUnique({
@@ -167,7 +167,7 @@ export async function respondToCancellationRequest(
   if (approve) {
     await prisma.cancellationRequest.update({
       where: { id: requestId },
-      data: { 
+      data: {
         status: "APPROVED",
         resolvedAt: new Date()
       }
@@ -262,8 +262,8 @@ export async function escalateCancellationRequest(requestId: string, seekerId: s
 
 // ── Resolve Cancellation Request (Admin/Moderator Action) ─────────────────────
 export async function adminResolveCancellationRequest(
-  requestId: string, 
-  approve: boolean, 
+  requestId: string,
+  approve: boolean,
   adminNote?: string
 ) {
   const cancelReq = await prisma.cancellationRequest.findUnique({

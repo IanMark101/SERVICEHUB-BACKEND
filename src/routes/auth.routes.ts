@@ -13,6 +13,8 @@ import {
   getPublicProfileHandler,
   updateProfileHandler,
   changePasswordHandler,
+  getTrustHistoryHandler,
+  getPublicTrustHistoryHandler,
 } from "../controllers/auth.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 
@@ -34,5 +36,7 @@ router.get("/profile/:id", getPublicProfileHandler);
 router.get("/me", requireAuth, getMe);
 router.put("/profile", requireAuth, updateProfileHandler);
 router.post("/change-password", requireAuth, changePasswordHandler);
+router.get("/trust-history", requireAuth, getTrustHistoryHandler);
+router.get("/trust-history/:id", getPublicTrustHistoryHandler);
 
 export default router;

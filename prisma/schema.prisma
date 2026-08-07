@@ -127,6 +127,9 @@ model User {
   location            String
   avatarUrl           String?
   bio                 String?
+  facebookUrl         String?
+  instagramUrl        String?
+  websiteUrl          String?
   role                String             @default("user") // "user" | "admin"
   trustScore          Int                @default(50)
   verificationStatus  VerificationStatus @default(UNVERIFIED)
@@ -183,6 +186,10 @@ model User {
 
   // Category suggestions
   categorySuggestions   CategorySuggested[]
+
+  // Trust Score audit log
+  trustScoreEvents      TrustScoreEvent[]
+
 
   @@map("users")
 }
@@ -590,6 +597,23 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@map("notifications")
+}
+
+// ─────────────────────────────────────────────
+// TRUST SCORE HISTORY (immutable audit log)
+// ─────────────────────────────────────────────
+
+model TrustScoreEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  delta       Int      // positive = gain, negative = deduction
+  reason      String   // human-readable label shown in Trust History tab
+  scoreBefore Int      // snapshot of score BEFORE this event
+  scoreAfter  Int      // snapshot of score AFTER this event (clamped 0–100)
+  createdAt   DateTime @default(now())
+
+  @@map("trust_score_events")
 }
 
 // ─────────────────────────────────────────────

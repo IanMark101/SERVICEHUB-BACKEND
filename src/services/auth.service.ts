@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../utils/email";
 import type { RegisterInput, LoginInput } from "../schema/auth.schema";
+import { recordAccountCreationBaseline } from "./trust.service";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,9 @@ export interface AuthUser {
   location: string;
   avatarUrl: string | null;
   bio: string | null;
+  facebookUrl?: string | null;
+  instagramUrl?: string | null;
+  websiteUrl?: string | null;
   role: string;
   trustScore: number;
   verificationStatus: string;
@@ -84,6 +88,9 @@ export async function registerUser(input: RegisterInput): Promise<{ user: AuthUs
       role: "user",
     },
   });
+
+  // Record baseline trust score event in audit log
+  await recordAccountCreationBaseline(user.id);
 
   // Create email verification token (24h expiry)
   const verifyToken = generateSecureToken();
@@ -291,6 +298,9 @@ function toPublicUser(user: any): AuthUser {
     location: user.location,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    facebookUrl: user.facebookUrl,
+    instagramUrl: user.instagramUrl,
+    websiteUrl: user.websiteUrl,
     role: user.role,
     trustScore: user.trustScore,
     verificationStatus: user.verificationStatus,
@@ -372,6 +382,10 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
     });
 
     const tokens = await issueTokens(user.id, user.role);
+
+    // Record baseline trust score event in audit log for new Google users
+    await recordAccountCreationBaseline(user.id);
+
     return { user: toPublicUser(user), tokens };
   }
 }
@@ -389,6 +403,9 @@ export async function getUserPublicProfile(userId: string) {
       location: true,
       avatarUrl: true,
       bio: true,
+      facebookUrl: true,
+      instagramUrl: true,
+      websiteUrl: true,
       role: true,
       trustScore: true,
       verificationStatus: true,
@@ -440,7 +457,16 @@ export async function getUserPublicProfile(userId: string) {
 
 export async function updateUserProfile(
   userId: string,
-  data: { name?: string; bio?: string; phone?: string; location?: string; avatarUrl?: string }
+  data: {
+    name?: string;
+    bio?: string;
+    phone?: string;
+    location?: string;
+    avatarUrl?: string;
+    facebookUrl?: string;
+    instagramUrl?: string;
+    websiteUrl?: string;
+  }
 ) {
   const updatedUser = await prisma.user.update({
     where: { id: userId },
@@ -450,6 +476,9 @@ export async function updateUserProfile(
       ...(data.phone !== undefined && { phone: data.phone }),
       ...(data.location !== undefined && { location: data.location }),
       ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl }),
+      ...(data.facebookUrl !== undefined && { facebookUrl: data.facebookUrl }),
+      ...(data.instagramUrl !== undefined && { instagramUrl: data.instagramUrl }),
+      ...(data.websiteUrl !== undefined && { websiteUrl: data.websiteUrl }),
     },
   });
 

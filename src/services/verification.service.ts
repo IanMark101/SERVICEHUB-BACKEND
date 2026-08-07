@@ -1,6 +1,5 @@
 import { prisma } from "../lib/prisma";
-import { applyTrustEvent } from "./trust.service";
-import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
+import { applyVerificationApprovalTrust } from "./trust.service";
 import { safeEmit } from "../lib/socket";
 
 // ── Submit Verification ────────────────────────────────────────────────────────
@@ -9,42 +8,106 @@ export async function submitVerification(
   userId: string,
   proofs: { fileUrl: string; documentType: string }[]
 ) {
-  // Invalidate any existing verification in REJECTED or UNVERIFIED state
-  await prisma.serviceVerification.updateMany({
-    where: { userId, status: { in: ["REJECTED"] } },
-    data: { status: "PENDING_REVIEW" },
-  });
-
-  // Check if already pending
-  const existing = await prisma.serviceVerification.findFirst({
-    where: { userId, status: "PENDING_REVIEW" },
-  });
-
-  if (existing) {
-    const err = new Error("Verification already under review") as any;
-    err.status = 409;
-    throw err;
-  }
-
-  if (proofs.length === 0) {
+  if (!proofs || proofs.length === 0) {
     const err = new Error("At least one document is required") as any;
     err.status = 400;
     throw err;
   }
 
-  const verification = await prisma.serviceVerification.create({
-    data: {
-      userId,
-      status: "PENDING_REVIEW",
-      proofs: {
-        create: proofs.map((p) => ({
-          fileUrl: p.fileUrl,
-          documentType: p.documentType,
-        })),
-      },
-    },
-    include: { proofs: true },
+  // Check user's current status
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { verificationStatus: true, name: true, email: true },
   });
+
+  if (user?.verificationStatus === "APPROVED") {
+    const err = new Error("Your account is already verified.") as any;
+    err.status = 400;
+    throw err;
+  }
+
+  // Find any existing verification record for this user
+  const existing = await prisma.serviceVerification.findFirst({
+    where: { userId },
+    orderBy: { submittedAt: "desc" },
+  });
+
+  let verification;
+
+  if (existing) {
+    // Delete old proofs attached to this verification record
+    await prisma.verificationProof.deleteMany({
+      where: { verificationId: existing.id },
+    });
+
+    // Update existing verification record to PENDING_REVIEW with new proofs
+    verification = await prisma.serviceVerification.update({
+      where: { id: existing.id },
+      data: {
+        status: "PENDING_REVIEW",
+        submittedAt: new Date(),
+        reviewedAt: null,
+        adminId: null,
+        adminNotes: null,
+        proofs: {
+          create: proofs.map((p) => ({
+            fileUrl: p.fileUrl,
+            documentType: p.documentType,
+          })),
+        },
+      },
+      include: { proofs: true },
+    });
+  } else {
+    // Create brand new verification record
+    verification = await prisma.serviceVerification.create({
+      data: {
+        userId,
+        status: "PENDING_REVIEW",
+        proofs: {
+          create: proofs.map((p) => ({
+            fileUrl: p.fileUrl,
+            documentType: p.documentType,
+          })),
+        },
+      },
+      include: { proofs: true },
+    });
+  }
+
+  // Update user's verificationStatus to PENDING_REVIEW
+  await prisma.user.update({
+    where: { id: userId },
+    data: { verificationStatus: "PENDING_REVIEW" },
+  });
+
+  // Create in-app notification records for all admin users so it shows up in their bell dropdown
+  const admins = await prisma.user.findMany({
+    where: { role: "admin" },
+    select: { id: true },
+  });
+
+  if (admins.length > 0) {
+    const adminNotifs = admins.map((admin) => ({
+      userId: admin.id,
+      title: "📁 New Verification Submission",
+      body: `${user?.name || "A user"} (${user?.email || userId}) submitted verification documents for review.`,
+      link: "/admin/verifications",
+    }));
+
+    await prisma.notification.createMany({ data: adminNotifs });
+
+    admins.forEach((admin) => {
+      safeEmit(`user:${admin.id}`, "notification", {
+        title: "📁 New Verification Submission",
+        body: `${user?.name || "A user"} submitted verification documents.`,
+        link: "/admin/verifications",
+      });
+    });
+  }
+
+  // Emit real-time queue update for Admin Verifications page
+  safeEmit("admin", "verification_submitted", { userId, verificationId: verification.id });
 
   return verification;
 }
@@ -115,11 +178,11 @@ export async function reviewVerification(
   });
 
   if (approve) {
-    // One-time trust score bonus for completing verification (+5)
-    await applyTrustEvent(verification.userId, 5, "Community verification approved");
+    // Masterprompt Part 5 & 15: one-time +5 for verification approval
+    await applyVerificationApprovalTrust(verification.userId);
   }
 
-  // In-app notification
+  // In-app notification for the user
   await prisma.notification.create({
     data: {
       userId: verification.userId,

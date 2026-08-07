@@ -19,6 +19,7 @@ import {
   updateUserProfile,
   changeUserPassword,
 } from "../services/auth.service";
+import { getTrustHistory } from "../services/trust.service";
 import { env } from "../config/env";
 
 // ── Cookie config ─────────────────────────────────────────────────────────────
@@ -251,3 +252,29 @@ export async function changePasswordHandler(req: Request, res: Response, next: N
   }
 }
 
+// ── GET /auth/trust-history ───────────────────────────────────────────────────
+// Returns the authenticated user's own immutable trust score event log.
+// This is the SINGLE SOURCE OF TRUTH for the Trust History tab.
+
+export async function getTrustHistoryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as any).user?.id;
+    const events = await getTrustHistory(userId);
+    res.json({ success: true, data: events });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── GET /auth/trust-history/:id ───────────────────────────────────────────────
+// Public profile view: fetch another user's trust history by their user ID.
+
+export async function getPublicTrustHistoryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params;
+    const events = await getTrustHistory(id as string);
+    res.json({ success: true, data: events });
+  } catch (err) {
+    next(err);
+  }
+}

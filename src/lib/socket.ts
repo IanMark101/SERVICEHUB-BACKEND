@@ -46,6 +46,13 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     // Each user joins their own personal room so they can receive targeted events
     socket.join(`user:${userId}`);
 
+    // Admin users join the global admin room for real-time moderation alerts
+    const role = (socket as any).role as string;
+    if (role === "admin") {
+      socket.join("admin");
+      console.log(`[Socket.io] Admin ${userId} joined room: admin`);
+    }
+
     // Join a booking chat room on demand
     socket.on("join_booking", (bookingId: string) => {
       socket.join(`booking:${bookingId}`);

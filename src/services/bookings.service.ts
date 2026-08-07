@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { recalculateQueue, notifyWaitlist } from "./queue.service";
-import { applyCancellationTrust } from "./trust.service";
+import { applyCancellationTrust, applyServiceCompletionTrust } from "./trust.service";
 import { safeEmit } from "../lib/socket";
 import { assertDistinctAccounts } from "../utils/security";
 import { sendMessage } from "./messages.service";
@@ -385,27 +385,27 @@ export async function addToQueue(params: {
 
   const queueEntry = isImmediate
     ? {
-        id: null,
-        bookingId: booking.id,
+      id: null,
+      bookingId: booking.id,
+      serviceId,
+      seekerId,
+      position: null,
+      estimatedWait: 0,
+      status: "ONGOING",
+    }
+    : await prisma.queue.create({
+      data: {
         serviceId,
         seekerId,
-        position: null,
-        estimatedWait: 0,
-        status: "ONGOING",
-      }
-    : await prisma.queue.create({
-        data: {
-          serviceId,
-          seekerId,
-          offerId,
-          paymentId,
-          position,
-          estimatedWait,
-          paymentStatus: "PAID_HELD",
-          status: "WAITING",
-          bookingId: booking.id,
-        },
-      });
+        offerId,
+        paymentId,
+        position,
+        estimatedWait,
+        paymentStatus: "PAID_HELD",
+        status: "WAITING",
+        bookingId: booking.id,
+      },
+    });
 
   // Notify provider of new queue entry
   await prisma.notification.create({
@@ -463,7 +463,7 @@ export async function providerStartJob(id: string, providerId: string) {
   // Update Booking status to ONGOING and started to true
   const updatedBooking = await prisma.booking.update({
     where: { id: booking.id },
-    data: { 
+    data: {
       status: "ONGOING",
       started: true
     }
@@ -689,11 +689,10 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     },
   });
 
-  // Update trust score: successful completion gives +2 trust to provider and +1 to seeker (if distinct)
+  // Trust score: successful completion — routed through centralized trust service
+  // which also writes the immutable TrustScoreEvent history record.
   if (booking.providerId !== booking.seekerId) {
-    const { applyTrustEvent } = await import("./trust.service");
-    await applyTrustEvent(booking.providerId, 2, "Successful service completion (provider)");
-    await applyTrustEvent(booking.seekerId, 1, "Successful service completion (seeker)");
+    await applyServiceCompletionTrust(booking.providerId);
   }
 
   // Notify provider

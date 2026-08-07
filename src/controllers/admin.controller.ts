@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../lib/prisma";
 import { adminReviewService, listPendingServices as adminListPendingServices } from "../services/services.service";
-import { applyTrustEvent } from "../services/trust.service";
+import { applyTrustEvent, applyReportPenaltyTrust, getTrustHistory } from "../services/trust.service";
 import { safeEmit } from "../lib/socket";
 
 // ── GET /admin/overview ───────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
       });
       safeEmit(`user:${report.reportedUserId}`, "notification", { title: "⚠️ Official Warning from Admin" });
     } else if (action === "trust_deduct") {
-      await applyTrustEvent(report.reportedUserId, -10, `Admin action on report ${report.id}`);
+      await applyReportPenaltyTrust(report.reportedUserId);
     } else if (action === "suspend") {
       await prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
     } else if (action === "ban") {
