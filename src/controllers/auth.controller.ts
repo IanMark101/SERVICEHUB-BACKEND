@@ -39,7 +39,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     const result = RegisterSchema.safeParse(req.body);
 
     if (!result.success) {
-        return res.status(400).json({
+      return res.status(400).json({
         errors: result.error.flatten(),
       });
     }

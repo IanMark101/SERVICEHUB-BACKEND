@@ -48,14 +48,15 @@ async function main() {
 
   const passwordHash = await bcrypt.hash("password1234", 10);
 
-  // 3. Ensure Core System Categories
   const categories = [
     "Plumbing",
     "Electrical Repair",
-    "Cleaning Services",
-    "Aircon Repair & Maintenance",
-    "Carpentry & Woodwork",
-    "Appliance Repair"
+    "House Cleaning",
+    "Lawn Care",
+    "Tutoring",
+    "Aircon Service",
+    "Appliance Repair",
+    "Carpentry & Woodwork"
   ];
 
   for (const name of categories) {

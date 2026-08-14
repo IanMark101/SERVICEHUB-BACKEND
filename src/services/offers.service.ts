@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { assertDistinctAccounts } from "../utils/security";
+import { safeEmit } from "../lib/socket";
 
 export async function submitOffer(providerId: string, params: {
   requestId: string;
@@ -68,6 +69,7 @@ export async function submitOffer(providerId: string, params: {
       link: `/seeker/incoming-offers?offer=${offer.id}`,
     },
   });
+  safeEmit(`user:${request.seekerId}`, "notification", { title: "New Offer Received" });
 
   return offer;
 }
@@ -175,6 +177,7 @@ export async function acceptOffer(offerId: string, seekerId: string) {
       link: `/provider/provider-activity?tab=pending_offers`,
     },
   });
+  safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 🎉" });
 
   return updatedOffer;
 }

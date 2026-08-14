@@ -71,7 +71,10 @@ export async function listRequests(categoryId?: string) {
 
 export async function getMyRequests(seekerId: string) {
   return prisma.serviceRequest.findMany({
-    where: { seekerId },
+    where: {
+      seekerId,
+      status: { not: "CANCELED" },
+    },
     include: {
       category: true,
       offers: {
@@ -126,8 +129,12 @@ export async function cancelRequest(requestId: string, seekerId: string) {
     throw err;
   }
 
-  return prisma.serviceRequest.update({
+  // Pure erase from database: hard delete all associated offers and the request itself
+  await prisma.offer.deleteMany({
+    where: { requestId },
+  });
+
+  return prisma.serviceRequest.delete({
     where: { id: requestId },
-    data: { status: "CANCELED" },
   });
 }

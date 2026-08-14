@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { applyListingRejectionTrust } from "./trust.service";
+import { safeEmit } from "../lib/socket";
 import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.schema";
 
 const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
@@ -117,21 +118,31 @@ export async function createService(providerId: string, input: CreateServiceInpu
   }
 
   // 3. Validate category exists and is active
-  const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
-  if (!category || !category.isActive) {
+  const category = await prisma.category.findFirst({
+    where: {
+      OR: [
+        { id: input.categoryId },
+        { name: input.categoryId },
+      ],
+      isActive: true,
+    },
+  });
+  if (!category) {
     const err = new Error("Invalid or inactive category") as any;
     err.status = 400;
     throw err;
   }
 
+
   return prisma.service.create({
     data: {
       providerId,
-      categoryId: input.categoryId,
+      categoryId: category.id,
       title: input.title,
       description: input.description,
       price: input.price,
       priceType: input.priceType,
+      serviceType: input.serviceType ?? "ONE_TIME",
       estimatedDurationMins: input.estimatedDurationMins,
       queueLimit: input.queueLimit,
       paymentMethods: input.paymentMethods,
@@ -193,11 +204,11 @@ export async function toggleServiceAvailability(serviceId: string, providerId: s
   });
 }
 
-// ── Delete Listing (soft delete) ───────────────────────────────────────────────
+// ── Delete Listing (Hard Erase from DB) ───────────────────────────────────────
 
 export async function deleteService(serviceId: string, providerId: string) {
   const service = await prisma.service.findFirst({
-    where: { id: serviceId, providerId, status: { not: "DELETED" } },
+    where: { id: serviceId, providerId },
   });
 
   if (!service) {
@@ -206,9 +217,12 @@ export async function deleteService(serviceId: string, providerId: string) {
     throw err;
   }
 
-  return prisma.service.update({
+  // Erase all child records and hard delete service listing from database
+  await prisma.queueNotify.deleteMany({ where: { serviceId } });
+  await prisma.queue.deleteMany({ where: { serviceId } });
+  await prisma.directRequest.deleteMany({ where: { serviceId } });
+  return prisma.service.delete({
     where: { id: serviceId },
-    data: { status: "DELETED", isAvailable: false },
   });
 }
 
@@ -285,6 +299,7 @@ export async function adminReviewService(
         link: "/provider/service-manager"
       },
     });
+    safeEmit(`user:${service.providerId}`, "notification", { title: "Listing Approved ✅" });
   } else {
     // Rejection logic — track count, escalate on repeated rejections
     const newRejectionCount = service.rejectionCount + 1;
@@ -323,6 +338,7 @@ export async function adminReviewService(
         link: "/provider/service-manager"
       },
     });
+    safeEmit(`user:${service.providerId}`, "notification", { title: "Listing Rejected" });
   }
 
   return { approved: approve };

@@ -75,6 +75,7 @@ export async function performImmediateCancel(bookingId: string) {
       link: `/provider/provider-activity?tab=canceled&booking=${booking.id}`,
     }
   });
+  safeEmit(`user:${booking.providerId}`, "notification", { title: "Booking Cancelled ⚠️" });
 
   // Notify seeker about the refund (if online payment)
   if (booking.paymentStatus === "PAID_HELD") {
@@ -86,6 +87,7 @@ export async function performImmediateCancel(bookingId: string) {
         link: `/seeker/seeker-activity?tab=canceled&booking=${booking.id}`,
       }
     });
+    safeEmit(`user:${booking.seekerId}`, "notification", { title: "Refund Processed 💰" });
   }
 }
 
@@ -135,6 +137,7 @@ export async function requestCancellation(bookingId: string, seekerId: string, r
         link: `/provider/provider-activity?tab=in_progress&booking=${booking.id}`,
       }
     });
+    safeEmit(`user:${booking.providerId}`, "notification", { title: "Cancellation Request Received ⚠️" });
 
     return { cancelled: false, immediate: false, request: cancelReq };
   }
@@ -184,6 +187,7 @@ export async function respondToCancellationRequest(
         link: `/seeker/seeker-activity?tab=canceled&booking=${cancelReq.bookingId}`,
       }
     });
+    safeEmit(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Cancellation Request Approved 🎉" });
 
     return { resolved: true, approved: true };
   } else {
@@ -205,6 +209,7 @@ export async function respondToCancellationRequest(
         link: `/seeker/seeker-activity?tab=active&booking=${cancelReq.bookingId}`,
       }
     });
+    safeEmit(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Cancellation Request Declined ❌" });
 
     return { resolved: true, approved: false, request: updated };
   }

@@ -35,6 +35,19 @@ enum PriceType {
   FIXED
   STARTS_AT
   PER_HOUR
+  PER_SESSION
+  PER_DAY
+  PER_PROJECT
+  CUSTOM
+}
+
+// ServiceType distinguishes one-time jobs from services that happen
+// repeatedly over time (e.g. tutoring, fitness coaching).
+// A SESSION_BASED listing remains active; multiple Bookings represent
+// individual sessions — no subscriptions or separate recurring contracts.
+enum ServiceType {
+  ONE_TIME
+  SESSION_BASED
 }
 
 enum RequestStatus {
@@ -301,6 +314,10 @@ model Service {
   description          String
   price                Decimal       @db.Decimal(10, 2)
   priceType            PriceType     @default(FIXED)
+  // serviceType classifies the listing. ONE_TIME = single engagement (plumbing, repairs).
+  // SESSION_BASED = repeatable sessions against the same listing (tutoring, fitness coaching).
+  // Multiple Bookings against a SESSION_BASED listing represent individual sessions.
+  serviceType          ServiceType   @default(ONE_TIME)
   estimatedDurationMins Int
   queueLimit           Int           @default(3)
   // payment_methods stored as JSON: { gcash: bool, maya: bool, cash: bool }
@@ -453,6 +470,12 @@ model Booking {
   status          BookingStatus  @default(WAITING)
   queuePosition   Int?
   started         Boolean        @default(false)
+  // Optional scheduling fields for session-based services.
+  // scheduledDate: the date the session is scheduled (ISO 8601 date string stored as text for flexibility).
+  // scheduledTime: the start time of the session (e.g. "14:00").
+  // Each individual Booking represents one session; recurring means multiple Bookings on the same listing.
+  scheduledDate   String?        // e.g. "2026-08-15"
+  scheduledTime   String?        // e.g. "16:00"
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 

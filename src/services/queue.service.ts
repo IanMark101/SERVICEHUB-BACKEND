@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { safeEmit } from "../lib/socket";
 
 export async function recalculateQueue(serviceId: string): Promise<void> {
   const activeEntries = await prisma.queue.findMany({
@@ -61,8 +62,10 @@ export async function notifyWaitlist(serviceId: string): Promise<void> {
           link: `/seeker/seek-services`,
         },
       });
+      safeEmit(`user:${firstWaiting.seekerId}`, "notification", { title: "Queue Slot Available! 🎉" });
       // Remove from waitlist
       await prisma.queueNotify.delete({ where: { id: firstWaiting.id } });
     }
   }
 }
+

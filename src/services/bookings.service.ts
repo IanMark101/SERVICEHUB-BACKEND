@@ -50,8 +50,10 @@ export async function createDirectRequest(params: {
   agreedPrice: number;
   schedule?: string;
   message?: string;
+  scheduledDate?: string; // ISO date e.g. "2026-08-15" — for session-based services
+  scheduledTime?: string; // HH:MM e.g. "16:00" — for session-based services
 }) {
-  const { seekerId, providerId, serviceId, agreedPrice, schedule, message } = params;
+  const { seekerId, providerId, serviceId, agreedPrice, schedule, message, scheduledDate, scheduledTime } = params;
 
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
   assertDistinctAccounts(seekerId, providerId, "book service");
@@ -98,6 +100,8 @@ export async function createDirectRequest(params: {
         paymentStatus: "UNPAID",
         status: "PENDING_APPROVAL",
         started: false,
+        scheduledDate: scheduledDate || null,
+        scheduledTime: scheduledTime || null,
       },
     });
 
@@ -313,8 +317,10 @@ export async function addToQueue(params: {
   seekerId: string;
   paymentId: string; // PayMongo payment intent ID — REQUIRED
   offerId?: string;  // Only for Flow B (accepted offer)
+  scheduledDate?: string; // ISO date e.g. "2026-08-15" — for session-based services
+  scheduledTime?: string; // HH:MM e.g. "16:00" — for session-based services
 }): Promise<{ queueEntry: any; isImmediate: boolean }> {
-  const { serviceId, seekerId, paymentId, offerId } = params;
+  const { serviceId, seekerId, paymentId, offerId, scheduledDate, scheduledTime } = params;
 
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
@@ -378,6 +384,8 @@ export async function addToQueue(params: {
       status: isImmediate ? "ONGOING" : "WAITING",
       queuePosition: isImmediate ? null : position,
       started: isImmediate, // Part 9: immediate online booking starts at creation time
+      scheduledDate: scheduledDate || null,
+      scheduledTime: scheduledTime || null,
     },
   });
 
@@ -430,6 +438,7 @@ export async function addToQueue(params: {
 
   return { queueEntry, isImmediate };
 }
+
 
 // ── Provider Start Job ────────────────────────────────────────────────────────
 
@@ -784,6 +793,7 @@ export async function disputeJobService(
       link: `/provider/provider-activity?tab=disputed&booking=${booking.id}`,
     },
   });
+  safeEmit(`user:${booking.providerId}`, "notification", { title: "Job Disputed ⚠️" });
 
   return report;
 }
