@@ -41,12 +41,17 @@ export async function browseServices(params: {
           avatarUrl: true,
           trustScore: true,
           verificationStatus: true,
+          reviewsReceived: { select: { rating: true } },
         },
       },
       category: { select: { id: true, name: true } },
       queueEntries: {
         where: { status: { in: ["WAITING", "SERVING"] } },
         select: { id: true, position: true },
+      },
+      bookings: {
+        where: { status: "ONGOING" },
+        select: { id: true },
       },
     },
     orderBy: [{ provider: { trustScore: "desc" } }, { createdAt: "desc" }],
@@ -89,9 +94,9 @@ export async function getServiceById(id: string) {
 // ── Create Listing (always starts PENDING_REVIEW) ─────────────────────────────
 
 export async function createService(providerId: string, input: CreateServiceInput) {
-  // 1. Enforce 3-listing cap for free-tier
+  // 1. Enforce 3-listing cap for free-tier (only count ACTIVE and PENDING_REVIEW)
   const activeCount = await prisma.service.count({
-    where: { providerId, status: { in: ["ACTIVE", "PENDING_REVIEW", "INACTIVE"] } },
+    where: { providerId, status: { in: ["ACTIVE", "PENDING_REVIEW"] } },
   });
 
   if (activeCount >= MAX_ACTIVE_LISTINGS) {
@@ -170,10 +175,11 @@ export async function updateService(
     throw err;
   }
 
-  // Changing title or category re-triggers PENDING_REVIEW (master prompt Section 8)
+  // Changing title or category, OR revising a REJECTED listing re-triggers PENDING_REVIEW
   const titleChanged = input.title && input.title.toLowerCase() !== service.title.toLowerCase();
   const categoryChanged = input.categoryId && input.categoryId !== service.categoryId;
-  const requiresReReview = titleChanged || categoryChanged;
+  const wasRejected = service.status === "REJECTED";
+  const requiresReReview = titleChanged || categoryChanged || wasRejected;
 
   return prisma.service.update({
     where: { id: serviceId },
@@ -232,6 +238,16 @@ export async function getMyServices(providerId: string) {
   return prisma.service.findMany({
     where: { providerId, status: { not: "DELETED" } },
     include: {
+      provider: {
+        select: {
+          id: true,
+          name: true,
+          avatarUrl: true,
+          trustScore: true,
+          verificationStatus: true,
+          reviewsReceived: { select: { rating: true } },
+        },
+      },
       category: { select: { id: true, name: true } },
       queueEntries: {
         where: { status: { in: ["WAITING", "SERVING"] } },
@@ -296,7 +312,7 @@ export async function adminReviewService(
         userId: service.providerId,
         title: "Listing Approved ✅",
         body: `Your service "${service.title}" is now live and visible to seekers.`,
-        link: "/provider/service-manager"
+        link: `/provider/service-manager?id=${service.id}&status=active`
       },
     });
     safeEmit(`user:${service.providerId}`, "notification", { title: "Listing Approved ✅" });
@@ -335,7 +351,7 @@ export async function adminReviewService(
         userId: service.providerId,
         title: "Listing Rejected",
         body: notifBody,
-        link: "/provider/service-manager"
+        link: `/provider/service-manager?id=${service.id}&status=rejected`
       },
     });
     safeEmit(`user:${service.providerId}`, "notification", { title: "Listing Rejected" });

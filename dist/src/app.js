@@ -16,10 +16,13 @@ import adminRoutes from "./routes/admin.routes";
 import aiRoutes from "./routes/ai.routes";
 import transactionRoutes from "./routes/transactions.routes";
 import reviewsRoutes from "./routes/reviews.routes";
+import usersRoutes from "./routes/users.routes";
+import communityRoutes from "./routes/community.routes";
+import uploadRoutes from "./routes/upload.routes";
 const app = express();
 // ─── Global Middleware ──────────────────────────────────────────────────────
 app.use(cors({
-    origin: env.FRONTEND_URL,
+    origin: env.FRONTEND_URL || `env.FRONTEND_URL${"/"}`,
     credentials: true, // allow cookies (refresh token)
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 }));
@@ -44,6 +47,9 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/reviews", reviewsRoutes);
+app.use("/api/users", usersRoutes);
+app.use("/api/community", communityRoutes);
+app.use("/api/upload", uploadRoutes);
 // ─── Global Error Handler ────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
     console.error("Unhandled error:", err);

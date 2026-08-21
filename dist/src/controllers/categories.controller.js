@@ -1,11 +1,35 @@
 import { prisma } from "../lib/prisma";
+const CORE_CATEGORIES = [
+    "Plumbing",
+    "Electrical Repair",
+    "House Cleaning",
+    "Lawn Care",
+    "Tutoring",
+    "Aircon Service",
+    "Appliance Repair",
+    "Carpentry & Woodwork"
+];
 // ── GET /categories ───────────────────────────────────────────────────────────
 export async function getCategories(_req, res, next) {
     try {
-        const cats = await prisma.category.findMany({
+        let cats = await prisma.category.findMany({
             where: { isActive: true },
             orderBy: { name: "asc" },
         });
+        // Auto-seed missing categories if DB is incomplete
+        if (cats.length < CORE_CATEGORIES.length) {
+            for (const name of CORE_CATEGORIES) {
+                await prisma.category.upsert({
+                    where: { name },
+                    update: { isActive: true },
+                    create: { name, isActive: true },
+                });
+            }
+            cats = await prisma.category.findMany({
+                where: { isActive: true },
+                orderBy: { name: "asc" },
+            });
+        }
         res.json({ success: true, data: cats });
     }
     catch (err) {

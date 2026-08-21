@@ -37,6 +37,12 @@ export function initSocket(httpServer) {
         console.log(`[Socket.io] User connected: ${userId}`);
         // Each user joins their own personal room so they can receive targeted events
         socket.join(`user:${userId}`);
+        // Admin users join the global admin room for real-time moderation alerts
+        const role = socket.role;
+        if (role === "admin") {
+            socket.join("admin");
+            console.log(`[Socket.io] Admin ${userId} joined room: admin`);
+        }
         // Join a booking chat room on demand
         socket.on("join_booking", (bookingId) => {
             socket.join(`booking:${bookingId}`);
@@ -72,6 +78,17 @@ export function safeEmit(room, event, data) {
     }
     catch {
         // Socket not initialized (e.g., during testing) — silently skip
+    }
+}
+/**
+ * Safely broadcast to all connected clients.
+ */
+export function safeBroadcast(event, data) {
+    try {
+        getIO().emit(event, data);
+    }
+    catch {
+        // Socket not initialized — silently skip
     }
 }
 //# sourceMappingURL=socket.js.map

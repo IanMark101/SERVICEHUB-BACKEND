@@ -94,3 +94,14 @@ export function safeEmit(room: string, event: string, data: unknown): void {
     // Socket not initialized (e.g., during testing) — silently skip
   }
 }
+
+/**
+ * Safely broadcast to all connected clients.
+ */
+export function safeBroadcast(event: string, data: unknown): void {
+  try {
+    getIO().emit(event, data);
+  } catch {
+    // Socket not initialized — silently skip
+  }
+}

@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
 import { sendVerificationEmail, sendPasswordResetEmail } from "../utils/email";
+import { recordAccountCreationBaseline } from "./trust.service";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const SALT_ROUNDS = 12;
 function generateSecureToken() {
@@ -13,7 +14,7 @@ function signAccessToken(userId, role) {
     return jwt.sign({ sub: userId, role }, env.JWT_ACCESS_SECRET, { expiresIn: env.JWT_ACCESS_EXPIRES_IN });
 }
 function signRefreshToken(userId) {
-    return jwt.sign({ sub: userId }, env.JWT_REFRESH_SECRET, { expiresIn: env.JWT_REFRESH_EXPIRES_IN });
+    return jwt.sign({ sub: userId, jti: crypto.randomUUID() }, env.JWT_REFRESH_SECRET, { expiresIn: env.JWT_REFRESH_EXPIRES_IN });
 }
 function refreshTokenExpiresAt() {
     const d = new Date();
@@ -46,6 +47,8 @@ export async function registerUser(input) {
             role: "user",
         },
     });
+    // Record baseline trust score event in audit log
+    await recordAccountCreationBaseline(user.id);
     // Create email verification token (24h expiry)
     const verifyToken = generateSecureToken();
     const verifyExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -209,6 +212,9 @@ function toPublicUser(user) {
         location: user.location,
         avatarUrl: user.avatarUrl,
         bio: user.bio,
+        facebookUrl: user.facebookUrl,
+        instagramUrl: user.instagramUrl,
+        websiteUrl: user.websiteUrl,
         role: user.role,
         trustScore: user.trustScore,
         verificationStatus: user.verificationStatus,
@@ -282,6 +288,8 @@ export async function googleLoginUser(token) {
             },
         });
         const tokens = await issueTokens(user.id, user.role);
+        // Record baseline trust score event in audit log for new Google users
+        await recordAccountCreationBaseline(user.id);
         return { user: toPublicUser(user), tokens };
     }
 }
@@ -297,6 +305,9 @@ export async function getUserPublicProfile(userId) {
             location: true,
             avatarUrl: true,
             bio: true,
+            facebookUrl: true,
+            instagramUrl: true,
+            websiteUrl: true,
             role: true,
             trustScore: true,
             verificationStatus: true,
@@ -329,7 +340,7 @@ export async function getUserPublicProfile(userId) {
     return {
         ...user,
         completedServiceCount: completedCount,
-        averageRating: avgRatingResult._avg.rating || 5.0,
+        averageRating: avgRatingResult._avg.rating ? Number(avgRatingResult._avg.rating.toFixed(1)) : 0,
         reviews: reviews.map(r => ({
             id: r.id,
             authorName: r.author.name,
@@ -349,6 +360,9 @@ export async function updateUserProfile(userId, data) {
             ...(data.phone !== undefined && { phone: data.phone }),
             ...(data.location !== undefined && { location: data.location }),
             ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl }),
+            ...(data.facebookUrl !== undefined && { facebookUrl: data.facebookUrl }),
+            ...(data.instagramUrl !== undefined && { instagramUrl: data.instagramUrl }),
+            ...(data.websiteUrl !== undefined && { websiteUrl: data.websiteUrl }),
         },
     });
     return toPublicUser(updatedUser);

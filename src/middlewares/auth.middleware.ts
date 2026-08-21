@@ -10,9 +10,17 @@ export interface AuthenticatedRequest extends Request {
     name: string;
     email: string;
     role: string;
+    avatarUrl?: string | null;
+    bio?: string | null;
+    phone?: string | null;
+    location?: string | null;
+    facebookUrl?: string | null;
+    instagramUrl?: string | null;
+    websiteUrl?: string | null;
     trustScore: number;
     verificationStatus: string;
     emailVerified: boolean;
+    isActive: boolean;
   };
 }
 
@@ -37,6 +45,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         name: true,
         email: true,
         role: true,
+        avatarUrl: true,
+        bio: true,
+        phone: true,
+        location: true,
+        facebookUrl: true,
+        instagramUrl: true,
+        websiteUrl: true,
         trustScore: true,
         verificationStatus: true,
         emailVerified: true,

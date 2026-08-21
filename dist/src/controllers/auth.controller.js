@@ -1,5 +1,6 @@
 import { RegisterSchema, LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, } from "../schema/auth.schema";
 import { registerUser, loginUser, refreshAccessToken, logoutUser, verifyEmail, forgotPassword, resetPassword, googleLoginUser, resendVerificationEmail, getUserPublicProfile, updateUserProfile, changeUserPassword, } from "../services/auth.service";
+import { getTrustHistory } from "../services/trust.service";
 import { env } from "../config/env";
 // ── Cookie config ─────────────────────────────────────────────────────────────
 const REFRESH_COOKIE_OPTIONS = {
@@ -12,8 +13,13 @@ const REFRESH_COOKIE_OPTIONS = {
 // ── POST /auth/register ───────────────────────────────────────────────────────
 export async function register(req, res, next) {
     try {
-        const input = RegisterSchema.parse(req.body);
-        const { user, tokens } = await registerUser(input);
+        const result = RegisterSchema.safeParse(req.body);
+        if (!result.success) {
+            return res.status(400).json({
+                errors: result.error.flatten(),
+            });
+        }
+        const { user, tokens } = await registerUser(result.data);
         res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
         res.status(201).json({
             success: true,
@@ -190,6 +196,31 @@ export async function changePasswordHandler(req, res, next) {
         const { currentPassword, newPassword } = req.body;
         await changeUserPassword(userId, currentPassword, newPassword);
         res.json({ success: true, message: "Password updated successfully" });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+// ── GET /auth/trust-history ───────────────────────────────────────────────────
+// Returns the authenticated user's own immutable trust score event log.
+// This is the SINGLE SOURCE OF TRUTH for the Trust History tab.
+export async function getTrustHistoryHandler(req, res, next) {
+    try {
+        const userId = req.user?.id;
+        const events = await getTrustHistory(userId);
+        res.json({ success: true, data: events });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+// ── GET /auth/trust-history/:id ───────────────────────────────────────────────
+// Public profile view: fetch another user's trust history by their user ID.
+export async function getPublicTrustHistoryHandler(req, res, next) {
+    try {
+        const { id } = req.params;
+        const events = await getTrustHistory(id);
+        res.json({ success: true, data: events });
     }
     catch (err) {
         next(err);

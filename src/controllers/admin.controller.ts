@@ -189,6 +189,7 @@ export async function resolveCategorySuggestion(req: Request, res: Response, nex
           userId: suggestion.submitterId,
           title: `🎉 Category "${suggestion.name}" Approved!`,
           body: `Your suggested category "${suggestion.name}" has been added to the ServiceHub Cordova marketplace. Providers can now list services under this category.`,
+          link: `/seeker/suggest-category`
         },
       });
       safeEmit(`user:${suggestion.submitterId}`, "notification", { title: `🎉 Category "${suggestion.name}" Approved!` });
@@ -199,6 +200,7 @@ export async function resolveCategorySuggestion(req: Request, res: Response, nex
           userId: suggestion.submitterId,
           title: `Category Suggestion Not Approved`,
           body: `Your suggested category "${suggestion.name}" was not approved at this time. You may suggest a different category.`,
+          link: `/seeker/suggest-category`
         },
       });
       safeEmit(`user:${suggestion.submitterId}`, "notification", { title: `Category Suggestion Not Approved` });
@@ -283,6 +285,31 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
         where: { bookingId: report.bookingId },
         data: { paymentStatus: "REFUNDED" },
       });
+    } else if (action === "dismiss") {
+      // Part 12: When admin dismisses a report, booking reverts to AWAITING_CONFIRMATION
+      // so the seeker can still confirm or re-dispute. Without this, the booking
+      // would be permanently stuck in DISPUTED/FROZEN_HELD with no exit path.
+      if (report.bookingId) {
+        const linkedBooking = await prisma.booking.findUnique({
+          where: { id: report.bookingId },
+          select: { status: true, paymentStatus: true },
+        });
+        // Only revert if it's in a disputed/frozen state — don't touch already-resolved bookings
+        if (linkedBooking && (linkedBooking.status === "DISPUTED" || linkedBooking.status === "UNDER_REVIEW")) {
+          await prisma.booking.update({
+            where: { id: report.bookingId },
+            data: {
+              status: "AWAITING_CONFIRMATION",
+              paymentStatus: "PAID_HELD",
+            },
+          });
+          // Also unfreeze the Queue entry if one exists
+          await prisma.queue.updateMany({
+            where: { bookingId: report.bookingId },
+            data: { paymentStatus: "PAID_HELD" },
+          });
+        }
+      }
     }
 
     // Notify both parties

@@ -6,7 +6,7 @@ import { assertDistinctAccounts } from "../utils/security";
 export async function bookDirect(req, res, next) {
     try {
         const user = req.user;
-        const { serviceId, agreedPrice, schedule, message } = req.body;
+        const { serviceId, agreedPrice, schedule, message, scheduledDate, scheduledTime } = req.body;
         if (!serviceId || !agreedPrice) {
             return res.status(400).json({ success: false, error: "serviceId and agreedPrice are required" });
         }
@@ -25,6 +25,8 @@ export async function bookDirect(req, res, next) {
             agreedPrice: parseFloat(agreedPrice),
             schedule,
             message,
+            scheduledDate: scheduledDate || undefined,
+            scheduledTime: scheduledTime || undefined,
         });
         res.status(201).json({
             success: true,
@@ -90,7 +92,7 @@ export async function initiatePayment(req, res, next) {
 export async function confirmOnlineBooking(req, res, next) {
     try {
         const user = req.user;
-        const { serviceId, paymentIntentId, offerId } = req.body;
+        const { serviceId, paymentIntentId, offerId, paymentMethod } = req.body;
         if (!serviceId || !paymentIntentId) {
             return res.status(400).json({ success: false, error: "serviceId and paymentIntentId are required" });
         }
@@ -107,6 +109,7 @@ export async function confirmOnlineBooking(req, res, next) {
             seekerId: user.id,
             paymentId: paymentIntentId,
             offerId,
+            paymentMethod: paymentMethod || "GCash",
         });
         res.status(201).json({
             success: true,

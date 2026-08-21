@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { safeEmit } from "../lib/socket";
 export async function recalculateQueue(serviceId) {
     const activeEntries = await prisma.queue.findMany({
         where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
@@ -35,9 +36,13 @@ export async function notifyWaitlist(serviceId) {
     });
     if (!service)
         return;
-    const currentQueueSize = await prisma.queue.count({
+    const activeOngoingCount = await prisma.booking.count({
+        where: { serviceId, status: "ONGOING" },
+    });
+    const queueCount = await prisma.queue.count({
         where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
     });
+    const currentQueueSize = activeOngoingCount + queueCount;
     if (currentQueueSize < service.queueLimit) {
         // Notify the first person on the waitlist
         const firstWaiting = await prisma.queueNotify.findFirst({
@@ -54,6 +59,7 @@ export async function notifyWaitlist(serviceId) {
                     link: `/seeker/seek-services`,
                 },
             });
+            safeEmit(`user:${firstWaiting.seekerId}`, "notification", { title: "Queue Slot Available! 🎉" });
             // Remove from waitlist
             await prisma.queueNotify.delete({ where: { id: firstWaiting.id } });
         }

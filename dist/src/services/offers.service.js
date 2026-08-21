@@ -1,14 +1,15 @@
 import { prisma } from "../lib/prisma";
 import { assertDistinctAccounts } from "../utils/security";
+import { safeEmit } from "../lib/socket";
 export async function submitOffer(providerId, params) {
     const { requestId, offeredPrice, estimatedDuration, availability, message } = params;
-    // Check request is open
+    // Check request is open and accepting offers
     const request = await prisma.serviceRequest.findUnique({
         where: { id: requestId },
         select: { status: true, seekerId: true },
     });
-    if (!request || (request.status !== "OPEN" && request.status !== "IN_PROGRESS")) {
-        const err = new Error("Request is not open for offers");
+    if (!request || request.status !== "OPEN") {
+        const err = new Error("This service request is currently paused or closed by the seeker and is no longer accepting new offers.");
         err.status = 400;
         throw err;
     }
@@ -54,6 +55,7 @@ export async function submitOffer(providerId, params) {
             link: `/seeker/incoming-offers?offer=${offer.id}`,
         },
     });
+    safeEmit(`user:${request.seekerId}`, "notification", { title: "New Offer Received" });
     return offer;
 }
 export async function listReceivedOffers(seekerId) {
@@ -148,6 +150,7 @@ export async function acceptOffer(offerId, seekerId) {
             link: `/provider/provider-activity?tab=pending_offers`,
         },
     });
+    safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 🎉" });
     return updatedOffer;
 }
 export async function rejectOffer(offerId, seekerId) {

@@ -96,4 +96,54 @@ export async function getProviderReviews(req, res, next) {
         next(err);
     }
 }
+export async function updateReview(req, res, next) {
+    try {
+        const user = req.user;
+        const reviewId = req.params.id;
+        const { rating, text, tags } = req.body;
+        const existing = await prisma.review.findUnique({
+            where: { id: reviewId }
+        });
+        if (!existing) {
+            return res.status(404).json({ success: false, error: "Review not found" });
+        }
+        if (existing.authorId !== user.id) {
+            return res.status(403).json({ success: false, error: "You can only edit your own reviews" });
+        }
+        // Part 14: Check 24-hour grace window
+        if (new Date() > new Date(existing.editableUntil)) {
+            return res.status(403).json({
+                success: false,
+                error: "The 24-hour edit grace window has expired. Reviews cannot be edited after 24 hours."
+            });
+        }
+        const oldRating = existing.rating;
+        const newRating = rating !== undefined ? parseInt(rating) : oldRating;
+        const updated = await prisma.review.update({
+            where: { id: reviewId },
+            data: {
+                ...(rating !== undefined && { rating: newRating }),
+                ...(text !== undefined && { text }),
+                ...(tags !== undefined && { tags }),
+            }
+        });
+        // If rating changed, adjust trust score delta accordingly
+        if (rating !== undefined && newRating !== oldRating) {
+            const getDelta = (r) => (r === 5 ? 2 : r === 4 ? 1 : r === 2 ? -3 : r === 1 ? -5 : 0);
+            const diff = getDelta(newRating) - getDelta(oldRating);
+            if (diff !== 0) {
+                const { applyTrustEvent } = await import("../services/trust.service");
+                await applyTrustEvent(existing.targetId, diff, `Review rating updated (${oldRating}★ to ${newRating}★)`);
+            }
+        }
+        res.json({
+            success: true,
+            message: "Review updated successfully",
+            data: updated
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+}
 //# sourceMappingURL=reviews.controller.js.map

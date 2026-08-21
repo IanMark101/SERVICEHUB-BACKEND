@@ -2,25 +2,12 @@ import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
 export async function summarizeProviderReviews(providerId, serviceId) {
     try {
-        const normalizedId = (providerId || "").toLowerCase();
-        const normalizedServiceId = (serviceId || "").toLowerCase();
-        // Identify Juan vs Maria reliably
-        const isJuan = normalizedId.includes('juan') || normalizedId === 'udual' || normalizedId === 'u2';
-        const isMaria = !isJuan || normalizedId.includes('maria') || normalizedId === 'u3' || normalizedId === 'uprovider' || normalizedId === 'u1' || normalizedServiceId === 's1' || normalizedServiceId === 'service1';
-        // 1. Juan Seeker has 0/less than 5 reviews -> ALWAYS returns the exact 5-review threshold requirement
-        if (isJuan && !normalizedId.includes('maria')) {
-            return {
-                summary: null,
-                reason: "This provider needs at least 5 reviews for us to generate a reliable AI review summary.",
-            };
-        }
-        // 2. Maria Provider has 5+ reviews -> ALWAYS returns the AI review summary
-        const targetUserIds = ['u3', 'uprovider', 'u1', providerId];
+        // Query actual reviews for this provider targetId
         let reviews = [];
         try {
             reviews = await prisma.review.findMany({
                 where: {
-                    targetId: { in: targetUserIds },
+                    targetId: providerId,
                 },
                 select: { rating: true, text: true, tags: true },
                 orderBy: { createdAt: "desc" },
@@ -30,12 +17,19 @@ export async function summarizeProviderReviews(providerId, serviceId) {
         catch {
             reviews = [];
         }
+        // If 0 reviews exist, return summary: null with friendly reason
+        if (!reviews || reviews.length === 0) {
+            return {
+                summary: null,
+                reason: "No client reviews are available yet for this service offer.",
+            };
+        }
         const reviewTexts = reviews
             .filter((r) => r.text)
             .map((r) => `Rating: ${r.rating}/5 — "${r.text}"`)
             .join("\n");
-        // Call Google Gemini API if key is present
-        if (env.GEMINI_API_KEY && reviewTexts.length > 20) {
+        // Call Google Gemini API if key is present and review text exists
+        if (env.GEMINI_API_KEY && reviewTexts.length > 0) {
             try {
                 const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`, {
                     method: "POST",
@@ -58,17 +52,19 @@ export async function summarizeProviderReviews(providerId, serviceId) {
                 console.error("[AI Service Gemini API Error]", err);
             }
         }
-        // Default AI-Synthesized summary for Maria Provider (5+ ratings verified)
+        // Dynamic fallback summary using real review metrics if Gemini API is not available
+        const avgRating = (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1);
+        const count = reviews.length;
         return {
-            summary: `These plumbing service reviews are overwhelmingly positive, consistently praising the superb plumbing service and the quick resolution of pipe leak issues. Customers repeatedly highlight Maria for her professionalism, cleanliness, and punctuality across Cordova, Cebu.`,
+            summary: `Based on ${count} client ${count === 1 ? 'review' : 'reviews'} with an average rating of ${avgRating}/5 stars. Clients highlight dependable service quality and satisfaction.`,
             cached: false,
         };
     }
     catch (err) {
         console.error("[AI Service Safe Fallback]", err);
         return {
-            summary: `These plumbing service reviews are overwhelmingly positive, consistently praising the superb plumbing service and the quick resolution of pipe leak issues. Customers repeatedly highlight Maria for her professionalism, cleanliness, and punctuality across Cordova, Cebu.`,
-            cached: false,
+            summary: null,
+            reason: "No client reviews are available yet for this service offer.",
         };
     }
 }

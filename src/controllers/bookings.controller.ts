@@ -16,7 +16,7 @@ import { assertDistinctAccounts } from "../utils/security";
 export async function bookDirect(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { serviceId, agreedPrice, schedule, message } = req.body;
+    const { serviceId, agreedPrice, schedule, message, scheduledDate, scheduledTime } = req.body;
 
     if (!serviceId || !agreedPrice) {
       return res.status(400).json({ success: false, error: "serviceId and agreedPrice are required" });
@@ -39,6 +39,8 @@ export async function bookDirect(req: Request, res: Response, next: NextFunction
       agreedPrice: parseFloat(agreedPrice),
       schedule,
       message,
+      scheduledDate: scheduledDate || undefined,
+      scheduledTime: scheduledTime || undefined,
     });
 
     res.status(201).json({
@@ -117,7 +119,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
 export async function confirmOnlineBooking(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { serviceId, paymentIntentId, offerId } = req.body;
+    const { serviceId, paymentIntentId, offerId, paymentMethod } = req.body;
 
     if (!serviceId || !paymentIntentId) {
       return res.status(400).json({ success: false, error: "serviceId and paymentIntentId are required" });
@@ -137,6 +139,7 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
       seekerId: user.id,
       paymentId: paymentIntentId,
       offerId,
+      paymentMethod: paymentMethod || "GCash",
     });
 
     res.status(201).json({

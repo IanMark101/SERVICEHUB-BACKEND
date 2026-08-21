@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireAdmin } from "../middlewares/auth.middleware";
 import { getOverview, listUsers, updateTrustScore, suspendUser, banUser, restoreUser, listPendingServices, reviewService, listCategorySuggestions, resolveCategorySuggestion, listReports, resolveReport, resolveCancellationRequest, listEscalatedCancellations, } from "../controllers/admin.controller";
 import { adminList as listPendingVerifications, adminReview as reviewVerification, } from "../controllers/verification.controller";
+import { adminViewMessages } from "../controllers/messages.controller";
 const router = Router();
 // All admin routes require auth + admin role
 router.use(requireAuth, requireAdmin);
@@ -29,5 +30,7 @@ router.patch("/reports/:id/resolve", resolveReport);
 router.patch("/cancellation-requests/:id/resolve", resolveCancellationRequest);
 // List escalated cancellations (for admin Escalations tab)
 router.get("/cancellations/escalated", listEscalatedCancellations);
+// Booking Messages Investigation (for dispute/report review)
+router.get("/bookings/:bookingId/messages", adminViewMessages);
 export default router;
 //# sourceMappingURL=admin.routes.js.map

@@ -1,4 +1,5 @@
 import { createRequest, listRequests, getMyRequests, updateRequest, cancelRequest, } from "../services/requests.service";
+import { safeBroadcast } from "../lib/socket";
 export async function create(req, res, next) {
     try {
         const user = req.user;
@@ -14,6 +15,8 @@ export async function create(req, res, next) {
             budgetMax: parseFloat(budgetMax),
             urgency: urgency || "medium",
         });
+        safeBroadcast("SERVICE_REQUEST_CREATED", request);
+        safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id });
         res.status(201).json({ success: true, data: request });
     }
     catch (err) {
@@ -51,6 +54,8 @@ export async function update(req, res, next) {
             ...(budgetMax && { budgetMax: parseFloat(budgetMax) }),
             ...(status && { status }),
         });
+        safeBroadcast("SERVICE_REQUEST_UPDATED", request);
+        safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id, status: request.status });
         res.json({ success: true, data: request });
     }
     catch (err) {
@@ -61,6 +66,8 @@ export async function remove(req, res, next) {
     try {
         const user = req.user;
         await cancelRequest(req.params.id, user.id);
+        safeBroadcast("SERVICE_REQUEST_DELETED", { id: req.params.id });
+        safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: req.params.id });
         res.json({ success: true, message: "Request cancelled" });
     }
     catch (err) {

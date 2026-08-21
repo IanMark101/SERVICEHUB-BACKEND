@@ -41,9 +41,15 @@ export async function notifyWaitlist(serviceId: string): Promise<void> {
   });
   if (!service) return;
 
-  const currentQueueSize = await prisma.queue.count({
+  const activeOngoingCount = await prisma.booking.count({
+    where: { serviceId, status: "ONGOING" },
+  });
+
+  const queueCount = await prisma.queue.count({
     where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
   });
+
+  const currentQueueSize = activeOngoingCount + queueCount;
 
   if (currentQueueSize < service.queueLimit) {
     // Notify the first person on the waitlist

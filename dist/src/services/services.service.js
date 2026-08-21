@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { applyListingRejectionTrust } from "./trust.service";
+import { safeEmit } from "../lib/socket";
 const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
 // ── Browse (Public — ACTIVE listings only) ────────────────────────────────────
 export async function browseServices(params) {
@@ -30,12 +31,17 @@ export async function browseServices(params) {
                     avatarUrl: true,
                     trustScore: true,
                     verificationStatus: true,
+                    reviewsReceived: { select: { rating: true } },
                 },
             },
             category: { select: { id: true, name: true } },
             queueEntries: {
                 where: { status: { in: ["WAITING", "SERVING"] } },
                 select: { id: true, position: true },
+            },
+            bookings: {
+                where: { status: "ONGOING" },
+                select: { id: true },
             },
         },
         orderBy: [{ provider: { trustScore: "desc" } }, { createdAt: "desc" }],
@@ -72,9 +78,9 @@ export async function getServiceById(id) {
 }
 // ── Create Listing (always starts PENDING_REVIEW) ─────────────────────────────
 export async function createService(providerId, input) {
-    // 1. Enforce 3-listing cap for free-tier
+    // 1. Enforce 3-listing cap for free-tier (only count ACTIVE and PENDING_REVIEW)
     const activeCount = await prisma.service.count({
-        where: { providerId, status: { in: ["ACTIVE", "PENDING_REVIEW", "INACTIVE"] } },
+        where: { providerId, status: { in: ["ACTIVE", "PENDING_REVIEW"] } },
     });
     if (activeCount >= MAX_ACTIVE_LISTINGS) {
         const err = new Error(`You can have at most ${MAX_ACTIVE_LISTINGS} active service listings at a time`);
@@ -95,8 +101,16 @@ export async function createService(providerId, input) {
         throw err;
     }
     // 3. Validate category exists and is active
-    const category = await prisma.category.findUnique({ where: { id: input.categoryId } });
-    if (!category || !category.isActive) {
+    const category = await prisma.category.findFirst({
+        where: {
+            OR: [
+                { id: input.categoryId },
+                { name: input.categoryId },
+            ],
+            isActive: true,
+        },
+    });
+    if (!category) {
         const err = new Error("Invalid or inactive category");
         err.status = 400;
         throw err;
@@ -104,11 +118,12 @@ export async function createService(providerId, input) {
     return prisma.service.create({
         data: {
             providerId,
-            categoryId: input.categoryId,
+            categoryId: category.id,
             title: input.title,
             description: input.description,
             price: input.price,
             priceType: input.priceType,
+            serviceType: input.serviceType ?? "ONE_TIME",
             estimatedDurationMins: input.estimatedDurationMins,
             queueLimit: input.queueLimit,
             paymentMethods: input.paymentMethods,
@@ -128,10 +143,11 @@ export async function updateService(serviceId, providerId, input) {
         err.status = 404;
         throw err;
     }
-    // Changing title or category re-triggers PENDING_REVIEW (master prompt Section 8)
+    // Changing title or category, OR revising a REJECTED listing re-triggers PENDING_REVIEW
     const titleChanged = input.title && input.title.toLowerCase() !== service.title.toLowerCase();
     const categoryChanged = input.categoryId && input.categoryId !== service.categoryId;
-    const requiresReReview = titleChanged || categoryChanged;
+    const wasRejected = service.status === "REJECTED";
+    const requiresReReview = titleChanged || categoryChanged || wasRejected;
     return prisma.service.update({
         where: { id: serviceId },
         data: {
@@ -156,19 +172,22 @@ export async function toggleServiceAvailability(serviceId, providerId) {
         data: { isAvailable: !service.isAvailable },
     });
 }
-// ── Delete Listing (soft delete) ───────────────────────────────────────────────
+// ── Delete Listing (Hard Erase from DB) ───────────────────────────────────────
 export async function deleteService(serviceId, providerId) {
     const service = await prisma.service.findFirst({
-        where: { id: serviceId, providerId, status: { not: "DELETED" } },
+        where: { id: serviceId, providerId },
     });
     if (!service) {
         const err = new Error("Service not found or access denied");
         err.status = 404;
         throw err;
     }
-    return prisma.service.update({
+    // Erase all child records and hard delete service listing from database
+    await prisma.queueNotify.deleteMany({ where: { serviceId } });
+    await prisma.queue.deleteMany({ where: { serviceId } });
+    await prisma.directRequest.deleteMany({ where: { serviceId } });
+    return prisma.service.delete({
         where: { id: serviceId },
-        data: { status: "DELETED", isAvailable: false },
     });
 }
 // ── Get My Listings (Provider) ─────────────────────────────────────────────────
@@ -176,6 +195,16 @@ export async function getMyServices(providerId) {
     return prisma.service.findMany({
         where: { providerId, status: { not: "DELETED" } },
         include: {
+            provider: {
+                select: {
+                    id: true,
+                    name: true,
+                    avatarUrl: true,
+                    trustScore: true,
+                    verificationStatus: true,
+                    reviewsReceived: { select: { rating: true } },
+                },
+            },
             category: { select: { id: true, name: true } },
             queueEntries: {
                 where: { status: { in: ["WAITING", "SERVING"] } },
@@ -225,9 +254,10 @@ export async function adminReviewService(serviceId, adminId, approve, adminNotes
                 userId: service.providerId,
                 title: "Listing Approved ✅",
                 body: `Your service "${service.title}" is now live and visible to seekers.`,
-                link: "/provider/service-manager"
+                link: `/provider/service-manager?id=${service.id}&status=active`
             },
         });
+        safeEmit(`user:${service.providerId}`, "notification", { title: "Listing Approved ✅" });
     }
     else {
         // Rejection logic — track count, escalate on repeated rejections
@@ -260,9 +290,10 @@ export async function adminReviewService(serviceId, adminId, approve, adminNotes
                 userId: service.providerId,
                 title: "Listing Rejected",
                 body: notifBody,
-                link: "/provider/service-manager"
+                link: `/provider/service-manager?id=${service.id}&status=rejected`
             },
         });
+        safeEmit(`user:${service.providerId}`, "notification", { title: "Listing Rejected" });
     }
     return { approved: approve };
 }

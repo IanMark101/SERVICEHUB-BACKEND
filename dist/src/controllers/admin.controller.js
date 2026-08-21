@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { adminReviewService, listPendingServices as adminListPendingServices } from "../services/services.service";
-import { applyTrustEvent } from "../services/trust.service";
+import { applyTrustEvent, applyReportPenaltyTrust } from "../services/trust.service";
 import { safeEmit } from "../lib/socket";
 // ── GET /admin/overview ───────────────────────────────────────────────────────
 export async function getOverview(_req, res, next) {
@@ -79,7 +79,11 @@ export async function listUsers(req, res, next) {
 export async function updateTrustScore(req, res, next) {
     try {
         const { delta, reason } = req.body;
-        await applyTrustEvent(req.params.id, parseInt(delta), reason || "Admin manual override");
+        const parsedDelta = parseInt(delta, 10);
+        if (isNaN(parsedDelta)) {
+            return res.status(400).json({ success: false, error: "delta must be a number" });
+        }
+        await applyTrustEvent(req.params.id, parsedDelta, reason || "Admin manual override");
         res.json({ success: true });
     }
     catch (err) {
@@ -174,6 +178,7 @@ export async function resolveCategorySuggestion(req, res, next) {
                     userId: suggestion.submitterId,
                     title: `🎉 Category "${suggestion.name}" Approved!`,
                     body: `Your suggested category "${suggestion.name}" has been added to the ServiceHub Cordova marketplace. Providers can now list services under this category.`,
+                    link: `/seeker/suggest-category`
                 },
             });
             safeEmit(`user:${suggestion.submitterId}`, "notification", { title: `🎉 Category "${suggestion.name}" Approved!` });
@@ -185,6 +190,7 @@ export async function resolveCategorySuggestion(req, res, next) {
                     userId: suggestion.submitterId,
                     title: `Category Suggestion Not Approved`,
                     body: `Your suggested category "${suggestion.name}" was not approved at this time. You may suggest a different category.`,
+                    link: `/seeker/suggest-category`
                 },
             });
             safeEmit(`user:${suggestion.submitterId}`, "notification", { title: `Category Suggestion Not Approved` });
@@ -250,15 +256,16 @@ export async function resolveReport(req, res, next) {
             safeEmit(`user:${report.reportedUserId}`, "notification", { title: "⚠️ Official Warning from Admin" });
         }
         else if (action === "trust_deduct") {
-            await applyTrustEvent(report.reportedUserId, -10, `Admin action on report ${report.id}`);
+            await applyReportPenaltyTrust(report.reportedUserId);
         }
         else if (action === "suspend") {
             await prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
         }
         else if (action === "ban") {
             await prisma.user.update({ where: { id: report.reportedUserId }, data: { isActive: false } });
-            // Invalidate all sessions so user is immediately logged out
+            // Invalidate all sessions immediately
             await prisma.refreshToken.deleteMany({ where: { userId: report.reportedUserId } });
+            safeEmit(`user:${report.reportedUserId}`, "forceLogout", { reason: "Account permanently banned by administrator" });
         }
         else if (action === "approve_refund") {
             await prisma.booking.update({
@@ -269,6 +276,32 @@ export async function resolveReport(req, res, next) {
                 where: { bookingId: report.bookingId },
                 data: { paymentStatus: "REFUNDED" },
             });
+        }
+        else if (action === "dismiss") {
+            // Part 12: When admin dismisses a report, booking reverts to AWAITING_CONFIRMATION
+            // so the seeker can still confirm or re-dispute. Without this, the booking
+            // would be permanently stuck in DISPUTED/FROZEN_HELD with no exit path.
+            if (report.bookingId) {
+                const linkedBooking = await prisma.booking.findUnique({
+                    where: { id: report.bookingId },
+                    select: { status: true, paymentStatus: true },
+                });
+                // Only revert if it's in a disputed/frozen state — don't touch already-resolved bookings
+                if (linkedBooking && (linkedBooking.status === "DISPUTED" || linkedBooking.status === "UNDER_REVIEW")) {
+                    await prisma.booking.update({
+                        where: { id: report.bookingId },
+                        data: {
+                            status: "AWAITING_CONFIRMATION",
+                            paymentStatus: "PAID_HELD",
+                        },
+                    });
+                    // Also unfreeze the Queue entry if one exists
+                    await prisma.queue.updateMany({
+                        where: { bookingId: report.bookingId },
+                        data: { paymentStatus: "PAID_HELD" },
+                    });
+                }
+            }
         }
         // Notify both parties
         await prisma.notification.createMany({

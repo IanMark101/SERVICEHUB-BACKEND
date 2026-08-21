@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { recalculateQueue, notifyWaitlist } from "./queue.service";
-import { applyCancellationTrust } from "./trust.service";
+import { applyCancellationTrust, applyServiceCompletionTrust } from "./trust.service";
 import { safeEmit } from "../lib/socket";
 import { assertDistinctAccounts } from "../utils/security";
 import { sendMessage } from "./messages.service";
@@ -10,7 +10,15 @@ export async function getNextQueuePosition(serviceId) {
         where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
         orderBy: { position: "desc" },
     });
-    return (lastEntry?.position ?? 0) + 1;
+    if (lastEntry) {
+        return lastEntry.position + 1;
+    }
+    // If no entry in Queue table, check if the provider is currently serving an ONGOING booking on this service
+    const activeOngoing = await prisma.booking.findFirst({
+        where: { serviceId, status: "ONGOING" },
+    });
+    // If there's an ongoing job, position 1 is active, so the next queue entrant is position 2
+    return activeOngoing ? 2 : 1;
 }
 export async function calculateEstimatedWait(serviceId, position) {
     const service = await prisma.service.findUnique({
@@ -39,7 +47,7 @@ async function resolveFinalPrice(booking) {
 }
 // ── Cash Direct Request (no queue) ────────────────────────────────────────────
 export async function createDirectRequest(params) {
-    const { seekerId, providerId, serviceId, agreedPrice, schedule, message } = params;
+    const { seekerId, providerId, serviceId, agreedPrice, schedule, message, scheduledDate, scheduledTime } = params;
     // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
     assertDistinctAccounts(seekerId, providerId, "book service");
     const service = await prisma.service.findUnique({
@@ -80,6 +88,8 @@ export async function createDirectRequest(params) {
                 paymentStatus: "UNPAID",
                 status: "PENDING_APPROVAL",
                 started: false,
+                scheduledDate: scheduledDate || null,
+                scheduledTime: scheduledTime || null,
             },
         });
         return { directRequest, booking };
@@ -145,16 +155,28 @@ export async function respondToDirectBookingService(requestId, providerId, accep
                 },
             });
         });
+        // Notify Seeker
         await prisma.notification.create({
             data: {
                 userId: directRequest.seekerId,
                 title: "Direct Booking Accepted! 🎉",
-                body: "Your direct booking request has been accepted. Coordinate with the provider via chat.",
-                link: `/seeker/seeker-activity?tab=active&booking=${booking.id}`,
+                body: "Your direct booking request was accepted! Messaging is now enabled — coordinate details with your provider via chat.",
+                link: `/seeker/seeker-activity?tab=all&booking=${booking.id}`,
             },
         });
         safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Accepted! 🎉" });
-        await sendMessage(booking.id, providerId, "Booking accepted.", undefined, true);
+        // Notify Provider
+        await prisma.notification.create({
+            data: {
+                userId: providerId,
+                title: "Booking Confirmed! 🎉",
+                body: "You accepted the direct booking request. Messaging is now open to coordinate with the seeker.",
+                link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
+            },
+        });
+        safeEmit(`user:${providerId}`, "notification", { title: "Booking Confirmed! 🎉" });
+        // System Message in Conversation
+        await sendMessage(booking.id, providerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", undefined, true);
         return booking;
     }
     else {
@@ -222,21 +244,33 @@ export async function createDirectFromOfferService(offerId, seekerId) {
             },
         });
     });
-    // Notify provider
+    // Notify Provider
     await prisma.notification.create({
         data: {
             userId: offer.providerId,
             title: "Offer Accepted! 💰",
-            body: `Your offer on "${offer.request.title}" has been accepted. Cash on-site arranged.`,
+            body: `Your offer on "${offer.request.title}" was accepted! Messaging is now enabled — chat to coordinate service details.`,
             link: `/provider/provider-activity?tab=in_progress&booking=${booking.id}`,
         },
     });
-    await sendMessage(booking.id, seekerId, "Booking accepted.", undefined, true);
+    safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 💰" });
+    // Notify Seeker
+    await prisma.notification.create({
+        data: {
+            userId: seekerId,
+            title: "Booking Confirmed! 🎉",
+            body: `You accepted the offer for "${offer.request.title}". Messaging is now enabled to coordinate with your provider.`,
+            link: `/seeker/seeker-activity?tab=in_progress&booking=${booking.id}`,
+        },
+    });
+    safeEmit(`user:${seekerId}`, "notification", { title: "Booking Confirmed! 🎉" });
+    // Automated System Message
+    await sendMessage(booking.id, seekerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", undefined, true);
     return booking;
 }
 // ── Online Queue Entry (ONLY after PayMongo payment succeeds) ─────────────────
 export async function addToQueue(params) {
-    const { serviceId, seekerId, paymentId, offerId } = params;
+    const { serviceId, seekerId, paymentId, offerId, scheduledDate, scheduledTime, paymentMethod } = params;
     const service = await prisma.service.findUnique({
         where: { id: serviceId },
         select: { queueLimit: true, estimatedDurationMins: true, isAvailable: true, title: true, status: true, providerId: true },
@@ -264,10 +298,14 @@ export async function addToQueue(params) {
             throw err;
         }
     }
-    // Count current active queue entries
-    const currentSize = await prisma.queue.count({
+    // Count total load (active ongoing booking + queued entries)
+    const activeOngoingCount = await prisma.booking.count({
+        where: { serviceId, status: "ONGOING" },
+    });
+    const queueCount = await prisma.queue.count({
         where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
     });
+    const currentSize = activeOngoingCount + queueCount;
     if (currentSize >= service.queueLimit) {
         const err = new Error("Queue is full. Please join the waitlist instead.");
         err.status = 409;
@@ -286,11 +324,13 @@ export async function addToQueue(params) {
             providerId: service.providerId,
             serviceId,
             offerId,
-            paymentMethod: "GCash",
+            paymentMethod: paymentMethod || "GCash",
             paymentStatus: "PAID_HELD",
             status: isImmediate ? "ONGOING" : "WAITING",
             queuePosition: isImmediate ? null : position,
             started: isImmediate, // Part 9: immediate online booking starts at creation time
+            scheduledDate: scheduledDate || null,
+            scheduledTime: scheduledTime || null,
         },
     });
     await sendMessage(booking.id, seekerId, "Payment received.", undefined, true);
@@ -529,7 +569,7 @@ export async function confirmCompletionService(bookingId, seekerId) {
             paymentStatus: "RELEASED"
         }
     });
-    // Reset related ServiceRequest status back to OPEN so card remains available on Browse Jobs
+    // Mark the ServiceRequest as permanently closed — it was fulfilled
     if (booking.offerId) {
         const offerObj = await prisma.offer.findUnique({
             where: { id: booking.offerId },
@@ -538,7 +578,7 @@ export async function confirmCompletionService(bookingId, seekerId) {
         if (offerObj?.requestId) {
             await prisma.serviceRequest.update({
                 where: { id: offerObj.requestId },
-                data: { status: "OPEN" }
+                data: { status: "CLOSED" }
             });
         }
     }
@@ -560,11 +600,10 @@ export async function confirmCompletionService(bookingId, seekerId) {
                 : "Cash payment confirmed by seeker",
         },
     });
-    // Update trust score: successful completion gives +2 trust to provider and +1 to seeker (if distinct)
+    // Trust score: successful completion — routed through centralized trust service
+    // which also writes the immutable TrustScoreEvent history record.
     if (booking.providerId !== booking.seekerId) {
-        const { applyTrustEvent } = await import("./trust.service");
-        await applyTrustEvent(booking.providerId, 2, "Successful service completion (provider)");
-        await applyTrustEvent(booking.seekerId, 1, "Successful service completion (seeker)");
+        await applyServiceCompletionTrust(booking.providerId);
     }
     // Notify provider
     await prisma.notification.create({
@@ -638,6 +677,7 @@ export async function disputeJobService(bookingId, seekerId, reason, description
             link: `/provider/provider-activity?tab=disputed&booking=${booking.id}`,
         },
     });
+    safeEmit(`user:${booking.providerId}`, "notification", { title: "Job Disputed ⚠️" });
     return report;
 }
 // ── Seeker: Join Waitlist (Notify Me When Open) ───────────────────────────────
@@ -669,8 +709,15 @@ export async function cancelQueueEntry(queueId, seekerId) {
         err.status = 400;
         throw err;
     }
-    if (entry.status === "SERVING") {
-        await applyCancellationTrust(seekerId, false);
+    // Per spec Part 9: started boolean on Booking is the single source of truth
+    if (entry.bookingId) {
+        const booking = await prisma.booking.findUnique({
+            where: { id: entry.bookingId },
+            select: { started: true }
+        });
+        if (booking?.started) {
+            await applyCancellationTrust(seekerId, false);
+        }
     }
     await prisma.queue.update({
         where: { id: queueId },

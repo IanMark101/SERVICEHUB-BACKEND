@@ -12,7 +12,18 @@ export async function getNextQueuePosition(serviceId: string): Promise<number> {
     where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
     orderBy: { position: "desc" },
   });
-  return (lastEntry?.position ?? 0) + 1;
+
+  if (lastEntry) {
+    return lastEntry.position + 1;
+  }
+
+  // If no entry in Queue table, check if the provider is currently serving an ONGOING booking on this service
+  const activeOngoing = await prisma.booking.findFirst({
+    where: { serviceId, status: "ONGOING" },
+  });
+
+  // If there's an ongoing job, position 1 is active, so the next queue entrant is position 2
+  return activeOngoing ? 2 : 1;
 }
 
 export async function calculateEstimatedWait(
@@ -319,8 +330,9 @@ export async function addToQueue(params: {
   offerId?: string;  // Only for Flow B (accepted offer)
   scheduledDate?: string; // ISO date e.g. "2026-08-15" — for session-based services
   scheduledTime?: string; // HH:MM e.g. "16:00" — for session-based services
+  paymentMethod?: string; // Payment method e.g. "GCash", "Maya", "Card"
 }): Promise<{ queueEntry: any; isImmediate: boolean }> {
-  const { serviceId, seekerId, paymentId, offerId, scheduledDate, scheduledTime } = params;
+  const { serviceId, seekerId, paymentId, offerId, scheduledDate, scheduledTime, paymentMethod } = params;
 
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
@@ -354,10 +366,14 @@ export async function addToQueue(params: {
     }
   }
 
-  // Count current active queue entries
-  const currentSize = await prisma.queue.count({
+  // Count total load (active ongoing booking + queued entries)
+  const activeOngoingCount = await prisma.booking.count({
+    where: { serviceId, status: "ONGOING" },
+  });
+  const queueCount = await prisma.queue.count({
     where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
   });
+  const currentSize = activeOngoingCount + queueCount;
 
   if (currentSize >= service.queueLimit) {
     const err = new Error("Queue is full. Please join the waitlist instead.") as any;
@@ -379,7 +395,7 @@ export async function addToQueue(params: {
       providerId: service.providerId,
       serviceId,
       offerId,
-      paymentMethod: "GCash",
+      paymentMethod: paymentMethod || "GCash",
       paymentStatus: "PAID_HELD",
       status: isImmediate ? "ONGOING" : "WAITING",
       queuePosition: isImmediate ? null : position,
@@ -665,7 +681,7 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     }
   });
 
-  // Reset related ServiceRequest status back to OPEN so card remains available on Browse Jobs
+  // Mark the ServiceRequest as permanently closed — it was fulfilled
   if (booking.offerId) {
     const offerObj = await prisma.offer.findUnique({
       where: { id: booking.offerId },
@@ -674,7 +690,7 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     if (offerObj?.requestId) {
       await prisma.serviceRequest.update({
         where: { id: offerObj.requestId },
-        data: { status: "OPEN" }
+        data: { status: "CLOSED" }
       });
     }
   }
@@ -835,8 +851,15 @@ export async function cancelQueueEntry(queueId: string, seekerId: string) {
     throw err;
   }
 
-  if (entry.status === "SERVING") {
-    await applyCancellationTrust(seekerId, false);
+  // Per spec Part 9: started boolean on Booking is the single source of truth
+  if (entry.bookingId) {
+    const booking = await prisma.booking.findUnique({
+      where: { id: entry.bookingId },
+      select: { started: true }
+    });
+    if (booking?.started) {
+      await applyCancellationTrust(seekerId, false);
+    }
   }
 
   await prisma.queue.update({

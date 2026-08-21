@@ -11,14 +11,14 @@ export async function submitOffer(providerId: string, params: {
 }) {
   const { requestId, offeredPrice, estimatedDuration, availability, message } = params;
 
-  // Check request is open
+  // Check request is open and accepting offers
   const request = await prisma.serviceRequest.findUnique({
     where: { id: requestId },
     select: { status: true, seekerId: true },
   });
 
-  if (!request || (request.status !== "OPEN" && request.status !== "IN_PROGRESS")) {
-    const err = new Error("Request is not open for offers") as any;
+  if (!request || request.status !== "OPEN") {
+    const err = new Error("This service request is currently paused or closed by the seeker and is no longer accepting new offers.") as any;
     err.status = 400;
     throw err;
   }

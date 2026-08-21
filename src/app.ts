@@ -18,6 +18,8 @@ import aiRoutes from "./routes/ai.routes";
 import transactionRoutes from "./routes/transactions.routes";
 import reviewsRoutes from "./routes/reviews.routes";
 import usersRoutes from "./routes/users.routes";
+import communityRoutes from "./routes/community.routes";
+import uploadRoutes from "./routes/upload.routes";
 
 const app = express();
 
@@ -55,6 +57,8 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/reviews", reviewsRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/community", communityRoutes);
+app.use("/api/upload", uploadRoutes);
 
 // ─── Global Error Handler ────────────────────────────────────────────────────
 

@@ -7,6 +7,7 @@ import {
   updateRequest,
   cancelRequest,
 } from "../services/requests.service";
+import { safeBroadcast } from "../lib/socket";
 
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
@@ -25,6 +26,9 @@ export async function create(req: Request, res: Response, next: NextFunction) {
       budgetMax: parseFloat(budgetMax),
       urgency: urgency || "medium",
     });
+
+    safeBroadcast("SERVICE_REQUEST_CREATED", request);
+    safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id });
 
     res.status(201).json({ success: true, data: request });
   } catch (err) {
@@ -65,6 +69,9 @@ export async function update(req: Request, res: Response, next: NextFunction) {
       ...(status && { status }),
     });
 
+    safeBroadcast("SERVICE_REQUEST_UPDATED", request);
+    safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id, status: request.status });
+
     res.json({ success: true, data: request });
   } catch (err) {
     next(err);
@@ -75,6 +82,10 @@ export async function remove(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
     await cancelRequest(req.params.id as string, user.id);
+
+    safeBroadcast("SERVICE_REQUEST_DELETED", { id: req.params.id });
+    safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: req.params.id });
+
     res.json({ success: true, message: "Request cancelled" });
   } catch (err) {
     next(err);
