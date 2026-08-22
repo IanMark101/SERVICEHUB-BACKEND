@@ -74,9 +74,9 @@ export async function createDirectRequest(params: {
     select: { paymentMethods: true, isAvailable: true, title: true, status: true },
   });
 
-  if (!service || service.status !== "ACTIVE") {
-    const err = new Error("Service not found or not available") as any;
-    err.status = 404;
+  if (!service || service.status !== "ACTIVE" || !service.isAvailable) {
+    const err = new Error("This service listing is currently paused by the provider and is not accepting bookings") as any;
+    err.status = 400;
     throw err;
   }
 
@@ -339,9 +339,9 @@ export async function addToQueue(params: {
     select: { queueLimit: true, estimatedDurationMins: true, isAvailable: true, title: true, status: true, providerId: true },
   });
 
-  if (!service || service.status !== "ACTIVE") {
-    const err = new Error("Service not available") as any;
-    err.status = 404;
+  if (!service || service.status !== "ACTIVE" || (!offerId && !service.isAvailable)) {
+    const err = new Error("This service is currently paused by the provider and not available for new bookings") as any;
+    err.status = 400;
     throw err;
   }
 

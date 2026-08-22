@@ -10,6 +10,7 @@ import {
   deleteService,
   getMyServices,
 } from "../services/services.service";
+import { safeBroadcast } from "../lib/socket";
 
 // ── GET /services — public browse ─────────────────────────────────────────────
 
@@ -82,6 +83,8 @@ export async function update(req: Request, res: Response, next: NextFunction) {
     const user = (req as AuthenticatedRequest).user;
     const input = UpdateServiceSchema.parse(req.body);
     const service = await updateService(req.params.id as string, user.id, input);
+    safeBroadcast("SERVICE_LISTING_UPDATED", service);
+    safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: service.id });
     res.json({ success: true, data: service });
   } catch (err: any) {
     if (err.name === "ZodError") {
@@ -101,6 +104,8 @@ export async function toggle(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
     const service = await toggleServiceAvailability(req.params.id as string, user.id);
+    safeBroadcast("SERVICE_LISTING_TOGGLED", { id: service.id, isAvailable: service.isAvailable });
+    safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: service.id, isAvailable: service.isAvailable });
     res.json({ success: true, data: service });
   } catch (err) {
     next(err);
@@ -113,6 +118,8 @@ export async function remove(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
     await deleteService(req.params.id as string, user.id);
+    safeBroadcast("SERVICE_LISTING_DELETED", { id: req.params.id });
+    safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: req.params.id });
     res.json({ success: true, message: "Service listing removed" });
   } catch (err) {
     next(err);

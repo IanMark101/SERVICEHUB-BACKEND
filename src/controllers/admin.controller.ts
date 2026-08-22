@@ -3,7 +3,7 @@ import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../lib/prisma";
 import { adminReviewService, listPendingServices as adminListPendingServices } from "../services/services.service";
 import { applyTrustEvent, applyReportPenaltyTrust, getTrustHistory } from "../services/trust.service";
-import { safeEmit } from "../lib/socket";
+import { safeEmit, safeBroadcast } from "../lib/socket";
 
 // ── GET /admin/overview ───────────────────────────────────────────────────────
 export async function getOverview(_req: Request, res: Response, next: NextFunction) {
@@ -146,6 +146,8 @@ export async function reviewService(req: Request, res: Response, next: NextFunct
   try {
     const { approve, adminNotes } = req.body;
     const result = await adminReviewService(req.params.id as string, (req as AuthenticatedRequest).user.id, approve, adminNotes);
+    safeBroadcast("SERVICE_LISTING_APPROVED", { id: req.params.id, approved: approve });
+    safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: req.params.id, status: approve ? "ACTIVE" : "REJECTED" });
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
