@@ -16,6 +16,7 @@ import {
   cancelBookingHandler,
   respondCancellationRequestHandler,
   escalateCancellationRequestHandler,
+  hideBooking,
 } from "../controllers/bookings.controller";
 import { requireAuth, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
 
@@ -26,6 +27,9 @@ router.use(requireAuth, requireMarketplaceUser);
 
 // Get my engagements (active and completed)
 router.get("/my-engagements", getMyEngagements);
+
+// Hide / Dismiss a booking from user's view
+router.patch("/:id/hide", hideBooking);
 
 // Cash Direct Arrangement (NEVER enters queue) — requires residency verification (Part 6)
 router.post("/direct", requireVerification, bookDirect);

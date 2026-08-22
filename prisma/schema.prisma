@@ -476,6 +476,8 @@ model Booking {
   // Each individual Booking represents one session; recurring means multiple Bookings on the same listing.
   scheduledDate   String?        // e.g. "2026-08-15"
   scheduledTime   String?        // e.g. "16:00"
+  hiddenBySeeker   Boolean        @default(false)
+  hiddenByProvider Boolean        @default(false)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 

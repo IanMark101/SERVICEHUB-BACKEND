@@ -210,8 +210,8 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
     const bookings = await prisma.booking.findMany({
       where: {
         OR: [
-          { seekerId: user.id },
-          { providerId: user.id }
+          { seekerId: user.id, hiddenBySeeker: false },
+          { providerId: user.id, hiddenByProvider: false }
         ]
       },
       include: {
@@ -255,8 +255,20 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
     const completedServices = await prisma.completedService.findMany({
       where: {
         OR: [
-          { seekerId: user.id },
-          { providerId: user.id }
+          {
+            seekerId: user.id,
+            OR: [
+              { bookingId: null },
+              { booking: { hiddenBySeeker: false } }
+            ]
+          },
+          {
+            providerId: user.id,
+            OR: [
+              { bookingId: null },
+              { booking: { hiddenByProvider: false } }
+            ]
+          }
         ]
       },
       include: {
@@ -285,6 +297,20 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         completedServices
       }
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── PATCH /bookings/:id/hide ──────────────────────────────────────────────────
+
+export async function hideBooking(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const { id } = req.params;
+    const { hideBookingService } = await import("../services/bookings.service");
+    const result = await hideBookingService(id as string, user.id);
+    res.json({ success: true, message: "Booking removed from your view.", data: result });
   } catch (err) {
     next(err);
   }

@@ -38,8 +38,8 @@ export async function getConversations(userId: string) {
   const bookings = await prisma.booking.findMany({
     where: {
       OR: [
-        { seekerId: userId },
-        { providerId: userId }
+        { seekerId: userId, hiddenBySeeker: false },
+        { providerId: userId, hiddenByProvider: false }
       ],
       // Only show bookings where both parties have entered an agreement
       status: { notIn: ["PENDING_APPROVAL", "DECLINED"] }
