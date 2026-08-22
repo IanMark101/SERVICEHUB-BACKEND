@@ -76,6 +76,24 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
 
     assertDistinctAccounts(user.id, service.providerId, "book service");
 
+    // Prevent duplicate concurrent payments / bookings on the same service
+    const activeExistingBooking = await prisma.booking.findFirst({
+      where: {
+        seekerId: user.id,
+        serviceId,
+        status: {
+          in: ["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"]
+        }
+      }
+    });
+
+    if (activeExistingBooking) {
+      return res.status(400).json({
+        success: false,
+        error: "You already have an active booking for this service in progress. Please check your Activity tab."
+      });
+    }
+
     const intent = await createPaymentIntent({
       amount: parseFloat(amount),
       description: description || "ServiceHub Cordova booking",

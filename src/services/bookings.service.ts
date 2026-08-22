@@ -87,6 +87,23 @@ export async function createDirectRequest(params: {
     throw err;
   }
 
+  // Prevent duplicate concurrent bookings on the same service
+  const activeExistingBooking = await prisma.booking.findFirst({
+    where: {
+      seekerId,
+      serviceId,
+      status: {
+        in: ["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"]
+      }
+    }
+  });
+
+  if (activeExistingBooking) {
+    const err = new Error("You already have an active booking for this service in progress. Please check your Activity tab.") as any;
+    err.status = 400;
+    throw err;
+  }
+
   const { directRequest, booking } = await prisma.$transaction(async (tx) => {
     const directRequest = await tx.directRequest.create({
       data: {
@@ -859,6 +876,23 @@ export async function disputeJobService(
 // ── Seeker: Join Waitlist (Notify Me When Open) ───────────────────────────────
 
 export async function joinWaitlist(serviceId: string, seekerId: string) {
+  // Prevent duplicate waitlist if seeker already has an active booking
+  const activeExistingBooking = await prisma.booking.findFirst({
+    where: {
+      seekerId,
+      serviceId,
+      status: {
+        in: ["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"]
+      }
+    }
+  });
+
+  if (activeExistingBooking) {
+    const err = new Error("You already have an active booking for this service in progress. Please check your Activity tab.") as any;
+    err.status = 400;
+    throw err;
+  }
+
   // Check if already on waitlist
   const existing = await prisma.queueNotify.findUnique({
     where: { serviceId_seekerId: { serviceId, seekerId } },
