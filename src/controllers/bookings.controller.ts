@@ -216,10 +216,10 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
       },
       include: {
         seeker: {
-          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true }
+          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true, verificationStatus: true }
         },
         provider: {
-          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true }
+          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true, verificationStatus: true }
         },
         service: {
           select: { id: true, title: true, description: true, price: true, priceType: true, estimatedDurationMins: true }
