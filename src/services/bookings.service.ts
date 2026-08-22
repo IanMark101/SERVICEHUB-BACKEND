@@ -119,7 +119,7 @@ export async function createDirectRequest(params: {
     return { directRequest, booking };
   });
 
-  // Notify provider
+  // Notify Provider
   await prisma.notification.create({
     data: {
       userId: providerId,
@@ -129,6 +129,8 @@ export async function createDirectRequest(params: {
     },
   });
   safeEmit(`user:${providerId}`, "notification", { title: "New Direct Booking Request" });
+  safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "created" });
+  safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "created" });
 
   return { ...directRequest, booking };
 }
@@ -162,6 +164,16 @@ export async function respondToDirectBookingService(requestId: string, providerI
   }
 
   const existingBooking = directRequest.booking;
+
+  // Validate that the request or booking has not already been cancelled or declined
+  if (
+    directRequest.status === "DECLINED" ||
+    (existingBooking && (existingBooking.status === "CANCELED" || existingBooking.status === "DECLINED" || existingBooking.status === "REMOVED"))
+  ) {
+    const err = new Error("This request has already been cancelled or declined.") as any;
+    err.status = 400;
+    throw err;
+  }
 
   if (accept) {
     const booking = await prisma.$transaction(async (tx) => {
@@ -200,6 +212,9 @@ export async function respondToDirectBookingService(requestId: string, providerI
       },
     });
     safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Accepted! 🎉" });
+    safeEmit(`user:${directRequest.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
+    safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
+    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
 
     // Notify Provider
     await prisma.notification.create({
@@ -240,6 +255,8 @@ export async function respondToDirectBookingService(requestId: string, providerI
       },
     });
     safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Declined ❌" });
+    safeEmit(`user:${directRequest.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: existingBooking?.id || directRequest.id, type: "declined" });
+    safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: existingBooking?.id || directRequest.id, type: "declined" });
 
     return updatedRequest;
   }
@@ -303,6 +320,9 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
     },
   });
   safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 💰" });
+  safeEmit(`user:${offer.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
+  safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
+  safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
 
   // Notify Seeker
   await prisma.notification.create({
@@ -451,6 +471,8 @@ export async function addToQueue(params: {
   });
   // Notify the provider in their personal room
   safeEmit(`user:${service.providerId}`, "notification", { title: isImmediate ? "New Job Starting Now! 🚀" : "New Queue Entry" });
+  safeEmit(`user:${service.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
+  safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
 
   return { queueEntry, isImmediate };
 }
@@ -485,6 +507,12 @@ export async function providerStartJob(id: string, providerId: string) {
     throw err;
   }
 
+  if (booking.status === "CANCELED" || booking.status === "DECLINED" || booking.status === "COMPLETED" || booking.status === "REMOVED") {
+    const err = new Error(`Cannot start job for a booking with status ${booking.status}.`) as any;
+    err.status = 400;
+    throw err;
+  }
+
   // Update Booking status to ONGOING and started to true
   const updatedBooking = await prisma.booking.update({
     where: { id: booking.id },
@@ -513,6 +541,9 @@ export async function providerStartJob(id: string, providerId: string) {
     },
   });
   safeEmit(`user:${booking.seekerId}`, "notification", { title: "Provider Started Job! 🚀" });
+  safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
+  safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
+  safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
   await sendMessage(booking.id, booking.providerId, "Provider started the job.", undefined, true);
 
   return updatedBooking;
@@ -567,6 +598,8 @@ export async function providerRemoveQueueEntry(queueId: string, providerId: stri
   // ── Real-time queue update ────────────────────────────────────────────────
   safeEmit(`service:${queueEntry.serviceId}`, "queue_update", { serviceId: queueEntry.serviceId, delta: -1 });
   safeEmit(`user:${queueEntry.seekerId}`, "notification", { title: "Booking Cancelled by Provider ⚠️" });
+  safeEmit(`user:${queueEntry.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: queueEntry.bookingId, type: "removed" });
+  safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: queueEntry.bookingId, type: "removed" });
 
   return { success: true };
 }
@@ -631,6 +664,9 @@ export async function markJobComplete(id: string, providerId: string) {
 
   // ── Real-time: notify seeker to confirm ──────────────────────────────────
   safeEmit(`user:${booking.seekerId}`, "notification", { title: "Service Completed — Please Confirm ✅" });
+  safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "awaiting_confirmation" });
+  safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "awaiting_confirmation" });
+  safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "awaiting_confirmation" });
   if (queueEntry) safeEmit(`service:${queueEntry.serviceId}`, "queue_update", { serviceId: queueEntry.serviceId, delta: 0 });
 
   return booking;
@@ -732,6 +768,9 @@ export async function confirmCompletionService(bookingId: string, seekerId: stri
     },
   });
   safeEmit(`user:${booking.providerId}`, "notification", { title: "Payment Confirmed 💰" });
+  safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
+  safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
+  safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
 
   return completedService;
 }
@@ -810,6 +849,9 @@ export async function disputeJobService(
     },
   });
   safeEmit(`user:${booking.providerId}`, "notification", { title: "Job Disputed ⚠️" });
+  safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "disputed" });
+  safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "disputed" });
+  safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "disputed" });
 
   return report;
 }
