@@ -139,7 +139,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
   }
 
 
-  return prisma.service.create({
+  const newService = await prisma.service.create({
     data: {
       providerId,
       categoryId: category.id,
@@ -154,8 +154,52 @@ export async function createService(providerId: string, input: CreateServiceInpu
       status: "PENDING_REVIEW", // ALWAYS — never goes live without admin approval
       isAvailable: false,
     },
-    include: { category: true },
+    include: { category: true, provider: { select: { id: true, name: true, email: true } } },
   });
+
+  // 1. Notify Provider in-app that listing is submitted for review
+  await prisma.notification.create({
+    data: {
+      userId: providerId,
+      title: "Listing Submitted for Review ⏳",
+      body: `Your service listing "${input.title}" was submitted and is pending admin review.`,
+      link: "/provider/manage-services?status=pending",
+    },
+  });
+  safeEmit(`user:${providerId}`, "notification", {
+    title: "Listing Submitted for Review ⏳",
+    body: `Your service listing "${input.title}" is pending admin review.`,
+  });
+
+  // 2. Notify all Admins so it appears in their audit queue & bell dropdown
+  const admins = await prisma.user.findMany({
+    where: { role: "admin" },
+    select: { id: true },
+  });
+
+  if (admins.length > 0) {
+    const adminNotifs = admins.map((admin) => ({
+      userId: admin.id,
+      title: "📋 New Service Listing Pending Review",
+      body: `${newService.provider?.name || "A provider"} submitted a new listing: "${input.title}".`,
+      link: "/admin/services",
+    }));
+
+    await prisma.notification.createMany({ data: adminNotifs });
+
+    admins.forEach((admin) => {
+      safeEmit(`user:${admin.id}`, "notification", {
+        title: "📋 New Service Listing Pending Review",
+        body: `${newService.provider?.name || "A provider"} submitted a new listing: "${input.title}".`,
+        link: "/admin/services",
+      });
+    });
+  }
+
+  // 3. Emit real-time queue update for Admin Services moderation page
+  safeEmit("admin", "SERVICE_LISTING_SUBMITTED", { serviceId: newService.id });
+
+  return newService;
 }
 
 // ── Update Listing ─────────────────────────────────────────────────────────────

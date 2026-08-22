@@ -65,7 +65,11 @@ export async function create(req: Request, res: Response, next: NextFunction) {
     });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, errors: err.errors });
+      return res.status(400).json({
+        success: false,
+        error: err.errors?.[0]?.message || "Validation failed",
+        errors: err.errors,
+      });
     }
     next(err);
   }
@@ -81,7 +85,11 @@ export async function update(req: Request, res: Response, next: NextFunction) {
     res.json({ success: true, data: service });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, errors: err.errors });
+      return res.status(400).json({
+        success: false,
+        error: err.errors?.[0]?.message || "Validation failed",
+        errors: err.errors,
+      });
     }
     next(err);
   }
