@@ -53,7 +53,7 @@ export async function getConversations(userId: string) {
       messages: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        include: { sender: { select: { name: true } } }
+        include: { sender: { select: { id: true, name: true, avatarUrl: true } } }
       },
       _count: {
         select: {
@@ -76,25 +76,32 @@ export async function getConversations(userId: string) {
 
     const title = b.service?.title || b.offer?.request?.title || b.directRequest?.service?.title || "Job Engagement";
 
-    const lastMsgObj = b.messages[0];
-    let lastMessage = undefined;
+    const lastMsgObj = b.messages?.[0];
+    let lastMessage: string | undefined = undefined;
     if (lastMsgObj) {
-      lastMessage = lastMsgObj.isSystem 
-        ? lastMsgObj.content 
-        : `${lastMsgObj.sender.name}: ${lastMsgObj.content || "📷 Image"}`;
+      if (lastMsgObj.isSystem) {
+        lastMessage = lastMsgObj.content;
+      } else {
+        const senderName = lastMsgObj.sender?.name || (lastMsgObj.senderId === userId ? "You" : "User");
+        lastMessage = `${senderName}: ${lastMsgObj.content || "📷 Image"}`;
+      }
     }
+
+    const otherPartyId = otherParty?.id || (isSeeker ? b.providerId : b.seekerId) || "";
+    const otherPartyName = otherParty?.name || (isSeeker ? "Provider" : "Seeker");
+    const otherPartyAvatar = otherParty?.avatarUrl || null;
 
     return {
       bookingId: b.id,
       title,
-      otherPartyId: otherParty.id,
-      otherPartyName: otherParty.name,
-      otherPartyAvatar: otherParty.avatarUrl,
+      otherPartyId,
+      otherPartyName,
+      otherPartyAvatar,
       otherPartyRole,
       status: b.status,
       lastMessage,
       lastMessageTime: lastMsgObj ? lastMsgObj.createdAt : b.updatedAt,
-      unreadCount: b._count.messages
+      unreadCount: b._count?.messages || 0
     };
   });
 }
