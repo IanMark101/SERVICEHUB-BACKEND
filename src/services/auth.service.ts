@@ -168,8 +168,13 @@ export async function refreshAccessToken(incomingRefreshToken: string): Promise<
     throw err;
   }
 
-  // Rotate: delete old, issue new pair
-  await prisma.refreshToken.delete({ where: { token: incomingRefreshToken } });
+  // Rotate: delete old, issue new pair (deleteMany prevents P2025 on concurrent calls)
+  const deleted = await prisma.refreshToken.deleteMany({ where: { token: incomingRefreshToken } });
+  if (deleted.count === 0) {
+    const err = new Error("Refresh token already used or revoked") as any;
+    err.status = 401;
+    throw err;
+  }
   return issueTokens(user.id, user.role);
 }
 
