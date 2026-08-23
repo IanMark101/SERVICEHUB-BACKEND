@@ -20,6 +20,7 @@ import reviewsRoutes from "./routes/reviews.routes";
 import usersRoutes from "./routes/users.routes";
 import communityRoutes from "./routes/community.routes";
 import uploadRoutes from "./routes/upload.routes";
+import { apiLimiter } from "./middlewares/rateLimiter.middleware";
 
 const app = express();
 
@@ -40,6 +41,10 @@ app.use(cookieParser());
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "ServiceHub Cordova API", timestamp: new Date().toISOString() });
 });
+
+// ─── Apply General API Rate Limiting ────────────────────────────────────────
+
+app.use("/api", apiLimiter);
 
 // ─── API Routes ─────────────────────────────────────────────────────────────
 
