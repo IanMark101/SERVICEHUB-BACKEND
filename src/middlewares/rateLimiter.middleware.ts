@@ -1,23 +1,30 @@
 import rateLimit from "express-rate-limit";
+import { env } from "../config/env";
 
-// ── Auth Limiter (Strict: 15 attempts per 15 minutes per IP) ─────────────────
-// Protects against brute-force password guessing and registration spam
+const isDev = env.NODE_ENV !== "production";
+
+// ── Auth Limiter (Protects against brute-force password guessing) ─────────────
+// In production: 30 attempts per 15 min; successful logins are skipped so valid users are never locked out.
+// In development: generous 200 attempts per 15 min or localhost skip.
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 15, // limit each IP to 15 requests per windowMs
+  max: isDev ? 200 : 30, // limit each IP to 30 requests in prod, 200 in dev
+  skipSuccessfulRequests: true, // IMPORTANT: only count failed attempts against the rate limit
+  skip: (req) => isDev && (req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1"),
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: {
     success: false,
-    error: "Too many login/auth attempts from this IP. Please try again after 15 minutes.",
+    error: "Too many failed login attempts from this IP. Please try again after 15 minutes.",
   },
 });
 
-// ── General API Limiter (Generous: 300 requests per 15 minutes per IP) ───────
-// Protects general routes from scraping or runaway polling loops
+// ── General API Limiter (Generous: 1500 requests per 15 minutes per IP) ───────
+// Protects general routes from runaway scraping or malicious loops while allowing fast client SPA navigation
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // limit each IP to 300 requests per windowMs
+  max: isDev ? 5000 : 1500, // 1500 requests per 15 minutes
+  skip: (req) => isDev && (req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1"),
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: {
@@ -26,11 +33,11 @@ export const apiLimiter = rateLimit({
   },
 });
 
-// ── AI Endpoints Limiter (Moderate: 30 requests per minute per IP) ───────────
+// ── AI Endpoints Limiter (Moderate: 60 requests per minute per IP) ───────────
 // Protects Gemini API quota from excessive calls
 export const aiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 30, // limit each IP to 30 requests per minute
+  max: isDev ? 120 : 60,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: {
