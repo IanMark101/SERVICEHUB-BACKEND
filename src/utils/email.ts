@@ -15,24 +15,33 @@ interface EmailPayload {
 
 // ── Transport ─────────────────────────────────────────────────────────────────
 
-const smtpHost = env.SMTP_HOST;
-const smtpPort = Number(env.SMTP_PORT || 587);
-const smtpUser = env.SMTP_USER;
-const smtpPass = env.SMTP_PASS ? env.SMTP_PASS.replace(/\s+/g, "") : "";
-const emailFrom = smtpUser ? `ServiceHub Cordova <${smtpUser}>` : (env.EMAIL_FROM || "no-reply@servicehub.com");
+function getTransporter(): { transporter: nodemailer.Transporter; emailFrom: string } | null {
+  const smtpHost = process.env.SMTP_HOST || env.SMTP_HOST;
+  const smtpPort = Number(process.env.SMTP_PORT || env.SMTP_PORT || 587);
+  const smtpUser = process.env.SMTP_USER || env.SMTP_USER;
+  const rawPass = process.env.SMTP_PASS || env.SMTP_PASS || "";
+  const smtpPass = rawPass.replace(/\s+/g, "");
+  const emailFrom = smtpUser ? `ServiceHub Cordova <${smtpUser}>` : (process.env.EMAIL_FROM || env.EMAIL_FROM || "no-reply@servicehub.com");
 
-let transporter: nodemailer.Transporter | null = null;
-if (smtpHost && smtpUser && smtpPass) {
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    return null;
+  }
+
   if (smtpHost.toLowerCase().includes("gmail")) {
-    transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-    });
-  } else {
-    transporter = nodemailer.createTransport({
+    return {
+      transporter: nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      }),
+      emailFrom,
+    };
+  }
+
+  return {
+    transporter: nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: smtpPort === 465,
@@ -40,20 +49,31 @@ if (smtpHost && smtpUser && smtpPass) {
         user: smtpUser,
         pass: smtpPass,
       },
-    });
-  }
+    }),
+    emailFrom,
+  };
 }
 
 async function sendEmail(payload: EmailPayload): Promise<void> {
-  if (transporter) {
+  const config = getTransporter();
+  if (config) {
     try {
-      await transporter.sendMail({
-        from: emailFrom,
+      // Plain text fallback (essential for avoiding spam filters)
+      const textFallback = payload.html
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const info = await config.transporter.sendMail({
+        from: config.emailFrom,
+        replyTo: config.emailFrom,
         to: payload.to,
         subject: payload.subject,
+        text: textFallback,
         html: payload.html,
       });
-      console.log(`[Email Engine] Sent email successfully to ${payload.to}`);
+      console.log(`[Email Engine] Sent email successfully to ${payload.to} (MessageId: ${info.messageId})`);
       return;
     } catch (error: any) {
       console.error(`[Email Engine] Failed to send email to ${payload.to}:`, error?.message || error);
