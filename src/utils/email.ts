@@ -87,7 +87,7 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
         <style>
           body {
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            background-color: #f6f5f2;
+            background-color: #faf8f5;
             margin: 0;
             padding: 0;
             -webkit-font-smoothing: antialiased;
@@ -96,14 +96,14 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
             max-width: 560px;
             margin: 40px auto;
             background-color: #ffffff;
-            border-radius: 20px;
+            border-radius: 24px;
             overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
-            border: 1px solid rgba(0, 0, 0, 0.05);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06);
+            border: 1px solid rgba(217, 119, 87, 0.12);
           }
           .header {
-            background: linear-gradient(135deg, #10b981, #059669);
-            padding: 35px 30px;
+            background: linear-gradient(135deg, #d97757, #c86544);
+            padding: 38px 30px;
             text-align: center;
           }
           .logo {
@@ -114,10 +114,10 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
             margin: 0;
           }
           .logo-sub {
-            color: #d1fae5;
-            font-size: 10px;
+            color: #fcece7;
+            font-size: 11px;
             font-weight: 700;
-            letter-spacing: 1.5px;
+            letter-spacing: 2px;
             text-transform: uppercase;
             margin: 6px 0 0;
           }
@@ -128,10 +128,11 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
           }
           .content h1 {
             color: #1e293b;
-            font-size: 20px;
+            font-size: 22px;
             font-weight: 800;
             margin-top: 0;
             margin-bottom: 16px;
+            letter-spacing: -0.02em;
           }
           .content p {
             font-size: 14px;
@@ -141,40 +142,40 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
           }
           .btn-container {
             text-align: center;
-            margin: 30px 0;
+            margin: 32px 0;
           }
           .btn {
             display: inline-block;
-            background: linear-gradient(135deg, #ea580c, #c2410c);
+            background: linear-gradient(135deg, #d97757, #c86544);
             color: #ffffff !important;
             text-decoration: none;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 700;
-            padding: 13px 28px;
-            border-radius: 10px;
-            box-shadow: 0 4px 14px rgba(234, 88, 12, 0.25);
+            padding: 14px 32px;
+            border-radius: 12px;
+            box-shadow: 0 6px 20px rgba(200, 101, 68, 0.35);
           }
           .footer {
-            background-color: #f8fafc;
+            background-color: #fbfaf7;
             padding: 24px 40px;
             text-align: center;
-            border-top: 1px solid #f1f5f9;
+            border-top: 1px solid #f1ebd9;
           }
           .footer p {
-            color: #94a3b8;
+            color: #8b877f;
             font-size: 11px;
             margin: 0;
             line-height: 1.6;
           }
           .link-fallback {
-            background-color: #f1f5f9;
+            background-color: #faf8f5;
             padding: 12px;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 11px;
             word-break: break-all;
-            color: #64748b;
+            color: #c86544;
             margin-top: 24px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid #ecd9d0;
           }
         </style>
       </head>
