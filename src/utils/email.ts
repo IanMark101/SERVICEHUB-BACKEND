@@ -18,20 +18,30 @@ interface EmailPayload {
 const smtpHost = env.SMTP_HOST;
 const smtpPort = Number(env.SMTP_PORT || 587);
 const smtpUser = env.SMTP_USER;
-const smtpPass = env.SMTP_PASS;
-const emailFrom = env.EMAIL_FROM || "no-reply@servicehub.com";
+const smtpPass = env.SMTP_PASS ? env.SMTP_PASS.replace(/\s+/g, "") : "";
+const emailFrom = smtpUser ? `ServiceHub Cordova <${smtpUser}>` : (env.EMAIL_FROM || "no-reply@servicehub.com");
 
 let transporter: nodemailer.Transporter | null = null;
 if (smtpHost && smtpUser && smtpPass) {
-  transporter = nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpPort === 465,
-    auth: {
-      user: smtpUser,
-      pass: smtpPass,
-    },
-  });
+  if (smtpHost.toLowerCase().includes("gmail")) {
+    transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    });
+  } else {
+    transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    });
+  }
 }
 
 async function sendEmail(payload: EmailPayload): Promise<void> {
@@ -45,8 +55,8 @@ async function sendEmail(payload: EmailPayload): Promise<void> {
       });
       console.log(`[Email Engine] Sent email successfully to ${payload.to}`);
       return;
-    } catch (error) {
-      console.error(`[Email Engine] Failed to send email to ${payload.to}:`, error);
+    } catch (error: any) {
+      console.error(`[Email Engine] Failed to send email to ${payload.to}:`, error?.message || error);
     }
   }
 
