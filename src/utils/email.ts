@@ -118,25 +118,37 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
             background-color: #ffffff;
             border-radius: 24px;
             overflow: hidden;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06);
-            border: 1px solid rgba(217, 119, 87, 0.12);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(234, 88, 12, 0.15);
           }
           .header {
-            background: linear-gradient(135deg, #d97757, #c86544);
-            padding: 38px 30px;
+            background: linear-gradient(135deg, #1c1b18 0%, #121110 100%);
+            padding: 36px 30px;
             text-align: center;
+            border-bottom: 2px solid rgba(249, 115, 22, 0.3);
+          }
+          .header img.brand-logo {
+            display: inline-block;
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
           }
           .logo {
             color: #ffffff;
-            font-size: 26px;
+            font-size: 24px;
             font-weight: 850;
             letter-spacing: -0.5px;
             margin: 0;
           }
+          .logo span.highlight {
+            color: #f97316;
+          }
           .logo-sub {
-            color: #fcece7;
+            color: #10b981;
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 800;
             letter-spacing: 2px;
             text-transform: uppercase;
             margin: 6px 0 0;
@@ -166,17 +178,17 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
           }
           .btn {
             display: inline-block;
-            background: linear-gradient(135deg, #d97757, #c86544);
+            background: linear-gradient(135deg, #ea580c, #f97316);
             color: #ffffff !important;
             text-decoration: none;
             font-size: 14px;
-            font-weight: 700;
-            padding: 14px 32px;
-            border-radius: 12px;
-            box-shadow: 0 6px 20px rgba(200, 101, 68, 0.35);
+            font-weight: 800;
+            padding: 14px 34px;
+            border-radius: 14px;
+            box-shadow: 0 6px 20px rgba(234, 88, 12, 0.35);
           }
           .footer {
-            background-color: #fbfaf7;
+            background-color: #faf9f6;
             padding: 24px 40px;
             text-align: center;
             border-top: 1px solid #f1ebd9;
@@ -193,17 +205,18 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
             border-radius: 10px;
             font-size: 11px;
             word-break: break-all;
-            color: #c86544;
+            color: #ea580c;
             margin-top: 24px;
-            border: 1px solid #ecd9d0;
+            border: 1px solid #fbd5c0;
           }
         </style>
       </head>
       <body>
         <div class="email-container">
           <div class="header">
-            <div class="logo">ServiceHub</div>
-            <div class="logo-sub">Cordova, Cebu</div>
+            <img class="brand-logo" src="${process.env.FRONTEND_URL || 'http://localhost:3000'}/logo.png" alt="ServiceHub Logo" />
+            <div class="logo">ServiceHub <span class="highlight">Cordova</span></div>
+            <div class="logo-sub">Hyperlocal Service Marketplace</div>
           </div>
           <div class="content">
             ${contentHtml}
