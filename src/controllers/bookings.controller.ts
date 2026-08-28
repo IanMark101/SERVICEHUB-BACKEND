@@ -162,9 +162,7 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
 
     res.status(201).json({
       success: true,
-      message: isImmediate
-        ? "You are next! The provider will start your service now."
-        : `You are in the queue at position ${queueEntry.position}. Estimated wait: ${queueEntry.estimatedWait} minutes.`,
+      message: "Payment secured in Escrow! Your booking request has been sent to the provider for confirmation.",
       data: queueEntry,
     });
   } catch (err: any) {
