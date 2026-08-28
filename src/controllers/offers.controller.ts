@@ -46,7 +46,12 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
     const offers = await prisma.offer.findMany({
-      where: { providerId: user.id },
+      where: {
+        providerId: user.id,
+        request: {
+          status: { not: "CANCELED" }
+        }
+      },
       include: {
         request: {
           select: {

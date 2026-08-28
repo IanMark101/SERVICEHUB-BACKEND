@@ -182,7 +182,7 @@ export async function acceptOffer(offerId: string, seekerId: string) {
   return updatedOffer;
 }
 
-export async function rejectOffer(offerId: string, seekerId: string) {
+export async function rejectOffer(offerId: string, userId: string) {
   const offer = await prisma.offer.findUnique({
     where: { id: offerId },
     include: {
@@ -200,14 +200,23 @@ export async function rejectOffer(offerId: string, seekerId: string) {
     throw err;
   }
 
-  if (offer.request.seekerId !== seekerId) {
+  const isSeeker = offer.request.seekerId === userId;
+  const isProvider = offer.providerId === userId;
+
+  if (!isSeeker && !isProvider) {
     const err = new Error("Not authorized") as any;
     err.status = 403;
     throw err;
   }
 
-  return prisma.offer.update({
+  const updatedOffer = await prisma.offer.update({
     where: { id: offerId },
     data: { status: "REJECTED" },
   });
+
+  // Real-time socket notification
+  safeEmit(`user:${offer.request.seekerId}`, "ENGAGEMENT_CHANGED", { type: "offer_rejected", offerId });
+  safeEmit(`user:${offer.providerId}`, "ENGAGEMENT_CHANGED", { type: "offer_rejected", offerId });
+
+  return updatedOffer;
 }
