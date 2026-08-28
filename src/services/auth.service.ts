@@ -471,8 +471,78 @@ export async function updateUserProfile(
     facebookUrl?: string;
     instagramUrl?: string;
     websiteUrl?: string;
+    currentPassword?: string;
   }
 ) {
+  const currentUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, phone: true, passwordHash: true },
+  });
+
+  if (!currentUser) {
+    const err = new Error("User not found") as any;
+    err.status = 404;
+    throw err;
+  }
+
+  // Check if phone number is being updated
+  const isPhoneChanging =
+    data.phone !== undefined &&
+    data.phone.trim() !== "" &&
+    data.phone.trim() !== (currentUser.phone || "").trim();
+
+  if (isPhoneChanging) {
+    // 1. Active Job Lock: Check if user is a provider or seeker in any active/held booking
+    const activeBookings = await prisma.booking.findMany({
+      where: {
+        OR: [{ providerId: userId }, { seekerId: userId }],
+        status: {
+          in: [
+            "PENDING_APPROVAL",
+            "WAITING",
+            "ACCEPTED",
+            "ONGOING",
+            "AWAITING_CONFIRMATION",
+            "UNDER_REVIEW",
+            "DISPUTED",
+          ],
+        },
+      },
+      select: { id: true, status: true },
+    });
+
+    if (activeBookings.length > 0) {
+      const err = new Error(
+        "Mobile number cannot be changed while you have active service engagements in progress. Please complete or settle your active jobs first."
+      ) as any;
+      err.status = 400;
+      throw err;
+    }
+
+    // 2. Password Re-Authentication: If passwordHash exists, verify currentPassword
+    if (currentUser.passwordHash) {
+      if (!data.currentPassword) {
+        const err = new Error(
+          "Current password is required to update your mobile/GCash payout number."
+        ) as any;
+        err.status = 400;
+        throw err;
+      }
+
+      const isValidPassword = await bcrypt.compare(
+        data.currentPassword,
+        currentUser.passwordHash
+      );
+      if (!isValidPassword) {
+        const err = new Error(
+          "Incorrect current password. Mobile number was not updated."
+        ) as any;
+        err.status = 400;
+        throw err;
+      }
+    }
+  }
+
   const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: {
@@ -486,6 +556,22 @@ export async function updateUserProfile(
       ...(data.websiteUrl !== undefined && { websiteUrl: data.websiteUrl }),
     },
   });
+
+  // 3. Security Notification on Phone Change
+  if (isPhoneChanging) {
+    try {
+      await prisma.notification.create({
+        data: {
+          userId,
+          title: "Security Alert: Mobile Number Updated 🔒",
+          body: `Your mobile/GCash number was successfully updated to ${data.phone}. If you did not make this change, please contact support immediately.`,
+          link: "/profile?tab=settings",
+        },
+      });
+    } catch (notifErr) {
+      console.warn("Failed to create phone change security notification:", notifErr);
+    }
+  }
 
   return toPublicUser(updatedUser);
 }
