@@ -142,7 +142,7 @@ export async function createDirectRequest(params: {
       userId: providerId,
       title: "New Direct Booking Request",
       body: `A new Direct Arrangement booking request has arrived for "${service.title}". Review it in Incoming Requests.`,
-      link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
+      link: `/provider/incoming-requests?booking=${booking.id}`,
     },
   });
   safeEmit(`user:${providerId}`, "notification", { title: "New Direct Booking Request" });
