@@ -5,6 +5,57 @@ import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.
 
 const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
 
+// ── Shared Marketplace Visibility Definition (Canonical Source of Truth) ──────
+export const PUBLIC_SERVICE_WHERE = {
+  status: "ACTIVE" as const,
+  isAvailable: true,
+  provider: {
+    verificationStatus: "APPROVED" as const,
+    isActive: true,
+  },
+};
+
+export async function getPublicServiceCount() {
+  return prisma.service.count({
+    where: PUBLIC_SERVICE_WHERE,
+  });
+}
+
+export async function getActivePublicProviderCount() {
+  return prisma.user.count({
+    where: {
+      verificationStatus: "APPROVED",
+      isActive: true,
+      services: {
+        some: {
+          status: "ACTIVE",
+          isAvailable: true,
+        },
+      },
+    },
+  });
+}
+
+export async function getRecentlyPublishedServices(limit = 6) {
+  return prisma.service.findMany({
+    where: PUBLIC_SERVICE_WHERE,
+    orderBy: { updatedAt: "desc" }, // actual publication/approval timestamp
+    take: limit,
+    include: {
+      category: { select: { id: true, name: true } },
+      provider: {
+        select: {
+          id: true,
+          name: true,
+          avatarUrl: true,
+          trustScore: true,
+          verificationStatus: true,
+        },
+      },
+    },
+  });
+}
+
 // ── Browse (Public — ACTIVE listings only) ────────────────────────────────────
 
 export async function browseServices(params: {
@@ -17,12 +68,7 @@ export async function browseServices(params: {
 
   return prisma.service.findMany({
     where: {
-      status: "ACTIVE",
-      isAvailable: true,
-      provider: {
-        verificationStatus: "APPROVED",
-        isActive: true,
-      },
+      ...PUBLIC_SERVICE_WHERE,
       ...(categoryId && { categoryId }),
       ...(availableOnly && { isAvailable: true }),
       ...(excludeProviderId && { providerId: { not: excludeProviderId } }),
