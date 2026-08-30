@@ -65,7 +65,7 @@ export async function submitOffer(providerId: string, params: {
     data: {
       userId: request.seekerId,
       title: "New Offer Received",
-      body: `A provider submitted an offer of ₱${offeredPrice} on your request. Check Incoming Offers.`,
+      body: `A provider submitted an offer of ₱${offeredPrice} on your request. Review it in Service Requests.`,
       link: `/seeker/incoming-offers?offer=${offer.id}`,
     },
   });
@@ -173,8 +173,8 @@ export async function acceptOffer(offerId: string, seekerId: string) {
     data: {
       userId: offer.providerId,
       title: "Offer Accepted! 🎉",
-      body: `Your offer was accepted. Please proceed to payment to confirm your booking and queue position.`,
-      link: `/provider/provider-activity?tab=pending_offers`,
+      body: `The seeker accepted your offer of ₱${offer.offeredPrice}! Check your Activity tab.`,
+      link: `/provider/provider-activity?tab=all`,
     },
   });
   safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 🎉" });

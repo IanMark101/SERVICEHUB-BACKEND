@@ -565,7 +565,7 @@ export async function updateUserProfile(
           userId,
           title: "Security Alert: Mobile Number Updated 🔒",
           body: `Your mobile/GCash number was successfully updated to ${data.phone}. If you did not make this change, please contact support immediately.`,
-          link: "/profile?tab=settings",
+          link: updatedUser.role === "provider" ? "/provider/account-settings" : "/seeker/account-settings",
         },
       });
     } catch (notifErr) {

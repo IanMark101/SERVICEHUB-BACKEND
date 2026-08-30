@@ -337,11 +337,13 @@ export async function adminResolveCancellationRequest(
           userId: cancelReq.booking.seekerId,
           title: "Admin Resolved Cancellation in your favor 🎉",
           body: `Admin approved your cancellation request. ${adminNote || ""}`,
+          link: `/seeker/seeker-activity?tab=canceled&booking=${cancelReq.bookingId}`,
         },
         {
           userId: cancelReq.booking.providerId,
           title: "Admin Cancelled Booking ⚠️",
           body: `Admin approved the seeker's cancellation request. ${adminNote || ""}`,
+          link: `/provider/provider-activity?tab=canceled&booking=${cancelReq.bookingId}`,
         }
       ]
     });
@@ -355,11 +357,13 @@ export async function adminResolveCancellationRequest(
           userId: cancelReq.booking.seekerId,
           title: "Admin Rejected Cancellation Request",
           body: `Admin rejected your cancellation escalation. Booking will continue as ongoing. ${adminNote || ""}`,
+          link: `/seeker/seeker-activity?tab=active&booking=${cancelReq.bookingId}`,
         },
         {
           userId: cancelReq.booking.providerId,
           title: "Admin Ruled in your favor on cancellation",
           body: `Admin rejected the seeker's cancellation escalation. The booking remains ongoing. ${adminNote || ""}`,
+          link: `/provider/provider-activity?tab=in_progress&booking=${cancelReq.bookingId}`,
         }
       ]
     });

@@ -500,7 +500,7 @@ export async function addToQueue(params: {
       userId: service.providerId,
       title: "New Paid Booking Request! 🔒",
       body: `A client requested "${service.title}" with payment secured in Escrow via GCash. Review and accept.`,
-      link: `/provider/provider-activity?tab=pending&booking=${booking.id}`,
+      link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
     },
   });
 

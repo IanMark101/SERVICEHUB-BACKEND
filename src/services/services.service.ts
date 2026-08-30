@@ -163,7 +163,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
       userId: providerId,
       title: "Listing Submitted for Review ⏳",
       body: `Your service listing "${input.title}" was submitted and is pending admin review.`,
-      link: "/provider/manage-services?status=pending",
+      link: "/provider/service-manager?status=pending",
     },
   });
   safeEmit(`user:${providerId}`, "notification", {

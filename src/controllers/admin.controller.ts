@@ -243,7 +243,7 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
     const { action, adminNotes } = req.body;
     const report = await prisma.report.findUnique({
       where: { id: req.params.id as string },
-      include: { booking: true },
+      include: { booking: true, reporter: true, reportedUser: true },
     });
 
     if (!report) return res.status(404).json({ success: false, error: "Report not found" });
@@ -261,11 +261,13 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
     // Execute the action (Spec Part 8: Warn, Reduce Trust, Suspend, Ban, Dismiss, Approve Refund)
     if (action === "warn") {
       // Just notify — no systemic penalty beyond the notification sent below
+      const reportedRole = report.reportedUser?.role || "seeker";
       await prisma.notification.create({
         data: {
           userId: report.reportedUserId,
           title: "⚠️ Official Warning from Admin",
           body: `You have received a formal warning regarding a report. ${adminNotes || "Please review your behavior."}`,
+          link: `/${reportedRole}/${reportedRole}-activity?tab=disputed&booking=${report.bookingId}`,
         },
       });
       safeEmit(`user:${report.reportedUserId}`, "notification", { title: "⚠️ Official Warning from Admin" });
@@ -315,17 +317,21 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
     }
 
     // Notify both parties
+    const reporterRole = report.reporter?.role || "seeker";
+    const reportedRole = report.reportedUser?.role || "seeker";
     await prisma.notification.createMany({
       data: [
         {
           userId: report.reporterId,
           title: "Report Resolved",
           body: `Your report has been reviewed and resolved. ${adminNotes || ""}`,
+          link: `/${reporterRole}/${reporterRole}-activity?tab=all&booking=${report.bookingId}`,
         },
         {
           userId: report.reportedUserId,
           title: "Report Against You Resolved",
           body: `A report filed against you has been reviewed. ${adminNotes || ""}`,
+          link: `/${reportedRole}/${reportedRole}-activity?tab=all&booking=${report.bookingId}`,
         },
       ],
     });
