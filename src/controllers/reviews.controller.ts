@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { applyReviewTrust } from "../services/trust.service";
 import { assertDistinctAccounts } from "../utils/security";
+import { safeEmit } from "../lib/socket";
 
 export async function submitReview(req: Request, res: Response, next: NextFunction) {
   try {
@@ -63,7 +64,7 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
     // Update target trust score
     await applyReviewTrust(targetId, parseInt(rating));
 
-    // Create notification if provider was reviewed
+    // Create notification and socket alert for the reviewed party
     if (isSeeker) {
       await prisma.notification.create({
         data: {
@@ -73,6 +74,17 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
           link: `/provider/user-profile?id=${targetId}&tab=reviews`
         }
       });
+      safeEmit(`user:${targetId}`, "notification", { title: "New Review Received ⭐" });
+    } else if (isProvider) {
+      await prisma.notification.create({
+        data: {
+          userId: targetId,
+          title: "New Review Received ⭐",
+          body: `Your provider left you a ${rating}-star review. Check your profile.`,
+          link: `/seeker/user-profile?id=${targetId}&tab=reviews`
+        }
+      });
+      safeEmit(`user:${targetId}`, "notification", { title: "New Review Received ⭐" });
     }
 
     res.status(201).json({
