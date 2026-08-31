@@ -2,17 +2,59 @@ import { prisma } from "../lib/prisma";
 import { applyListingRejectionTrust } from "./trust.service";
 import { safeEmit } from "../lib/socket";
 const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
+// ── Shared Marketplace Visibility Definition (Canonical Source of Truth) ──────
+export const PUBLIC_SERVICE_WHERE = {
+    status: "ACTIVE",
+    isAvailable: true,
+    provider: {
+        verificationStatus: "APPROVED",
+        isActive: true,
+    },
+};
+export async function getPublicServiceCount() {
+    return prisma.service.count({
+        where: PUBLIC_SERVICE_WHERE,
+    });
+}
+export async function getActivePublicProviderCount() {
+    return prisma.user.count({
+        where: {
+            verificationStatus: "APPROVED",
+            isActive: true,
+            services: {
+                some: {
+                    status: "ACTIVE",
+                    isAvailable: true,
+                },
+            },
+        },
+    });
+}
+export async function getRecentlyPublishedServices(limit = 6) {
+    return prisma.service.findMany({
+        where: PUBLIC_SERVICE_WHERE,
+        orderBy: { updatedAt: "desc" }, // actual publication/approval timestamp
+        take: limit,
+        include: {
+            category: { select: { id: true, name: true } },
+            provider: {
+                select: {
+                    id: true,
+                    name: true,
+                    avatarUrl: true,
+                    trustScore: true,
+                    verificationStatus: true,
+                },
+            },
+        },
+    });
+}
 // ── Browse (Public — ACTIVE listings only) ────────────────────────────────────
 export async function browseServices(params) {
     const { categoryId, search, availableOnly, excludeProviderId } = params;
     return prisma.service.findMany({
         where: {
-            status: "ACTIVE",
-            isAvailable: true,
-            provider: {
-                verificationStatus: "APPROVED",
-                isActive: true,
-            },
+            ...PUBLIC_SERVICE_WHERE,
             ...(categoryId && { categoryId }),
             ...(availableOnly && { isAvailable: true }),
             ...(excludeProviderId && { providerId: { not: excludeProviderId } }),
@@ -115,7 +157,7 @@ export async function createService(providerId, input) {
         err.status = 400;
         throw err;
     }
-    return prisma.service.create({
+    const newService = await prisma.service.create({
         data: {
             providerId,
             categoryId: category.id,
@@ -130,8 +172,45 @@ export async function createService(providerId, input) {
             status: "PENDING_REVIEW", // ALWAYS — never goes live without admin approval
             isAvailable: false,
         },
-        include: { category: true },
+        include: { category: true, provider: { select: { id: true, name: true, email: true } } },
     });
+    // 1. Notify Provider in-app that listing is submitted for review
+    await prisma.notification.create({
+        data: {
+            userId: providerId,
+            title: "Listing Submitted for Review ⏳",
+            body: `Your service listing "${input.title}" was submitted and is pending admin review.`,
+            link: "/provider/service-manager?status=pending",
+        },
+    });
+    safeEmit(`user:${providerId}`, "notification", {
+        title: "Listing Submitted for Review ⏳",
+        body: `Your service listing "${input.title}" is pending admin review.`,
+    });
+    // 2. Notify all Admins so it appears in their audit queue & bell dropdown
+    const admins = await prisma.user.findMany({
+        where: { role: "admin" },
+        select: { id: true },
+    });
+    if (admins.length > 0) {
+        const adminNotifs = admins.map((admin) => ({
+            userId: admin.id,
+            title: "📋 New Service Listing Pending Review",
+            body: `${newService.provider?.name || "A provider"} submitted a new listing: "${input.title}".`,
+            link: "/admin/services",
+        }));
+        await prisma.notification.createMany({ data: adminNotifs });
+        admins.forEach((admin) => {
+            safeEmit(`user:${admin.id}`, "notification", {
+                title: "📋 New Service Listing Pending Review",
+                body: `${newService.provider?.name || "A provider"} submitted a new listing: "${input.title}".`,
+                link: "/admin/services",
+            });
+        });
+    }
+    // 3. Emit real-time queue update for Admin Services moderation page
+    safeEmit("admin", "SERVICE_LISTING_SUBMITTED", { serviceId: newService.id });
+    return newService;
 }
 // ── Update Listing ─────────────────────────────────────────────────────────────
 export async function updateService(serviceId, providerId, input) {

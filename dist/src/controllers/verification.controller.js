@@ -1,13 +1,18 @@
 import { submitVerification, getVerificationStatus, listPendingVerifications, reviewVerification, } from "../services/verification.service";
+import { VerificationSubmissionSchema } from "../schema/marketplace.schema";
+import { BooleanDecisionSchema } from "../schema/marketplace.schema";
 // ── POST /verifications/submit ────────────────────────────────────────────────
 export async function submit(req, res, next) {
     try {
         const user = req.user;
-        const { proofs } = req.body;
-        const verification = await submitVerification(user.id, proofs || []);
+        const { proofs } = VerificationSubmissionSchema.parse(req.body);
+        const verification = await submitVerification(user.id, proofs);
         res.status(201).json({ success: true, data: verification });
     }
     catch (err) {
+        if (err.name === "ZodError") {
+            return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+        }
         next(err);
     }
 }
@@ -37,7 +42,7 @@ export async function adminReview(req, res, next) {
     try {
         const admin = req.user;
         const { id } = req.params;
-        const { approve, adminNotes } = req.body;
+        const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
         const result = await reviewVerification(id, admin.id, approve, adminNotes);
         res.json({ success: true, data: result });
     }

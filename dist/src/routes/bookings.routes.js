@@ -1,11 +1,13 @@
 import { Router } from "express";
-import { bookDirect, initiatePayment, confirmOnlineBooking, joinWaitlistHandler, cancelQueue, completeJob, confirmCompletion, getMyEngagements, respondDirectRequest, bookDirectFromOffer, startJob, providerRemoveFromQueue, disputeJob, cancelBookingHandler, respondCancellationRequestHandler, escalateCancellationRequestHandler, } from "../controllers/bookings.controller";
+import { bookDirect, initiatePayment, confirmOnlineBooking, joinWaitlistHandler, cancelQueue, completeJob, confirmCompletion, getMyEngagements, respondDirectRequest, bookDirectFromOffer, startJob, providerRemoveFromQueue, disputeJob, cancelBookingHandler, respondCancellationRequestHandler, escalateCancellationRequestHandler, hideBooking, } from "../controllers/bookings.controller";
 import { requireAuth, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
 const router = Router();
 // All booking routes require authentication and standard user role
 router.use(requireAuth, requireMarketplaceUser);
 // Get my engagements (active and completed)
 router.get("/my-engagements", getMyEngagements);
+// Hide / Dismiss a booking from user's view
+router.patch("/:id/hide", hideBooking);
 // Cash Direct Arrangement (NEVER enters queue) — requires residency verification (Part 6)
 router.post("/direct", requireVerification, bookDirect);
 router.patch("/direct/:id/respond", requireVerification, respondDirectRequest);

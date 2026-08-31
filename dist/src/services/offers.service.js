@@ -51,7 +51,7 @@ export async function submitOffer(providerId, params) {
         data: {
             userId: request.seekerId,
             title: "New Offer Received",
-            body: `A provider submitted an offer of ₱${offeredPrice} on your request. Check Incoming Offers.`,
+            body: `A provider submitted an offer of ₱${offeredPrice} on your request. Review it in Service Requests.`,
             link: `/seeker/incoming-offers?offer=${offer.id}`,
         },
     });
@@ -146,14 +146,14 @@ export async function acceptOffer(offerId, seekerId) {
         data: {
             userId: offer.providerId,
             title: "Offer Accepted! 🎉",
-            body: `Your offer was accepted. Please proceed to payment to confirm your booking and queue position.`,
-            link: `/provider/provider-activity?tab=pending_offers`,
+            body: `The seeker accepted your offer of ₱${offer.offeredPrice}! Check your Activity tab.`,
+            link: `/provider/provider-activity?tab=all`,
         },
     });
     safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 🎉" });
     return updatedOffer;
 }
-export async function rejectOffer(offerId, seekerId) {
+export async function rejectOffer(offerId, userId) {
     const offer = await prisma.offer.findUnique({
         where: { id: offerId },
         include: {
@@ -169,14 +169,20 @@ export async function rejectOffer(offerId, seekerId) {
         err.status = 404;
         throw err;
     }
-    if (offer.request.seekerId !== seekerId) {
+    const isSeeker = offer.request.seekerId === userId;
+    const isProvider = offer.providerId === userId;
+    if (!isSeeker && !isProvider) {
         const err = new Error("Not authorized");
         err.status = 403;
         throw err;
     }
-    return prisma.offer.update({
+    const updatedOffer = await prisma.offer.update({
         where: { id: offerId },
         data: { status: "REJECTED" },
     });
+    // Real-time socket notification
+    safeEmit(`user:${offer.request.seekerId}`, "ENGAGEMENT_CHANGED", { type: "offer_rejected", offerId });
+    safeEmit(`user:${offer.providerId}`, "ENGAGEMENT_CHANGED", { type: "offer_rejected", offerId });
+    return updatedOffer;
 }
 //# sourceMappingURL=offers.service.js.map

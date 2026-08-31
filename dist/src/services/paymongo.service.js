@@ -44,6 +44,7 @@ export async function createPaymentIntent(params) {
                     payment_method_allowed: ["gcash", "paymaya", "card"],
                     description: params.description,
                     statement_descriptor: params.statementDescriptor || "ServiceHub Cordova",
+                    metadata: params.metadata,
                     capture_type: "automatic",
                 },
             },
@@ -62,6 +63,8 @@ export async function getPaymentIntent(paymentIntentId) {
         id: body.data.id,
         status: body.data.attributes.status,
         amount: body.data.attributes.amount / 100, // convert back to PHP
+        currency: body.data.attributes.currency,
+        metadata: body.data.attributes.metadata || {},
     };
 }
 // ── Verify Payment Succeeded ───────────────────────────────────────────────────
@@ -91,6 +94,11 @@ export async function createRefund(params) {
 }
 // ── Create Payment Method ──────────────────────────────────────────────────────
 export async function createPaymentMethod(type) {
+    if (!['gcash', 'paymaya', 'card'].includes(type)) {
+        const err = new Error('Unsupported payment method');
+        err.status = 400;
+        throw err;
+    }
     const body = await paymongoFetch("/payment_methods", {
         method: "POST",
         body: JSON.stringify({

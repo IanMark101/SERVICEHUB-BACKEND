@@ -90,6 +90,13 @@ export async function updateRequest(requestId, seekerId, params) {
         err.status = 404;
         throw err;
     }
+    const nextBudgetMin = params.budgetMin ?? Number(request.budgetMin);
+    const nextBudgetMax = params.budgetMax ?? Number(request.budgetMax);
+    if (!Number.isFinite(nextBudgetMin) || !Number.isFinite(nextBudgetMax) || nextBudgetMax < nextBudgetMin) {
+        const err = new Error("budgetMax must be greater than or equal to budgetMin");
+        err.status = 400;
+        throw err;
+    }
     return prisma.serviceRequest.update({
         where: { id: requestId },
         data: params,

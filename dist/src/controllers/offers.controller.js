@@ -1,22 +1,23 @@
 import { prisma } from "../lib/prisma";
 import { submitOffer, listReceivedOffers, acceptOffer, rejectOffer, } from "../services/offers.service";
+import { OfferSchema } from "../schema/marketplace.schema";
 export async function create(req, res, next) {
     try {
         const user = req.user;
-        const { requestId, offeredPrice, estimatedDuration, availability, message } = req.body;
-        if (!requestId || !offeredPrice || !estimatedDuration) {
-            return res.status(400).json({ success: false, error: "Missing required fields" });
-        }
+        const { requestId, offeredPrice, estimatedDuration, availability, message } = OfferSchema.parse(req.body);
         const offer = await submitOffer(user.id, {
             requestId,
-            offeredPrice: parseFloat(offeredPrice),
-            estimatedDuration: parseInt(estimatedDuration),
+            offeredPrice,
+            estimatedDuration,
             availability,
             message,
         });
         res.status(201).json({ success: true, data: offer });
     }
     catch (err) {
+        if (err.name === "ZodError") {
+            return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+        }
         next(err);
     }
 }
@@ -35,7 +36,12 @@ export async function getMine(req, res, next) {
     try {
         const user = req.user;
         const offers = await prisma.offer.findMany({
-            where: { providerId: user.id },
+            where: {
+                providerId: user.id,
+                request: {
+                    status: { not: "CANCELED" }
+                }
+            },
             include: {
                 request: {
                     select: {

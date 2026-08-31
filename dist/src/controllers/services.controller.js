@@ -1,5 +1,6 @@
 import { CreateServiceSchema, UpdateServiceSchema } from "../schema/services.schema";
 import { browseServices, getServiceById, createService, updateService, toggleServiceAvailability, deleteService, getMyServices, } from "../services/services.service";
+import { safeBroadcast } from "../lib/socket";
 // ── GET /services — public browse ─────────────────────────────────────────────
 export async function browse(req, res, next) {
     try {
@@ -51,7 +52,11 @@ export async function create(req, res, next) {
     }
     catch (err) {
         if (err.name === "ZodError") {
-            return res.status(400).json({ success: false, errors: err.errors });
+            return res.status(400).json({
+                success: false,
+                error: err.errors?.[0]?.message || "Validation failed",
+                errors: err.errors,
+            });
         }
         next(err);
     }
@@ -62,11 +67,17 @@ export async function update(req, res, next) {
         const user = req.user;
         const input = UpdateServiceSchema.parse(req.body);
         const service = await updateService(req.params.id, user.id, input);
+        safeBroadcast("SERVICE_LISTING_UPDATED", service);
+        safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: service.id });
         res.json({ success: true, data: service });
     }
     catch (err) {
         if (err.name === "ZodError") {
-            return res.status(400).json({ success: false, errors: err.errors });
+            return res.status(400).json({
+                success: false,
+                error: err.errors?.[0]?.message || "Validation failed",
+                errors: err.errors,
+            });
         }
         next(err);
     }
@@ -76,6 +87,8 @@ export async function toggle(req, res, next) {
     try {
         const user = req.user;
         const service = await toggleServiceAvailability(req.params.id, user.id);
+        safeBroadcast("SERVICE_LISTING_TOGGLED", { id: service.id, isAvailable: service.isAvailable });
+        safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: service.id, isAvailable: service.isAvailable });
         res.json({ success: true, data: service });
     }
     catch (err) {
@@ -87,6 +100,8 @@ export async function remove(req, res, next) {
     try {
         const user = req.user;
         await deleteService(req.params.id, user.id);
+        safeBroadcast("SERVICE_LISTING_DELETED", { id: req.params.id });
+        safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: req.params.id });
         res.json({ success: true, message: "Service listing removed" });
     }
     catch (err) {

@@ -1,35 +1,12 @@
 import { prisma } from "../lib/prisma";
-const CORE_CATEGORIES = [
-    "Plumbing",
-    "Electrical Repair",
-    "House Cleaning",
-    "Lawn Care",
-    "Tutoring",
-    "Aircon Service",
-    "Appliance Repair",
-    "Carpentry & Woodwork"
-];
+import { CategorySuggestionSchema } from "../schema/marketplace.schema";
 // ── GET /categories ───────────────────────────────────────────────────────────
 export async function getCategories(_req, res, next) {
     try {
-        let cats = await prisma.category.findMany({
+        const cats = await prisma.category.findMany({
             where: { isActive: true },
             orderBy: { name: "asc" },
         });
-        // Auto-seed missing categories if DB is incomplete
-        if (cats.length < CORE_CATEGORIES.length) {
-            for (const name of CORE_CATEGORIES) {
-                await prisma.category.upsert({
-                    where: { name },
-                    update: { isActive: true },
-                    create: { name, isActive: true },
-                });
-            }
-            cats = await prisma.category.findMany({
-                where: { isActive: true },
-                orderBy: { name: "asc" },
-            });
-        }
         res.json({ success: true, data: cats });
     }
     catch (err) {
@@ -39,10 +16,7 @@ export async function getCategories(_req, res, next) {
 // ── POST /categories/suggest ──────────────────────────────────────────────────
 export async function suggestCategory(req, res, next) {
     try {
-        const { name, description } = req.body;
-        if (!name || !description) {
-            return res.status(400).json({ success: false, error: "name and description are required" });
-        }
+        const { name, description } = CategorySuggestionSchema.parse(req.body);
         const suggestion = await prisma.categorySuggested.create({
             data: {
                 submitterId: req.user.id,

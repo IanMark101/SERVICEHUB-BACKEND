@@ -22,6 +22,12 @@ export async function performImmediateCancel(bookingId) {
             paymentStatus: newPaymentStatus
         }
     });
+    if (booking.directRequestId) {
+        await prisma.directRequest.update({
+            where: { id: booking.directRequestId },
+            data: { status: "DECLINED" }
+        });
+    }
     await sendMessage(bookingId, booking.seekerId, "Booking cancelled.", undefined, true);
     if (booking.queue) {
         await prisma.queue.update({
@@ -70,6 +76,9 @@ export async function performImmediateCancel(bookingId) {
         }
     });
     safeEmit(`user:${booking.providerId}`, "notification", { title: "Booking Cancelled ⚠️" });
+    safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancelled" });
+    safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancelled" });
+    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancelled" });
     // Notify seeker about the refund (if online payment)
     if (booking.paymentStatus === "PAID_HELD") {
         await prisma.notification.create({
@@ -126,6 +135,9 @@ export async function requestCancellation(bookingId, seekerId, reason) {
             }
         });
         safeEmit(`user:${booking.providerId}`, "notification", { title: "Cancellation Request Received ⚠️" });
+        safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancellation_requested" });
+        safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancellation_requested" });
+        safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancellation_requested" });
         return { cancelled: false, immediate: false, request: cancelReq };
     }
 }
@@ -164,6 +176,8 @@ export async function respondToCancellationRequest(requestId, providerId, approv
             }
         });
         safeEmit(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Cancellation Request Approved 🎉" });
+        safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_approved" });
+        safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_approved" });
         return { resolved: true, approved: true };
     }
     else {
@@ -185,6 +199,8 @@ export async function respondToCancellationRequest(requestId, providerId, approv
             }
         });
         safeEmit(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Cancellation Request Declined ❌" });
+        safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_declined" });
+        safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_declined" });
         return { resolved: true, approved: false, request: updated };
     }
 }
@@ -229,6 +245,8 @@ export async function escalateCancellationRequest(requestId, seekerId) {
         }
     });
     safeEmit(`user:${cancelReq.booking.providerId}`, "notification", { title: "Cancellation Escalated to Admin ⚠️" });
+    safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_escalated" });
+    safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_escalated" });
     return updated;
 }
 // ── Resolve Cancellation Request (Admin/Moderator Action) ─────────────────────
@@ -274,11 +292,13 @@ export async function adminResolveCancellationRequest(requestId, approve, adminN
                     userId: cancelReq.booking.seekerId,
                     title: "Admin Resolved Cancellation in your favor 🎉",
                     body: `Admin approved your cancellation request. ${adminNote || ""}`,
+                    link: `/seeker/seeker-activity?tab=canceled&booking=${cancelReq.bookingId}`,
                 },
                 {
                     userId: cancelReq.booking.providerId,
                     title: "Admin Cancelled Booking ⚠️",
                     body: `Admin approved the seeker's cancellation request. ${adminNote || ""}`,
+                    link: `/provider/provider-activity?tab=canceled&booking=${cancelReq.bookingId}`,
                 }
             ]
         });
@@ -293,17 +313,21 @@ export async function adminResolveCancellationRequest(requestId, approve, adminN
                     userId: cancelReq.booking.seekerId,
                     title: "Admin Rejected Cancellation Request",
                     body: `Admin rejected your cancellation escalation. Booking will continue as ongoing. ${adminNote || ""}`,
+                    link: `/seeker/seeker-activity?tab=active&booking=${cancelReq.bookingId}`,
                 },
                 {
                     userId: cancelReq.booking.providerId,
                     title: "Admin Ruled in your favor on cancellation",
                     body: `Admin rejected the seeker's cancellation escalation. The booking remains ongoing. ${adminNote || ""}`,
+                    link: `/provider/provider-activity?tab=in_progress&booking=${cancelReq.bookingId}`,
                 }
             ]
         });
         safeEmit(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Admin Rejected Cancellation Request" });
         safeEmit(`user:${cancelReq.booking.providerId}`, "notification", { title: "Admin Ruled in your favor on cancellation" });
     }
+    safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_admin_resolved" });
+    safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_admin_resolved" });
     return updatedRequest;
 }
 //# sourceMappingURL=cancellation.service.js.map

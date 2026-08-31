@@ -345,7 +345,9 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
     avatarUrl = data.picture || null;
   } catch (err: any) {
     const error = new Error(`Google sign-in failed: ${err.message}`) as any;
-    error.status = 401;
+    // Preserve intentional service/configuration errors. Treat malformed or
+    // unverifiable Google tokens as unauthorized.
+    error.status = err.status ?? 401;
     throw error;
   }
 

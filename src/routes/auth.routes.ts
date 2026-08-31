@@ -14,6 +14,7 @@ import {
   updateProfileHandler,
   changePasswordHandler,
   getTrustHistoryHandler,
+  getUserTrustHistoryHandler,
 } from "../controllers/auth.controller";
 import { requireAuth, requireTrustedOrigin } from "../middlewares/auth.middleware";
 import { authLimiter } from "../middlewares/rateLimiter.middleware";
@@ -36,9 +37,7 @@ router.get("/profile/:id", requireAuth, getPublicProfileHandler);
 router.get("/me", requireAuth, getMe);
 router.put("/profile", requireAuth, updateProfileHandler);
 router.post("/change-password", requireAuth, changePasswordHandler);
-// GET /auth/trust-history — own account only; detailed event log is private.
 router.get("/trust-history", requireAuth, getTrustHistoryHandler);
-// GET /trust-history/:id removed — detailed event reasons are private to the
-// account owner. Public profiles already expose the aggregate trustScore field.
+router.get("/trust-history/:id", requireAuth, getUserTrustHistoryHandler);
 
 export default router;

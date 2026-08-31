@@ -100,7 +100,7 @@ export const DisputeSchema = z.object({
   evidenceUrl: ManagedImageUrl.optional(),
 }).strict();
 
-export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3) }).strict();
+export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3).optional() }).strict();
 export const CancellationResponseSchema = z.object({ approve: z.boolean(), providerNote: Text(1_000).optional() }).strict();
 export const BooleanDecisionSchema = z.object({ approve: z.boolean(), adminNotes: Text(2_000).optional() }).strict();
 export const DirectResponseSchema = z.object({ accept: z.boolean() }).strict();

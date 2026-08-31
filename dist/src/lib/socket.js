@@ -1,6 +1,7 @@
 import { Server as SocketIOServer } from "socket.io";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env";
+import { prisma } from "./prisma";
 let io = null;
 /**
  * Initialize Socket.io with the HTTP server.
@@ -15,7 +16,7 @@ export function initSocket(httpServer) {
         },
     });
     // ── Auth Middleware ───────────────────────────────────────────────────────
-    io.use((socket, next) => {
+    io.use(async (socket, next) => {
         try {
             const token = socket.handshake.auth?.token ||
                 socket.handshake.headers?.authorization?.replace("Bearer ", "");
@@ -23,8 +24,17 @@ export function initSocket(httpServer) {
                 return next(new Error("Authentication error: no token provided"));
             }
             const payload = jwt.verify(token, env.JWT_ACCESS_SECRET);
-            socket.userId = payload.sub;
-            socket.role = payload.role;
+            const user = await prisma.user.findUnique({
+                where: { id: payload.sub },
+                select: { id: true, role: true, isActive: true, emailVerified: true },
+            });
+            if (!user || !user.isActive || !user.emailVerified) {
+                return next(new Error("Authentication error: account unavailable"));
+            }
+            // Roles and suspension status are read from the database, not from a
+            // potentially stale JWT claim.
+            socket.userId = user.id;
+            socket.role = user.role;
             next();
         }
         catch {
@@ -44,9 +54,30 @@ export function initSocket(httpServer) {
             console.log(`[Socket.io] Admin ${userId} joined room: admin`);
         }
         // Join a booking chat room on demand
-        socket.on("join_booking", (bookingId) => {
-            socket.join(`booking:${bookingId}`);
-            console.log(`[Socket.io] ${userId} joined booking:${bookingId}`);
+        socket.on("join_booking", async (bookingId, acknowledge) => {
+            if (typeof bookingId !== "string" || bookingId.length > 64) {
+                acknowledge?.({ ok: false, error: "Invalid booking ID" });
+                return;
+            }
+            try {
+                const booking = await prisma.booking.findFirst({
+                    where: {
+                        id: bookingId,
+                        OR: [{ seekerId: userId }, { providerId: userId }],
+                    },
+                    select: { id: true },
+                });
+                if (!booking) {
+                    acknowledge?.({ ok: false, error: "Booking access denied" });
+                    return;
+                }
+                socket.join(`booking:${booking.id}`);
+                acknowledge?.({ ok: true });
+                console.log(`[Socket.io] ${userId} joined booking:${booking.id}`);
+            }
+            catch {
+                acknowledge?.({ ok: false, error: "Unable to join booking" });
+            }
         });
         // Join a service queue room on demand (for real-time queue counter updates)
         socket.on("join_service", (serviceId) => {

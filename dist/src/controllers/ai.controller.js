@@ -1,4 +1,5 @@
 import { summarizeProviderReviews, matchProvidersToRequest } from "../services/ai.service";
+import { AiMatchSchema } from "../schema/marketplace.schema";
 export async function getProviderSummary(req, res, next) {
     try {
         const { providerId } = req.params;
@@ -12,11 +13,8 @@ export async function getProviderSummary(req, res, next) {
 }
 export async function matchProviders(req, res, next) {
     try {
-        const { requestId } = req.body;
-        if (!requestId) {
-            return res.status(400).json({ success: false, error: "Missing requestId" });
-        }
-        const result = await matchProvidersToRequest(requestId);
+        const { requestId } = AiMatchSchema.parse(req.body);
+        const result = await matchProvidersToRequest(requestId, req.user.id);
         res.json({ success: true, data: result });
     }
     catch (err) {

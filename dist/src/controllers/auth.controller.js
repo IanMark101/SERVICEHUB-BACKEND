@@ -1,12 +1,11 @@
-import { RegisterSchema, LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, } from "../schema/auth.schema";
+import { RegisterSchema, LoginSchema, ForgotPasswordSchema, ResetPasswordSchema, ChangePasswordSchema, UpdateProfileSchema, GoogleLoginSchema, } from "../schema/auth.schema";
 import { registerUser, loginUser, refreshAccessToken, logoutUser, verifyEmail, forgotPassword, resetPassword, googleLoginUser, resendVerificationEmail, getUserPublicProfile, updateUserProfile, changeUserPassword, } from "../services/auth.service";
 import { getTrustHistory } from "../services/trust.service";
 import { env } from "../config/env";
-// ── Cookie config ─────────────────────────────────────────────────────────────
 const REFRESH_COOKIE_OPTIONS = {
     httpOnly: true,
     secure: env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: env.NODE_ENV === "production" ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
     path: "/",
 };
@@ -152,10 +151,7 @@ export async function getMe(req, res) {
 // ── POST /auth/google-login ───────────────────────────────────────────────────
 export async function googleLogin(req, res, next) {
     try {
-        const { token } = req.body;
-        if (!token) {
-            return res.status(400).json({ success: false, error: "Google token is required" });
-        }
+        const { token } = GoogleLoginSchema.parse(req.body);
         const { user, tokens } = await googleLoginUser(token);
         res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
         res.json({
@@ -182,7 +178,7 @@ export async function getPublicProfileHandler(req, res, next) {
 export async function updateProfileHandler(req, res, next) {
     try {
         const userId = req.user?.id;
-        const updated = await updateUserProfile(userId, req.body);
+        const updated = await updateUserProfile(userId, UpdateProfileSchema.parse(req.body));
         res.json({ success: true, data: updated, message: "Profile updated successfully" });
     }
     catch (err) {
@@ -193,17 +189,19 @@ export async function updateProfileHandler(req, res, next) {
 export async function changePasswordHandler(req, res, next) {
     try {
         const userId = req.user?.id;
-        const { currentPassword, newPassword } = req.body;
+        const { currentPassword, newPassword } = ChangePasswordSchema.parse(req.body);
         await changeUserPassword(userId, currentPassword, newPassword);
         res.json({ success: true, message: "Password updated successfully" });
     }
     catch (err) {
+        if (err.name === "ZodError") {
+            return res.status(400).json({ success: false, errors: err.errors });
+        }
         next(err);
     }
 }
 // ── GET /auth/trust-history ───────────────────────────────────────────────────
 // Returns the authenticated user's own immutable trust score event log.
-// This is the SINGLE SOURCE OF TRUTH for the Trust History tab.
 export async function getTrustHistoryHandler(req, res, next) {
     try {
         const userId = req.user?.id;
@@ -215,11 +213,12 @@ export async function getTrustHistoryHandler(req, res, next) {
     }
 }
 // ── GET /auth/trust-history/:id ───────────────────────────────────────────────
-// Public profile view: fetch another user's trust history by their user ID.
-export async function getPublicTrustHistoryHandler(req, res, next) {
+// Returns the trust score breakdown and milestones for a target user profile.
+// Protected by requireAuth so only authenticated community members can view.
+export async function getUserTrustHistoryHandler(req, res, next) {
     try {
-        const { id } = req.params;
-        const events = await getTrustHistory(id);
+        const targetUserId = req.params.id;
+        const events = await getTrustHistory(targetUserId);
         res.json({ success: true, data: events });
     }
     catch (err) {

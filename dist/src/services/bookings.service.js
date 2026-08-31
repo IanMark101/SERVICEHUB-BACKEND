@@ -54,14 +54,29 @@ export async function createDirectRequest(params) {
         where: { id: serviceId },
         select: { paymentMethods: true, isAvailable: true, title: true, status: true },
     });
-    if (!service || service.status !== "ACTIVE") {
-        const err = new Error("Service not found or not available");
-        err.status = 404;
+    if (!service || service.status !== "ACTIVE" || !service.isAvailable) {
+        const err = new Error("This service listing is currently paused by the provider and is not accepting bookings");
+        err.status = 400;
         throw err;
     }
     const pm = service.paymentMethods;
     if (!pm?.cash) {
         const err = new Error("This provider does not accept cash payments");
+        err.status = 400;
+        throw err;
+    }
+    // Prevent duplicate concurrent bookings on the same service
+    const activeExistingBooking = await prisma.booking.findFirst({
+        where: {
+            seekerId,
+            serviceId,
+            status: {
+                in: ["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"]
+            }
+        }
+    });
+    if (activeExistingBooking) {
+        const err = new Error("You already have an active booking for this service in progress. Please check your Activity tab.");
         err.status = 400;
         throw err;
     }
@@ -94,16 +109,18 @@ export async function createDirectRequest(params) {
         });
         return { directRequest, booking };
     });
-    // Notify provider
+    // Notify Provider
     await prisma.notification.create({
         data: {
             userId: providerId,
             title: "New Direct Booking Request",
             body: `A new Direct Arrangement booking request has arrived for "${service.title}". Review it in Incoming Requests.`,
-            link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
+            link: `/provider/incoming-requests?booking=${booking.id}`,
         },
     });
     safeEmit(`user:${providerId}`, "notification", { title: "New Direct Booking Request" });
+    safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "created" });
+    safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "created" });
     return { ...directRequest, booking };
 }
 // ── Respond to Direct Booking (Accept / Decline) ──────────────────────────────
@@ -113,34 +130,50 @@ export async function respondToDirectBookingService(requestId, providerId, accep
         where: { id: requestId },
         include: { booking: true },
     });
-    if (!directRequest) {
-        const booking = await prisma.booking.findUnique({
+    let targetBooking = null;
+    if (directRequest) {
+        targetBooking = directRequest.booking;
+    }
+    else {
+        targetBooking = await prisma.booking.findUnique({
             where: { id: requestId },
-            include: { directRequest: true },
+            include: { directRequest: true, queue: true, service: true },
         });
-        if (booking?.directRequest) {
-            directRequest = {
-                ...booking.directRequest,
-                booking: booking
-            };
+        if (targetBooking?.directRequest) {
+            directRequest = targetBooking.directRequest;
         }
     }
-    if (!directRequest || directRequest.providerId !== providerId) {
-        const err = new Error("Direct request not found or access denied");
+    if (!directRequest && !targetBooking) {
+        const err = new Error("Booking request not found");
         err.status = 404;
         throw err;
     }
-    const existingBooking = directRequest.booking;
+    const effectiveProviderId = directRequest?.providerId || targetBooking?.providerId;
+    const effectiveSeekerId = directRequest?.seekerId || targetBooking?.seekerId;
+    if (effectiveProviderId !== providerId) {
+        const err = new Error("Access denied");
+        err.status = 403;
+        throw err;
+    }
+    // Validate that the request or booking has not already been cancelled or declined
+    if ((directRequest && directRequest.status === "DECLINED") ||
+        (targetBooking && (targetBooking.status === "CANCELED" || targetBooking.status === "DECLINED" || targetBooking.status === "REMOVED"))) {
+        const err = new Error("This request has already been cancelled or declined.");
+        err.status = 400;
+        throw err;
+    }
     if (accept) {
         const booking = await prisma.$transaction(async (tx) => {
-            await tx.directRequest.update({
-                where: { id: directRequest.id },
-                data: { status: "ACCEPTED" },
-            });
-            if (existingBooking) {
-                return tx.booking.update({
-                    where: { id: existingBooking.id },
+            if (directRequest) {
+                await tx.directRequest.update({
+                    where: { id: directRequest.id },
                     data: { status: "ACCEPTED" },
+                });
+            }
+            if (targetBooking) {
+                return tx.booking.update({
+                    where: { id: targetBooking.id },
+                    data: { status: "ACCEPTED", started: false },
                 });
             }
             return tx.booking.create({
@@ -152,25 +185,29 @@ export async function respondToDirectBookingService(requestId, providerId, accep
                     paymentMethod: "On-site Cash",
                     paymentStatus: "UNPAID",
                     status: "ACCEPTED",
+                    started: false,
                 },
             });
         });
         // Notify Seeker
         await prisma.notification.create({
             data: {
-                userId: directRequest.seekerId,
-                title: "Direct Booking Accepted! 🎉",
-                body: "Your direct booking request was accepted! Messaging is now enabled — coordinate details with your provider via chat.",
+                userId: effectiveSeekerId,
+                title: "Booking Accepted! 🎉",
+                body: "Your booking request was accepted! Messaging is now enabled — coordinate details with your provider via chat.",
                 link: `/seeker/seeker-activity?tab=all&booking=${booking.id}`,
             },
         });
-        safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Accepted! 🎉" });
+        safeEmit(`user:${effectiveSeekerId}`, "notification", { title: "Booking Accepted! 🎉" });
+        safeEmit(`user:${effectiveSeekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
+        safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
+        safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
         // Notify Provider
         await prisma.notification.create({
             data: {
                 userId: providerId,
                 title: "Booking Confirmed! 🎉",
-                body: "You accepted the direct booking request. Messaging is now open to coordinate with the seeker.",
+                body: "You accepted the booking request. Messaging is now open to coordinate with the seeker.",
                 link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
             },
         });
@@ -180,28 +217,52 @@ export async function respondToDirectBookingService(requestId, providerId, accep
         return booking;
     }
     else {
-        const updatedRequest = await prisma.$transaction(async (tx) => {
-            if (existingBooking) {
-                await tx.booking.update({
-                    where: { id: existingBooking.id },
+        // Decline
+        const updated = await prisma.$transaction(async (tx) => {
+            if (directRequest) {
+                await tx.directRequest.update({
+                    where: { id: directRequest.id },
                     data: { status: "DECLINED" },
                 });
             }
-            return tx.directRequest.update({
-                where: { id: directRequest.id },
-                data: { status: "DECLINED" },
-            });
+            if (targetBooking) {
+                // If payment was held in escrow (GCash), record refund transaction
+                if (targetBooking.paymentStatus === "PAID_HELD") {
+                    await tx.transaction.create({
+                        data: {
+                            walletOwnerId: targetBooking.seekerId,
+                            amount: targetBooking.service?.price || 0,
+                            type: "REFUND",
+                            description: `Escrow refund for declined booking: ${targetBooking.service?.title || 'Service'}`,
+                            status: "completed",
+                            relatedBookingId: targetBooking.id,
+                        },
+                    });
+                }
+                return tx.booking.update({
+                    where: { id: targetBooking.id },
+                    data: {
+                        status: "DECLINED",
+                        paymentStatus: targetBooking.paymentStatus === "PAID_HELD" ? "REFUNDED" : targetBooking.paymentStatus,
+                    },
+                });
+            }
+            return null;
         });
         await prisma.notification.create({
             data: {
-                userId: directRequest.seekerId,
-                title: "Direct Booking Declined ❌",
-                body: "Your direct booking request was declined by the provider.",
-                link: `/seeker/seeker-activity?tab=canceled&booking=${existingBooking?.id || directRequest.id}`,
+                userId: effectiveSeekerId,
+                title: "Booking Request Declined ❌",
+                body: targetBooking?.paymentStatus === "PAID_HELD"
+                    ? "Your booking request was declined by the provider. Your Escrow payment has been refunded."
+                    : "Your booking request was declined by the provider.",
+                link: `/seeker/seeker-activity?tab=canceled&booking=${targetBooking?.id || directRequest?.id}`,
             },
         });
-        safeEmit(`user:${directRequest.seekerId}`, "notification", { title: "Direct Booking Declined ❌" });
-        return updatedRequest;
+        safeEmit(`user:${effectiveSeekerId}`, "notification", { title: "Booking Request Declined ❌" });
+        safeEmit(`user:${effectiveSeekerId}`, "ENGAGEMENT_CHANGED", { bookingId: targetBooking?.id || directRequest?.id, type: "declined" });
+        safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: targetBooking?.id || directRequest?.id, type: "declined" });
+        return updated;
     }
 }
 // ── Create Direct Booking from Offer (Flow B Cash path) ─────────────────────────
@@ -254,6 +315,9 @@ export async function createDirectFromOfferService(offerId, seekerId) {
         },
     });
     safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 💰" });
+    safeEmit(`user:${offer.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
+    safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
+    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
     // Notify Seeker
     await prisma.notification.create({
         data: {
@@ -270,14 +334,45 @@ export async function createDirectFromOfferService(offerId, seekerId) {
 }
 // ── Online Queue Entry (ONLY after PayMongo payment succeeds) ─────────────────
 export async function addToQueue(params) {
+    const result = await prisma.$transaction(async (tx) => {
+        // Serialize reservations per service. PostgreSQL releases this advisory
+        // lock at transaction end, so independent services remain concurrent.
+        await tx.$executeRaw `SELECT pg_advisory_xact_lock(hashtext(${params.serviceId}))`;
+        // A retried confirmation for an already-consumed payment intent is
+        // idempotent and cannot reserve an additional queue slot.
+        const existing = await tx.queue.findUnique({ where: { paymentId: params.paymentId } });
+        if (existing)
+            return { queueEntry: existing, isImmediate: existing.position === 1, booking: null, service: null, currentSize: 0 };
+        return addToQueueLocked(params, tx);
+    });
+    if (!result.booking || !result.service) {
+        return { queueEntry: result.queueEntry, isImmediate: result.isImmediate };
+    }
+    const { queueEntry, booking, service, currentSize, isImmediate } = result;
+    await sendMessage(booking.id, params.seekerId, "Payment received and held in Escrow.", undefined, true);
+    await prisma.notification.create({
+        data: {
+            userId: service.providerId,
+            title: "New Paid Booking Request! ðŸ”’",
+            body: `A client requested "${service.title}" with payment secured in Escrow via GCash. Review and accept.`,
+            link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
+        },
+    });
+    safeEmit(`service:${params.serviceId}`, "queue_update", { serviceId: params.serviceId, delta: +1, currentSize: currentSize + 1 });
+    safeEmit(`user:${service.providerId}`, "notification", { title: "New Paid Booking Request! ðŸ”’" });
+    safeEmit(`user:${service.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
+    safeEmit(`user:${params.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
+    return { queueEntry, isImmediate };
+}
+async function addToQueueLocked(params, tx) {
     const { serviceId, seekerId, paymentId, offerId, scheduledDate, scheduledTime, paymentMethod } = params;
-    const service = await prisma.service.findUnique({
+    const service = await tx.service.findUnique({
         where: { id: serviceId },
         select: { queueLimit: true, estimatedDurationMins: true, isAvailable: true, title: true, status: true, providerId: true },
     });
-    if (!service || service.status !== "ACTIVE") {
-        const err = new Error("Service not available");
-        err.status = 404;
+    if (!service || service.status !== "ACTIVE" || (!offerId && !service.isAvailable)) {
+        const err = new Error("This service is currently paused by the provider and not available for new bookings");
+        err.status = 400;
         throw err;
     }
     // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
@@ -288,7 +383,7 @@ export async function addToQueue(params) {
         throw err;
     }
     if (offerId) {
-        const offer = await prisma.offer.findUnique({
+        const offer = await tx.offer.findUnique({
             where: { id: offerId },
             include: { request: true },
         });
@@ -299,10 +394,10 @@ export async function addToQueue(params) {
         }
     }
     // Count total load (active ongoing booking + queued entries)
-    const activeOngoingCount = await prisma.booking.count({
+    const activeOngoingCount = await tx.booking.count({
         where: { serviceId, status: "ONGOING" },
     });
-    const queueCount = await prisma.queue.count({
+    const queueCount = await tx.queue.count({
         where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
     });
     const currentSize = activeOngoingCount + queueCount;
@@ -312,13 +407,18 @@ export async function addToQueue(params) {
         err.code = "QUEUE_FULL";
         throw err;
     }
-    const position = await getNextQueuePosition(serviceId);
+    const lastEntry = await tx.queue.findFirst({
+        where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
+        orderBy: { position: "desc" },
+    });
+    const position = lastEntry ? lastEntry.position + 1 : (activeOngoingCount > 0 ? 2 : 1);
     const estimatedWait = service.estimatedDurationMins * (position - 1);
-    const isImmediate = position === 1; // provider is free, so no Queue row is created
-    // Create Booking row
-    // When isImmediate (position 1, provider is free), the spec says service starts
-    // immediately — so both status and started flag must reflect this.
-    const booking = await prisma.booking.create({
+    const isImmediate = position === 1;
+    // Online booking with Escrow (PAID_HELD):
+    // Work NEVER starts automatically. If there's an accepted offer (Flow B), status is ACCEPTED.
+    // If direct booking on a listing (Flow A), status is PENDING_APPROVAL awaiting provider review.
+    // started is ALWAYS false until provider clicks Start Job.
+    const booking = await tx.booking.create({
         data: {
             seekerId,
             providerId: service.providerId,
@@ -326,57 +426,52 @@ export async function addToQueue(params) {
             offerId,
             paymentMethod: paymentMethod || "GCash",
             paymentStatus: "PAID_HELD",
-            status: isImmediate ? "ONGOING" : "WAITING",
-            queuePosition: isImmediate ? null : position,
-            started: isImmediate, // Part 9: immediate online booking starts at creation time
+            status: offerId ? "ACCEPTED" : "PENDING_APPROVAL",
+            queuePosition: position,
+            started: false,
             scheduledDate: scheduledDate || null,
             scheduledTime: scheduledTime || null,
         },
     });
-    await sendMessage(booking.id, seekerId, "Payment received.", undefined, true);
-    const queueEntry = isImmediate
-        ? {
-            id: null,
-            bookingId: booking.id,
+    const queueEntry = await tx.queue.create({
+        data: {
             serviceId,
             seekerId,
-            position: null,
-            estimatedWait: 0,
-            status: "ONGOING",
-        }
-        : await prisma.queue.create({
-            data: {
-                serviceId,
-                seekerId,
-                offerId,
-                paymentId,
-                position,
-                estimatedWait,
-                paymentStatus: "PAID_HELD",
-                status: "WAITING",
-                bookingId: booking.id,
-            },
-        });
-    // Notify provider of new queue entry
-    await prisma.notification.create({
-        data: {
-            userId: service.providerId,
-            title: isImmediate ? "New Job Starting Now! 🚀" : "New Queue Entry",
-            body: isImmediate
-                ? `A new client is at position 1 for "${service.title}". Payment confirmed.`
-                : `A new client joined your queue at position ${position} for "${service.title}".`,
-            link: `/provider/provider-activity?tab=${isImmediate ? 'in_progress' : 'waiting'}&booking=${booking.id}`,
+            offerId: offerId || null,
+            paymentId,
+            position,
+            estimatedWait,
+            paymentStatus: "PAID_HELD",
+            status: "WAITING",
+            bookingId: booking.id,
         },
     });
+    /*
+    // Notifications and socket events must run after the transaction commits.
+    // Kept below as the source for the post-commit handling in addToQueue.
+    // Notify provider of new paid booking request
+    await prisma.notification.create({
+      data: {
+        userId: service.providerId,
+        title: "New Paid Booking Request! 🔒",
+        body: `A client requested "${service.title}" with payment secured in Escrow via GCash. Review and accept.`,
+        link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
+      },
+    });
+  
     // ── Real-time: notify all clients watching this service's queue ───────────
     safeEmit(`service:${serviceId}`, "queue_update", {
-        serviceId,
-        delta: isImmediate ? 0 : +1,
-        currentSize: isImmediate ? currentSize : currentSize + 1,
+      serviceId,
+      delta: +1,
+      currentSize: currentSize + 1,
     });
     // Notify the provider in their personal room
-    safeEmit(`user:${service.providerId}`, "notification", { title: isImmediate ? "New Job Starting Now! 🚀" : "New Queue Entry" });
-    return { queueEntry, isImmediate };
+    safeEmit(`user:${service.providerId}`, "notification", { title: "New Paid Booking Request! 🔒" });
+    safeEmit(`user:${service.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
+    safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
+  
+    */
+    return { queueEntry, booking, service, currentSize, isImmediate };
 }
 // ── Provider Start Job ────────────────────────────────────────────────────────
 export async function providerStartJob(id, providerId) {
@@ -400,6 +495,11 @@ export async function providerStartJob(id, providerId) {
     if (!booking || booking.providerId !== providerId) {
         const err = new Error("Booking or queue entry not found or access denied");
         err.status = 404;
+        throw err;
+    }
+    if (booking.status === "CANCELED" || booking.status === "DECLINED" || booking.status === "COMPLETED" || booking.status === "REMOVED") {
+        const err = new Error(`Cannot start job for a booking with status ${booking.status}.`);
+        err.status = 400;
         throw err;
     }
     // Update Booking status to ONGOING and started to true
@@ -428,6 +528,9 @@ export async function providerStartJob(id, providerId) {
         },
     });
     safeEmit(`user:${booking.seekerId}`, "notification", { title: "Provider Started Job! 🚀" });
+    safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
+    safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
+    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
     await sendMessage(booking.id, booking.providerId, "Provider started the job.", undefined, true);
     return updatedBooking;
 }
@@ -472,6 +575,8 @@ export async function providerRemoveQueueEntry(queueId, providerId) {
     // ── Real-time queue update ────────────────────────────────────────────────
     safeEmit(`service:${queueEntry.serviceId}`, "queue_update", { serviceId: queueEntry.serviceId, delta: -1 });
     safeEmit(`user:${queueEntry.seekerId}`, "notification", { title: "Booking Cancelled by Provider ⚠️" });
+    safeEmit(`user:${queueEntry.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: queueEntry.bookingId, type: "removed" });
+    safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: queueEntry.bookingId, type: "removed" });
     return { success: true };
 }
 // ── Provider: Mark Job Complete ────────────────────────────────────────────────
@@ -527,6 +632,9 @@ export async function markJobComplete(id, providerId) {
     });
     // ── Real-time: notify seeker to confirm ──────────────────────────────────
     safeEmit(`user:${booking.seekerId}`, "notification", { title: "Service Completed — Please Confirm ✅" });
+    safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "awaiting_confirmation" });
+    safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "awaiting_confirmation" });
+    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "awaiting_confirmation" });
     if (queueEntry)
         safeEmit(`service:${queueEntry.serviceId}`, "queue_update", { serviceId: queueEntry.serviceId, delta: 0 });
     return booking;
@@ -617,6 +725,9 @@ export async function confirmCompletionService(bookingId, seekerId) {
         },
     });
     safeEmit(`user:${booking.providerId}`, "notification", { title: "Payment Confirmed 💰" });
+    safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
+    safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
+    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
     return completedService;
 }
 // ── Seeker: Dispute Job ───────────────────────────────────────────────────────
@@ -678,10 +789,28 @@ export async function disputeJobService(bookingId, seekerId, reason, description
         },
     });
     safeEmit(`user:${booking.providerId}`, "notification", { title: "Job Disputed ⚠️" });
+    safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "disputed" });
+    safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "disputed" });
+    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "disputed" });
     return report;
 }
 // ── Seeker: Join Waitlist (Notify Me When Open) ───────────────────────────────
 export async function joinWaitlist(serviceId, seekerId) {
+    // Prevent duplicate waitlist if seeker already has an active booking
+    const activeExistingBooking = await prisma.booking.findFirst({
+        where: {
+            seekerId,
+            serviceId,
+            status: {
+                in: ["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"]
+            }
+        }
+    });
+    if (activeExistingBooking) {
+        const err = new Error("You already have an active booking for this service in progress. Please check your Activity tab.");
+        err.status = 400;
+        throw err;
+    }
     // Check if already on waitlist
     const existing = await prisma.queueNotify.findUnique({
         where: { serviceId_seekerId: { serviceId, seekerId } },
@@ -765,5 +894,29 @@ export async function cancelQueueEntry(queueId, seekerId) {
     // ── Real-time queue update ────────────────────────────────────────────────
     safeEmit(`service:${entry.serviceId}`, "queue_update", { serviceId: entry.serviceId, delta: -1 });
     return { cancelled: true };
+}
+// ── Hide / Dismiss Booking from User View ─────────────────────────────────────
+export async function hideBookingService(bookingId, userId) {
+    const booking = await prisma.booking.findUnique({
+        where: { id: bookingId }
+    });
+    if (!booking) {
+        const err = new Error("Booking not found");
+        err.status = 404;
+        throw err;
+    }
+    if (booking.seekerId !== userId && booking.providerId !== userId) {
+        const err = new Error("Access denied");
+        err.status = 403;
+        throw err;
+    }
+    const isSeeker = booking.seekerId === userId;
+    const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: isSeeker ? { hiddenBySeeker: true } : { hiddenByProvider: true }
+    });
+    // Emit engagement change to that user's socket so their UI updates immediately
+    safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId, type: "hidden" });
+    return { success: true, bookingId: updated.id };
 }
 //# sourceMappingURL=bookings.service.js.map

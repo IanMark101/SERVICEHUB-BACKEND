@@ -1,4 +1,5 @@
 import { getMessages, sendMessage, getConversations, getBookingMessagesForAdmin } from "../services/messages.service";
+import { MessageSchema } from "../schema/marketplace.schema";
 export async function listConversations(req, res, next) {
     try {
         const user = req.user;
@@ -31,7 +32,7 @@ export async function create(req, res, next) {
     try {
         const user = req.user;
         const bookingId = req.params.bookingId || req.params.completedServiceId;
-        const { content, imageUrl } = req.body;
+        const { content = "", imageUrl } = MessageSchema.parse(req.body);
         const message = await sendMessage(bookingId, user.id, content, imageUrl);
         res.status(201).json({ success: true, data: message });
     }

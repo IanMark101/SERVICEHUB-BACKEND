@@ -1,4 +1,17 @@
 import { uploadImageToCloudinary } from '../config/cloudinary';
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+function validateImageDataUrl(image) {
+    if (typeof image !== 'string')
+        return null;
+    const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(image);
+    if (!match || !ALLOWED_IMAGE_TYPES.has(match[1].toLowerCase()))
+        return null;
+    const estimatedBytes = Math.floor((match[2].length * 3) / 4);
+    if (estimatedBytes > MAX_IMAGE_BYTES)
+        return null;
+    return image;
+}
 export class UploadController {
     /**
      * POST /api/upload/avatar
@@ -7,22 +20,15 @@ export class UploadController {
     async uploadAvatar(req, res) {
         try {
             const { image } = req.body;
-            if (!image || typeof image !== 'string') {
+            const validatedImage = validateImageDataUrl(image);
+            if (!validatedImage) {
                 res.status(400).json({
                     success: false,
-                    error: 'Image data URL or base64 string is required.',
+                    error: 'A JPEG, PNG, or WebP data URL no larger than 10MB is required.',
                 });
                 return;
             }
-            // Check max size constraint (max ~10MB)
-            if (image.length > 15 * 1024 * 1024) {
-                res.status(400).json({
-                    success: false,
-                    error: 'Image exceeds maximum payload size of 10MB.',
-                });
-                return;
-            }
-            const cdnUrl = await uploadImageToCloudinary(image, {
+            const cdnUrl = await uploadImageToCloudinary(validatedImage, {
                 folder: 'servicehub/avatars',
                 width: 500,
                 height: 500,
@@ -49,16 +55,19 @@ export class UploadController {
      */
     async uploadImage(req, res) {
         try {
-            const { image, folder = 'servicehub/attachments' } = req.body;
-            if (!image || typeof image !== 'string') {
+            const { image } = req.body;
+            const validatedImage = validateImageDataUrl(image);
+            if (!validatedImage) {
                 res.status(400).json({
                     success: false,
-                    error: 'Image data URL is required.',
+                    error: 'A JPEG, PNG, or WebP data URL no larger than 10MB is required.',
                 });
                 return;
             }
-            const cdnUrl = await uploadImageToCloudinary(image, {
-                folder,
+            const cdnUrl = await uploadImageToCloudinary(validatedImage, {
+                // Folder selection is server-owned. Client-controlled folders let users
+                // place untrusted content in unrelated Cloudinary namespaces.
+                folder: 'servicehub/attachments',
                 width: 1200,
                 height: 1200,
                 crop: 'limit',

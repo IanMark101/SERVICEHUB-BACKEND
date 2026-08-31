@@ -1,7 +1,8 @@
 import { prisma } from "../lib/prisma";
 import { adminReviewService, listPendingServices as adminListPendingServices } from "../services/services.service";
 import { applyTrustEvent, applyReportPenaltyTrust } from "../services/trust.service";
-import { safeEmit } from "../lib/socket";
+import { safeEmit, safeBroadcast } from "../lib/socket";
+import { BooleanDecisionSchema, ReportResolutionSchema, TrustAdjustmentSchema } from "../schema/marketplace.schema";
 // ── GET /admin/overview ───────────────────────────────────────────────────────
 export async function getOverview(_req, res, next) {
     try {
@@ -26,8 +27,8 @@ export async function getOverview(_req, res, next) {
 export async function listUsers(req, res, next) {
     try {
         const { search, role, status, page = "1", limit = "10" } = req.query;
-        const pageNum = parseInt(page, 10);
-        const limitNum = parseInt(limit, 10);
+        const pageNum = Math.max(1, Math.min(10_000, parseInt(page, 10) || 1));
+        const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 10));
         const skip = (pageNum - 1) * limitNum;
         const where = {};
         if (search) {
@@ -78,11 +79,7 @@ export async function listUsers(req, res, next) {
 // ── PATCH /admin/users/:id/trust ──────────────────────────────────────────────
 export async function updateTrustScore(req, res, next) {
     try {
-        const { delta, reason } = req.body;
-        const parsedDelta = parseInt(delta, 10);
-        if (isNaN(parsedDelta)) {
-            return res.status(400).json({ success: false, error: "delta must be a number" });
-        }
+        const { delta: parsedDelta, reason } = TrustAdjustmentSchema.parse(req.body);
         await applyTrustEvent(req.params.id, parsedDelta, reason || "Admin manual override");
         res.json({ success: true });
     }
@@ -135,8 +132,10 @@ export async function listPendingServices(_req, res, next) {
 // ── PATCH /admin/services/:id/review ──────────────────────────────────────────
 export async function reviewService(req, res, next) {
     try {
-        const { approve, adminNotes } = req.body;
+        const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
         const result = await adminReviewService(req.params.id, req.user.id, approve, adminNotes);
+        safeBroadcast("SERVICE_LISTING_APPROVED", { id: req.params.id, approved: approve });
+        safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: req.params.id, status: approve ? "ACTIVE" : "REJECTED" });
         res.json({ success: true, data: result });
     }
     catch (err) {
@@ -160,7 +159,7 @@ export async function listCategorySuggestions(_req, res, next) {
 // ── PATCH /admin/categories/suggestions/:id ────────────────────────────────────
 export async function resolveCategorySuggestion(req, res, next) {
     try {
-        const { approve } = req.body;
+        const { approve } = BooleanDecisionSchema.parse(req.body);
         const suggestion = await prisma.categorySuggested.update({
             where: { id: req.params.id },
             data: { status: approve ? "APPROVED" : "REJECTED", reviewedAt: new Date() },
@@ -227,10 +226,10 @@ export async function listReports(_req, res, next) {
 // ── PATCH /admin/reports/:id/resolve ──────────────────────────────────────────
 export async function resolveReport(req, res, next) {
     try {
-        const { action, adminNotes } = req.body;
+        const { action, adminNotes } = ReportResolutionSchema.parse(req.body);
         const report = await prisma.report.findUnique({
             where: { id: req.params.id },
-            include: { booking: true },
+            include: { booking: true, reporter: true, reportedUser: true },
         });
         if (!report)
             return res.status(404).json({ success: false, error: "Report not found" });
@@ -246,11 +245,13 @@ export async function resolveReport(req, res, next) {
         // Execute the action (Spec Part 8: Warn, Reduce Trust, Suspend, Ban, Dismiss, Approve Refund)
         if (action === "warn") {
             // Just notify — no systemic penalty beyond the notification sent below
+            const reportedRole = report.reportedUser?.role || "seeker";
             await prisma.notification.create({
                 data: {
                     userId: report.reportedUserId,
                     title: "⚠️ Official Warning from Admin",
                     body: `You have received a formal warning regarding a report. ${adminNotes || "Please review your behavior."}`,
+                    link: `/${reportedRole}/${reportedRole}-activity?tab=disputed&booking=${report.bookingId}`,
                 },
             });
             safeEmit(`user:${report.reportedUserId}`, "notification", { title: "⚠️ Official Warning from Admin" });
@@ -304,17 +305,21 @@ export async function resolveReport(req, res, next) {
             }
         }
         // Notify both parties
+        const reporterRole = report.reporter?.role || "seeker";
+        const reportedRole = report.reportedUser?.role || "seeker";
         await prisma.notification.createMany({
             data: [
                 {
                     userId: report.reporterId,
                     title: "Report Resolved",
                     body: `Your report has been reviewed and resolved. ${adminNotes || ""}`,
+                    link: `/${reporterRole}/${reporterRole}-activity?tab=all&booking=${report.bookingId}`,
                 },
                 {
                     userId: report.reportedUserId,
                     title: "Report Against You Resolved",
                     body: `A report filed against you has been reviewed. ${adminNotes || ""}`,
+                    link: `/${reportedRole}/${reportedRole}-activity?tab=all&booking=${report.bookingId}`,
                 },
             ],
         });
@@ -329,10 +334,7 @@ export async function resolveReport(req, res, next) {
 // ── PATCH /admin/cancellation-requests/:id/resolve ─────────────────────────────
 export async function resolveCancellationRequest(req, res, next) {
     try {
-        const { approve, adminNote } = req.body;
-        if (typeof approve !== "boolean") {
-            return res.status(400).json({ success: false, error: "approve must be a boolean" });
-        }
+        const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
         const { adminResolveCancellationRequest } = await import("../services/cancellation.service");
         const result = await adminResolveCancellationRequest(req.params.id, approve, adminNote);
         res.json({ success: true, data: result });

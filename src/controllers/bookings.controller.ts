@@ -9,7 +9,18 @@ import {
 } from "../services/bookings.service";
 import { createPaymentIntent, getPaymentIntent, createPaymentMethod, attachPaymentMethod } from "../services/paymongo.service";
 import { assertDistinctAccounts } from "../utils/security";
-import { DirectBookingSchema, InitiatePaymentSchema, ConfirmOnlineBookingSchema, WaitlistSchema, DisputeSchema, CancellationRequestSchema, CancellationResponseSchema, DirectResponseSchema, DirectOfferSchema, BooleanDecisionSchema } from "../schema/marketplace.schema";
+import {
+  DirectBookingSchema,
+  InitiatePaymentSchema,
+  ConfirmOnlineBookingSchema,
+  WaitlistSchema,
+  DisputeSchema,
+  CancellationRequestSchema,
+  CancellationResponseSchema,
+  DirectResponseSchema,
+  DirectOfferSchema,
+  BooleanDecisionSchema,
+} from "../schema/marketplace.schema";
 import { prisma } from "../lib/prisma";
 
 // ── POST /bookings/direct ─────────────────────────────────────────────────────
@@ -95,9 +106,11 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
 
     const normalizedPaymentMethod = paymentMethodType || "gcash";
     const paymentMethods = service.paymentMethods as { gcash?: boolean; maya?: boolean };
-    if ((normalizedPaymentMethod === "gcash" && !paymentMethods?.gcash) ||
-        (normalizedPaymentMethod === "paymaya" && !paymentMethods?.maya) ||
-        !["gcash", "paymaya"].includes(normalizedPaymentMethod)) {
+    if (
+      (normalizedPaymentMethod === "gcash" && !paymentMethods?.gcash) ||
+      (normalizedPaymentMethod === "paymaya" && !paymentMethods?.maya) ||
+      !["gcash", "paymaya"].includes(normalizedPaymentMethod)
+    ) {
       return res.status(400).json({ success: false, error: "This payment method is not accepted for the service" });
     }
 
@@ -107,15 +120,15 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
         seekerId: user.id,
         serviceId,
         status: {
-          in: ["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"]
-        }
-      }
+          in: ["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"],
+        },
+      },
     });
 
     if (activeExistingBooking) {
       return res.status(400).json({
         success: false,
-        error: "You already have an active booking for this service in progress. Please check your Activity tab."
+        error: "You already have an active booking for this service in progress. Please check your Activity tab.",
       });
     }
 
@@ -136,7 +149,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
     if (paymentMethodType) {
       // 1. Create Payment Method
       const methodId = await createPaymentMethod(normalizedPaymentMethod);
-      
+
       // 2. Attach to Intent
       const retUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/seeker/seeker-activity`;
       const attachment = await attachPaymentMethod({
@@ -281,51 +294,50 @@ export async function completeJob(req: Request, res: Response, next: NextFunctio
 export async function getMyEngagements(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { prisma } = await import("../lib/prisma");
 
     const bookings = await prisma.booking.findMany({
       where: {
         OR: [
           { seekerId: user.id, hiddenBySeeker: false },
-          { providerId: user.id, hiddenByProvider: false }
-        ]
+          { providerId: user.id, hiddenByProvider: false },
+        ],
       },
       include: {
         seeker: {
-          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true, verificationStatus: true }
+          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true, verificationStatus: true },
         },
         provider: {
-          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true, verificationStatus: true }
+          select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true, verificationStatus: true },
         },
         service: {
-          select: { id: true, title: true, description: true, price: true, priceType: true, estimatedDurationMins: true }
+          select: { id: true, title: true, description: true, price: true, priceType: true, estimatedDurationMins: true },
         },
         offer: {
           include: {
             request: {
-              select: { title: true }
-            }
-          }
+              select: { title: true },
+            },
+          },
         },
         directRequest: {
           select: {
             message: true,
             agreedPrice: true,
             service: {
-              select: { title: true }
-            }
-          }
+              select: { title: true },
+            },
+          },
         },
         queue: true,
         reports: true,
         cancellationRequests: {
-          orderBy: { createdAt: "desc" }
+          orderBy: { createdAt: "desc" },
         },
         messages: {
-          orderBy: { createdAt: "asc" }
-        }
+          orderBy: { createdAt: "asc" },
+        },
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
 
     const completedServices = await prisma.completedService.findMany({
@@ -335,43 +347,43 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
             seekerId: user.id,
             OR: [
               { bookingId: null },
-              { booking: { hiddenBySeeker: false } }
-            ]
+              { booking: { hiddenBySeeker: false } },
+            ],
           },
           {
             providerId: user.id,
             OR: [
               { bookingId: null },
-              { booking: { hiddenByProvider: false } }
-            ]
-          }
-        ]
+              { booking: { hiddenByProvider: false } },
+            ],
+          },
+        ],
       },
       include: {
         seeker: {
-          select: { id: true, name: true, email: true, phone: true, avatarUrl: true }
+          select: { id: true, name: true, email: true, phone: true, avatarUrl: true },
         },
         provider: {
-          select: { id: true, name: true, email: true, phone: true, avatarUrl: true, trustScore: true }
+          select: { id: true, name: true, email: true, phone: true, avatarUrl: true, trustScore: true },
         },
         reviews: true,
         booking: {
           include: {
             service: { select: { title: true } },
             offer: { include: { request: { select: { title: true } } } },
-            directRequest: { include: { service: { select: { title: true } } } }
-          }
-        }
+            directRequest: { include: { service: { select: { title: true } } } },
+          },
+        },
       },
-      orderBy: { completedAt: "desc" }
+      orderBy: { completedAt: "desc" },
     });
 
     res.json({
       success: true,
       data: {
         bookings,
-        completedServices
-      }
+        completedServices,
+      },
     });
   } catch (err) {
     next(err);
@@ -406,7 +418,7 @@ export async function respondDirectRequest(req: Request, res: Response, next: Ne
     res.json({
       success: true,
       message: accept ? "Direct arrangement accepted." : "Direct arrangement declined.",
-      data: result
+      data: result,
     });
   } catch (err) {
     next(err);
@@ -426,7 +438,7 @@ export async function bookDirectFromOffer(req: Request, res: Response, next: Nex
     res.status(201).json({
       success: true,
       message: "Bid accepted under Cash Arrangement.",
-      data: booking
+      data: booking,
     });
   } catch (err) {
     next(err);
@@ -446,7 +458,7 @@ export async function startJob(req: Request, res: Response, next: NextFunction) 
     res.json({
       success: true,
       message: "Job started successfully.",
-      data: result
+      data: result,
     });
   } catch (err) {
     next(err);
@@ -466,7 +478,7 @@ export async function providerRemoveFromQueue(req: Request, res: Response, next:
     res.json({
       success: true,
       message: "Booking removed from queue.",
-      data: result
+      data: result,
     });
   } catch (err) {
     next(err);
@@ -487,7 +499,7 @@ export async function disputeJob(req: Request, res: Response, next: NextFunction
     res.json({
       success: true,
       message: "Dispute report filed successfully.",
-      data: report
+      data: report,
     });
   } catch (err) {
     next(err);
@@ -507,7 +519,7 @@ export async function confirmCompletion(req: Request, res: Response, next: NextF
     res.json({
       success: true,
       message: "Service completion confirmed. Funds released.",
-      data: result
+      data: result,
     });
   } catch (err) {
     next(err);
@@ -520,7 +532,7 @@ export async function cancelBookingHandler(req: Request, res: Response, next: Ne
   try {
     const user = (req as AuthenticatedRequest).user;
     const id = req.params.id as string;
-    const { reason } = CancellationRequestSchema.parse(req.body);
+    const { reason } = CancellationRequestSchema.parse(req.body || {});
     const { requestCancellation } = await import("../services/cancellation.service");
     const result = await requestCancellation(id, user.id, reason);
     res.json({ success: true, data: result });

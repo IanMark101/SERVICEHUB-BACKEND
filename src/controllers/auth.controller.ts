@@ -259,9 +259,6 @@ export async function changePasswordHandler(req: Request, res: Response, next: N
 
 // ── GET /auth/trust-history ───────────────────────────────────────────────────
 // Returns the authenticated user's own immutable trust score event log.
-// Detailed event data (delta, reason, scoreBefore, scoreAfter) is private to
-// the account owner only. Public profiles expose only the aggregate trustScore
-// field via GET /auth/profile/:id — no separate public endpoint is needed.
 
 export async function getTrustHistoryHandler(req: Request, res: Response, next: NextFunction) {
   try {
@@ -272,3 +269,18 @@ export async function getTrustHistoryHandler(req: Request, res: Response, next: 
     next(err);
   }
 }
+
+// ── GET /auth/trust-history/:id ───────────────────────────────────────────────
+// Returns the trust score breakdown and milestones for a target user profile.
+// Protected by requireAuth so only authenticated community members can view.
+
+export async function getUserTrustHistoryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const targetUserId = req.params.id as string;
+    const events = await getTrustHistory(targetUserId);
+    res.json({ success: true, data: events });
+  } catch (err) {
+    next(err);
+  }
+}
+

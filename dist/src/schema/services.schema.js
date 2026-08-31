@@ -18,12 +18,12 @@ export const CreateServiceSchema = z.object({
     categoryId: z.string().min(1, "Invalid category"),
     title: z
         .string()
-        .min(10, "Title must be at least 10 characters")
+        .min(3, "Title must be at least 3 characters")
         .max(100, "Title must be at most 100 characters")
         .regex(/^[a-zA-Z0-9\s,.'&()-]+$/, "Title contains invalid characters"),
     description: z
         .string()
-        .min(30, "Description must be at least 30 characters")
+        .min(10, "Description must be at least 10 characters")
         .max(1000, "Description must be at most 1000 characters"),
     price: z
         .number()
@@ -52,11 +52,11 @@ export const CreateServiceSchema = z.object({
 export const UpdateServiceSchema = z.object({
     title: z
         .string()
-        .min(10)
+        .min(3)
         .max(100)
         .regex(/^[a-zA-Z0-9\s,.'&()-]+$/)
         .optional(),
-    description: z.string().min(30).max(1000).optional(),
+    description: z.string().min(10).max(1000).optional(),
     price: z.number().min(50).max(50000).optional(),
     priceType: z.enum(PriceTypeValues).optional(),
     serviceType: z.enum(ServiceTypeValues).optional(),

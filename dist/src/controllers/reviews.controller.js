@@ -1,13 +1,12 @@
 import { prisma } from "../lib/prisma";
 import { applyReviewTrust } from "../services/trust.service";
 import { assertDistinctAccounts } from "../utils/security";
+import { safeEmit } from "../lib/socket";
+import { ReviewSchema, ReviewUpdateSchema } from "../schema/marketplace.schema";
 export async function submitReview(req, res, next) {
     try {
         const user = req.user;
-        const { completedServiceId, rating, text, tags } = req.body;
-        if (!completedServiceId || !rating) {
-            return res.status(400).json({ success: false, error: "completedServiceId and rating are required" });
-        }
+        const { completedServiceId, rating, text, tags } = ReviewSchema.parse(req.body);
         const completedService = await prisma.completedService.findUnique({
             where: { id: completedServiceId }
         });
@@ -39,15 +38,15 @@ export async function submitReview(req, res, next) {
                 completedServiceId,
                 authorId: user.id,
                 targetId,
-                rating: parseInt(rating),
+                rating,
                 text,
                 tags: tags ? tags : undefined,
                 editableUntil
             }
         });
         // Update target trust score
-        await applyReviewTrust(targetId, parseInt(rating));
-        // Create notification if provider was reviewed
+        await applyReviewTrust(targetId, rating);
+        // Create notification and socket alert for the reviewed party
         if (isSeeker) {
             await prisma.notification.create({
                 data: {
@@ -57,6 +56,18 @@ export async function submitReview(req, res, next) {
                     link: `/provider/user-profile?id=${targetId}&tab=reviews`
                 }
             });
+            safeEmit(`user:${targetId}`, "notification", { title: "New Review Received ⭐" });
+        }
+        else if (isProvider) {
+            await prisma.notification.create({
+                data: {
+                    userId: targetId,
+                    title: "New Review Received ⭐",
+                    body: `Your provider left you a ${rating}-star review. Check your profile.`,
+                    link: `/seeker/user-profile?id=${targetId}&tab=reviews`
+                }
+            });
+            safeEmit(`user:${targetId}`, "notification", { title: "New Review Received ⭐" });
         }
         res.status(201).json({
             success: true,
@@ -64,6 +75,9 @@ export async function submitReview(req, res, next) {
         });
     }
     catch (err) {
+        if (err.name === "ZodError") {
+            return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+        }
         next(err);
     }
 }
@@ -100,7 +114,7 @@ export async function updateReview(req, res, next) {
     try {
         const user = req.user;
         const reviewId = req.params.id;
-        const { rating, text, tags } = req.body;
+        const { rating, text, tags } = ReviewUpdateSchema.parse(req.body);
         const existing = await prisma.review.findUnique({
             where: { id: reviewId }
         });
@@ -118,7 +132,7 @@ export async function updateReview(req, res, next) {
             });
         }
         const oldRating = existing.rating;
-        const newRating = rating !== undefined ? parseInt(rating) : oldRating;
+        const newRating = rating !== undefined ? rating : oldRating;
         const updated = await prisma.review.update({
             where: { id: reviewId },
             data: {
@@ -143,6 +157,9 @@ export async function updateReview(req, res, next) {
         });
     }
     catch (err) {
+        if (err.name === "ZodError") {
+            return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+        }
         next(err);
     }
 }
