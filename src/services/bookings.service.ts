@@ -398,15 +398,59 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
 export async function addToQueue(params: {
   serviceId: string;
   seekerId: string;
+  paymentId: string;
+  offerId?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  paymentMethod?: string;
+}): Promise<{ queueEntry: any; isImmediate: boolean }> {
+  const result = await prisma.$transaction(async (tx) => {
+    // Serialize reservations per service. PostgreSQL releases this advisory
+    // lock at transaction end, so independent services remain concurrent.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.serviceId}))`;
+
+    // A retried confirmation for an already-consumed payment intent is
+    // idempotent and cannot reserve an additional queue slot.
+    const existing = await tx.queue.findUnique({ where: { paymentId: params.paymentId } });
+    if (existing) return { queueEntry: existing, isImmediate: existing.position === 1, booking: null, service: null, currentSize: 0 };
+
+    return addToQueueLocked(params, tx);
+  });
+
+  if (!result.booking || !result.service) {
+    return { queueEntry: result.queueEntry, isImmediate: result.isImmediate };
+  }
+
+  const { queueEntry, booking, service, currentSize, isImmediate } = result;
+  await sendMessage(booking.id, params.seekerId, "Payment received and held in Escrow.", undefined, true);
+  await prisma.notification.create({
+    data: {
+      userId: service.providerId,
+      title: "New Paid Booking Request! ðŸ”’",
+      body: `A client requested "${service.title}" with payment secured in Escrow via GCash. Review and accept.`,
+      link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
+    },
+  });
+  safeEmit(`service:${params.serviceId}`, "queue_update", { serviceId: params.serviceId, delta: +1, currentSize: currentSize + 1 });
+  safeEmit(`user:${service.providerId}`, "notification", { title: "New Paid Booking Request! ðŸ”’" });
+  safeEmit(`user:${service.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
+  safeEmit(`user:${params.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
+
+  return { queueEntry, isImmediate };
+}
+
+async function addToQueueLocked(params: {
+  serviceId: string;
+  seekerId: string;
   paymentId: string; // PayMongo payment intent ID — REQUIRED
   offerId?: string;  // Only for Flow B (accepted offer)
   scheduledDate?: string; // ISO date e.g. "2026-08-15" — for session-based services
   scheduledTime?: string; // HH:MM e.g. "16:00" — for session-based services
   paymentMethod?: string; // Payment method e.g. "GCash", "Maya", "Card"
-}): Promise<{ queueEntry: any; isImmediate: boolean }> {
+}, tx: any): Promise<any> {
   const { serviceId, seekerId, paymentId, offerId, scheduledDate, scheduledTime, paymentMethod } = params;
 
-  const service = await prisma.service.findUnique({
+  const service = await tx.service.findUnique({
     where: { id: serviceId },
     select: { queueLimit: true, estimatedDurationMins: true, isAvailable: true, title: true, status: true, providerId: true },
   });
@@ -426,7 +470,7 @@ export async function addToQueue(params: {
   }
 
   if (offerId) {
-    const offer = await prisma.offer.findUnique({
+    const offer = await tx.offer.findUnique({
       where: { id: offerId },
       include: { request: true },
     });
@@ -439,10 +483,10 @@ export async function addToQueue(params: {
   }
 
   // Count total load (active ongoing booking + queued entries)
-  const activeOngoingCount = await prisma.booking.count({
+  const activeOngoingCount = await tx.booking.count({
     where: { serviceId, status: "ONGOING" },
   });
-  const queueCount = await prisma.queue.count({
+  const queueCount = await tx.queue.count({
     where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
   });
   const currentSize = activeOngoingCount + queueCount;
@@ -454,7 +498,11 @@ export async function addToQueue(params: {
     throw err;
   }
 
-  const position = await getNextQueuePosition(serviceId);
+  const lastEntry = await tx.queue.findFirst({
+    where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
+    orderBy: { position: "desc" },
+  });
+  const position = lastEntry ? lastEntry.position + 1 : (activeOngoingCount > 0 ? 2 : 1);
   const estimatedWait = service.estimatedDurationMins * (position - 1);
   const isImmediate = position === 1;
 
@@ -462,7 +510,7 @@ export async function addToQueue(params: {
   // Work NEVER starts automatically. If there's an accepted offer (Flow B), status is ACCEPTED.
   // If direct booking on a listing (Flow A), status is PENDING_APPROVAL awaiting provider review.
   // started is ALWAYS false until provider clicks Start Job.
-  const booking = await prisma.booking.create({
+  const booking = await tx.booking.create({
     data: {
       seekerId,
       providerId: service.providerId,
@@ -478,9 +526,7 @@ export async function addToQueue(params: {
     },
   });
 
-  await sendMessage(booking.id, seekerId, "Payment received and held in Escrow.", undefined, true);
-
-  const queueEntry = await prisma.queue.create({
+  const queueEntry = await tx.queue.create({
     data: {
       serviceId,
       seekerId,
@@ -494,6 +540,9 @@ export async function addToQueue(params: {
     },
   });
 
+  /*
+  // Notifications and socket events must run after the transaction commits.
+  // Kept below as the source for the post-commit handling in addToQueue.
   // Notify provider of new paid booking request
   await prisma.notification.create({
     data: {
@@ -515,7 +564,8 @@ export async function addToQueue(params: {
   safeEmit(`user:${service.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
   safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "queue_created" });
 
-  return { queueEntry, isImmediate };
+  */
+  return { queueEntry, booking, service, currentSize, isImmediate };
 }
 
 

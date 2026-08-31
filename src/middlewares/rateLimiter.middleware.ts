@@ -45,3 +45,16 @@ export const aiLimiter = rateLimit({
     error: "AI generation rate limit exceeded. Please wait a moment before trying again.",
   },
 });
+
+// Cloud media uploads consume storage and transformation quota. Keep this
+// intentionally narrower than the general API limiter.
+export const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 60 : 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "Too many upload attempts. Please try again later.",
+  },
+});

@@ -6,19 +6,21 @@ import {
   listPendingVerifications,
   reviewVerification,
 } from "../services/verification.service";
+import { VerificationSubmissionSchema } from "../schema/marketplace.schema";
 
 // ── POST /verifications/submit ────────────────────────────────────────────────
 
 export async function submit(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { proofs } = req.body as {
-      proofs: { fileUrl: string; documentType: string }[];
-    };
+    const { proofs } = VerificationSubmissionSchema.parse(req.body);
 
-    const verification = await submitVerification(user.id, proofs || []);
+    const verification = await submitVerification(user.id, proofs);
     res.status(201).json({ success: true, data: verification });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+    }
     next(err);
   }
 }

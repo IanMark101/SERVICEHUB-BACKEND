@@ -7,26 +7,26 @@ import {
   acceptOffer,
   rejectOffer,
 } from "../services/offers.service";
+import { OfferSchema } from "../schema/marketplace.schema";
 
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { requestId, offeredPrice, estimatedDuration, availability, message } = req.body;
-
-    if (!requestId || !offeredPrice || !estimatedDuration) {
-      return res.status(400).json({ success: false, error: "Missing required fields" });
-    }
+    const { requestId, offeredPrice, estimatedDuration, availability, message } = OfferSchema.parse(req.body);
 
     const offer = await submitOffer(user.id, {
       requestId,
-      offeredPrice: parseFloat(offeredPrice),
-      estimatedDuration: parseInt(estimatedDuration),
+      offeredPrice,
+      estimatedDuration,
       availability,
       message,
     });
 
     res.status(201).json({ success: true, data: offer });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+    }
     next(err);
   }
 }

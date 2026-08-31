@@ -319,7 +319,12 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
   let avatarUrl: string | null = null;
 
   try {
-    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+    if (!env.GOOGLE_CLIENT_ID) {
+      const error = new Error("Google sign-in is not configured") as any;
+      error.status = 503;
+      throw error;
+    }
+  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
     if (!response.ok) {
       throw new Error("Token validation failed");
     }
@@ -328,9 +333,11 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
       throw new Error("Email field missing in Google profile");
     }
 
-    // Secure check: Verify the Google Client ID/Audience if configured in env
-    if (env.GOOGLE_CLIENT_ID && data.aud && data.aud !== env.GOOGLE_CLIENT_ID) {
-      throw new Error("Token audience mismatch");
+    // Require the exact configured OAuth client and a verified Google account.
+    if (data.aud !== env.GOOGLE_CLIENT_ID ||
+        !["accounts.google.com", "https://accounts.google.com"].includes(data.iss) ||
+        data.email_verified !== "true" && data.email_verified !== true) {
+    throw new Error("Google token claims are invalid");
     }
 
     email = data.email;
@@ -403,8 +410,6 @@ export async function getUserPublicProfile(userId: string) {
     select: {
       id: true,
       name: true,
-      email: true,
-      phone: true,
       location: true,
       avatarUrl: true,
       bio: true,
@@ -606,6 +611,10 @@ export async function changeUserPassword(
     where: { id: userId },
     data: { passwordHash: newHash },
   });
+
+  // A password change should invalidate every existing refresh session, not
+  // only the browser that initiated it.
+  await prisma.refreshToken.deleteMany({ where: { userId } });
 
   return { success: true };
 }

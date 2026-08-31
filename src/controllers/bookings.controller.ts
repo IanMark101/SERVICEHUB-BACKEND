@@ -7,8 +7,10 @@ import {
   cancelQueueEntry,
   markJobComplete,
 } from "../services/bookings.service";
-import { createPaymentIntent, verifyPaymentSuccess, createPaymentMethod, attachPaymentMethod } from "../services/paymongo.service";
+import { createPaymentIntent, getPaymentIntent, createPaymentMethod, attachPaymentMethod } from "../services/paymongo.service";
 import { assertDistinctAccounts } from "../utils/security";
+import { DirectBookingSchema, InitiatePaymentSchema, ConfirmOnlineBookingSchema } from "../schema/marketplace.schema";
+import { prisma } from "../lib/prisma";
 
 // ── POST /bookings/direct ─────────────────────────────────────────────────────
 // Cash / Direct Arrangement — NEVER touches the queue
@@ -16,16 +18,11 @@ import { assertDistinctAccounts } from "../utils/security";
 export async function bookDirect(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { serviceId, agreedPrice, schedule, message, scheduledDate, scheduledTime } = req.body;
+    const { serviceId, schedule, message, scheduledDate, scheduledTime } = DirectBookingSchema.parse(req.body);
 
-    if (!serviceId || !agreedPrice) {
-      return res.status(400).json({ success: false, error: "serviceId and agreedPrice are required" });
-    }
-
-    const { prisma } = await import("../lib/prisma");
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
-      select: { providerId: true },
+      select: { providerId: true, price: true },
     });
 
     if (!service) {
@@ -36,7 +33,9 @@ export async function bookDirect(req: Request, res: Response, next: NextFunction
       seekerId: user.id,
       providerId: service.providerId,
       serviceId,
-      agreedPrice: parseFloat(agreedPrice),
+      // Direct-booking prices belong to the provider's active listing. They are
+      // never accepted from the seeker request body.
+      agreedPrice: Number(service.price),
       schedule,
       message,
       scheduledDate: scheduledDate || undefined,
@@ -48,7 +47,10 @@ export async function bookDirect(req: Request, res: Response, next: NextFunction
       message: "Direct Arrangement request sent. Provider will accept or decline.",
       data: directRequest,
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+    }
     next(err);
   }
 }
@@ -58,23 +60,46 @@ export async function bookDirect(req: Request, res: Response, next: NextFunction
 export async function initiatePayment(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { serviceId, amount, description, paymentMethodType, returnUrl } = req.body;
+    const { serviceId, offerId, paymentMethodType } = InitiatePaymentSchema.parse(req.body);
 
-    if (!serviceId || !amount) {
-      return res.status(400).json({ success: false, error: "serviceId and amount are required" });
-    }
-
-    const { prisma } = await import("../lib/prisma");
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
-      select: { providerId: true },
+      select: { providerId: true, price: true, paymentMethods: true, status: true, isAvailable: true },
     });
 
     if (!service) {
       return res.status(404).json({ success: false, error: "Service not found" });
     }
 
+    if (service.status !== "ACTIVE" || !service.isAvailable) {
+      return res.status(400).json({ success: false, error: "This service is not available for online booking" });
+    }
+
     assertDistinctAccounts(user.id, service.providerId, "book service");
+
+    let expectedAmount = Number(service.price);
+    if (offerId) {
+      const offer = await prisma.offer.findUnique({
+        where: { id: offerId },
+        include: { request: { select: { seekerId: true } } },
+      });
+      if (!offer || offer.status !== "ACCEPTED" || offer.request.seekerId !== user.id || offer.providerId !== service.providerId) {
+        return res.status(400).json({ success: false, error: "Accepted offer does not match this service" });
+      }
+      expectedAmount = Number(offer.offeredPrice);
+    }
+
+    if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) {
+      return res.status(400).json({ success: false, error: "The booking amount is invalid" });
+    }
+
+    const normalizedPaymentMethod = paymentMethodType || "gcash";
+    const paymentMethods = service.paymentMethods as { gcash?: boolean; maya?: boolean };
+    if ((normalizedPaymentMethod === "gcash" && !paymentMethods?.gcash) ||
+        (normalizedPaymentMethod === "paymaya" && !paymentMethods?.maya) ||
+        !["gcash", "paymaya"].includes(normalizedPaymentMethod)) {
+      return res.status(400).json({ success: false, error: "This payment method is not accepted for the service" });
+    }
 
     // Prevent duplicate concurrent payments / bookings on the same service
     const activeExistingBooking = await prisma.booking.findFirst({
@@ -95,18 +120,25 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
     }
 
     const intent = await createPaymentIntent({
-      amount: parseFloat(amount),
-      description: description || "ServiceHub Cordova booking",
+      amount: expectedAmount,
+      description: `ServiceHub Cordova booking for ${serviceId}`,
+      metadata: {
+        servicehub_seeker_id: user.id,
+        servicehub_service_id: serviceId,
+        servicehub_offer_id: offerId || "",
+        servicehub_expected_amount: expectedAmount.toFixed(2),
+        servicehub_payment_method: normalizedPaymentMethod,
+      },
     });
 
     let redirectUrl: string | undefined;
 
     if (paymentMethodType) {
       // 1. Create Payment Method
-      const methodId = await createPaymentMethod(paymentMethodType);
+      const methodId = await createPaymentMethod(normalizedPaymentMethod);
       
       // 2. Attach to Intent
-      const retUrl = returnUrl || `${process.env.FRONTEND_URL || "http://localhost:3000"}/seeker/seeker-activity`;
+      const retUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/seeker/seeker-activity`;
       const attachment = await attachPaymentMethod({
         paymentIntentId: intent.id,
         paymentMethodId: methodId,
@@ -125,9 +157,13 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
         paymentIntentId: intent.id,
         clientKey: intent.clientKey,
         redirectUrl,
+        expectedAmount,
       },
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+    }
     next(err);
   }
 }
@@ -137,19 +173,40 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
 export async function confirmOnlineBooking(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { serviceId, paymentIntentId, offerId, paymentMethod } = req.body;
+    const { serviceId, paymentIntentId, offerId } = ConfirmOnlineBookingSchema.parse(req.body);
 
-    if (!serviceId || !paymentIntentId) {
-      return res.status(400).json({ success: false, error: "serviceId and paymentIntentId are required" });
-    }
+    const intent = await getPaymentIntent(paymentIntentId);
+    const expectedAmount = offerId
+      ? Number((await prisma.offer.findUnique({ where: { id: offerId }, select: { offeredPrice: true } }))?.offeredPrice)
+      : Number((await prisma.service.findUnique({ where: { id: serviceId }, select: { price: true } }))?.price);
 
-    const paid = await verifyPaymentSuccess(paymentIntentId);
-    if (!paid) {
+    const metadata = intent.metadata;
+    const isBoundToBooking =
+      intent.status === "succeeded" &&
+      intent.currency === "PHP" &&
+      Number.isFinite(expectedAmount) &&
+      Math.abs(intent.amount - expectedAmount) < 0.005 &&
+      metadata.servicehub_seeker_id === user.id &&
+      metadata.servicehub_service_id === serviceId &&
+      (metadata.servicehub_offer_id || "") === (offerId || "") &&
+      metadata.servicehub_expected_amount === expectedAmount.toFixed(2);
+
+    if (!isBoundToBooking) {
       return res.status(402).json({
         success: false,
-        error: "Payment not confirmed. Please complete payment before booking.",
+        error: "Payment does not match this booking. Please initiate and complete payment again.",
         code: "PAYMENT_NOT_CONFIRMED",
       });
+    }
+
+    const paymentMethodByProvider: Record<string, "GCash" | "Maya" | "Card"> = {
+      gcash: "GCash",
+      paymaya: "Maya",
+      card: "Card",
+    };
+    const trustedPaymentMethod = paymentMethodByProvider[metadata.servicehub_payment_method];
+    if (!trustedPaymentMethod) {
+      return res.status(402).json({ success: false, error: "Payment method is invalid", code: "PAYMENT_NOT_CONFIRMED" });
     }
 
     const { queueEntry, isImmediate } = await addToQueue({
@@ -157,7 +214,7 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
       seekerId: user.id,
       paymentId: paymentIntentId,
       offerId,
-      paymentMethod: paymentMethod || "GCash",
+      paymentMethod: trustedPaymentMethod,
     });
 
     res.status(201).json({
@@ -166,6 +223,9 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
       data: queueEntry,
     });
   } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+    }
     if (err.code === "QUEUE_FULL") {
       return res.status(409).json({
         success: false,

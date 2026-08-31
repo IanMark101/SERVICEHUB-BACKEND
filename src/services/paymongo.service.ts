@@ -49,6 +49,7 @@ export async function createPaymentIntent(params: {
   currency?: string;
   description: string;
   statementDescriptor?: string;
+  metadata?: Record<string, string>;
 }): Promise<{ id: string; clientKey: string; status: string }> {
   const body = await paymongoFetch("/payment_intents", {
     method: "POST",
@@ -60,6 +61,7 @@ export async function createPaymentIntent(params: {
           payment_method_allowed: ["gcash", "paymaya", "card"],
           description: params.description,
           statement_descriptor: params.statementDescriptor || "ServiceHub Cordova",
+          metadata: params.metadata,
           capture_type: "automatic",
         },
       },
@@ -79,12 +81,16 @@ export async function getPaymentIntent(paymentIntentId: string): Promise<{
   id: string;
   status: string;
   amount: number;
+  currency: string;
+  metadata: Record<string, string>;
 }> {
   const body = await paymongoFetch(`/payment_intents/${paymentIntentId}`);
   return {
     id: body.data.id,
     status: body.data.attributes.status,
     amount: body.data.attributes.amount / 100, // convert back to PHP
+    currency: body.data.attributes.currency,
+    metadata: body.data.attributes.metadata || {},
   };
 }
 
@@ -125,6 +131,11 @@ export async function createRefund(params: {
 // ── Create Payment Method ──────────────────────────────────────────────────────
 
 export async function createPaymentMethod(type: string): Promise<string> {
+  if (!['gcash', 'paymaya', 'card'].includes(type)) {
+    const err = new Error('Unsupported payment method') as any;
+    err.status = 400;
+    throw err;
+  }
   const body = await paymongoFetch("/payment_methods", {
     method: "POST",
     body: JSON.stringify({

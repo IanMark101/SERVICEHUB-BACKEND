@@ -16,7 +16,7 @@ import {
   getTrustHistoryHandler,
   getPublicTrustHistoryHandler,
 } from "../controllers/auth.controller";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { requireAuth, requireTrustedOrigin } from "../middlewares/auth.middleware";
 import { authLimiter } from "../middlewares/rateLimiter.middleware";
 
 const router = Router();
@@ -25,13 +25,13 @@ const router = Router();
 router.post("/register", authLimiter, register);
 router.post("/login", authLimiter, login);
 router.post("/google-login", authLimiter, googleLogin);
-router.post("/refresh", refresh);
-router.post("/logout", logout);
+router.post("/refresh", requireTrustedOrigin, refresh);
+router.post("/logout", requireTrustedOrigin, logout);
 router.get("/verify-email/:token", verifyEmailHandler);
 router.post("/forgot-password", authLimiter, forgotPasswordHandler);
 router.post("/reset-password", authLimiter, resetPasswordHandler);
 router.post("/resend-verification", authLimiter, resendVerificationHandler);
-router.get("/profile/:id", getPublicProfileHandler);
+router.get("/profile/:id", requireAuth, getPublicProfileHandler);
 
 // Protected routes
 router.get("/me", requireAuth, getMe);

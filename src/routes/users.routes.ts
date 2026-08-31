@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { searchUsers } from "../controllers/users.controller";
+import { requireAuth } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-// Public user search / listing
-router.get("/", searchUsers);
+// User discovery is available to signed-in residents only.
+router.get("/", requireAuth, searchUsers);
 
 export default router;

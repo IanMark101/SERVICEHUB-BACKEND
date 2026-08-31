@@ -19,8 +19,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.10.1",
@@ -30,7 +30,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.2",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^8.0.10",
+    "nodemailer": "^9.0.6",
     "pg": "^8.21.0",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"
@@ -43,14 +43,19 @@
     "@types/node": "^25.9.2",
     "@types/nodemailer": "^8.0.0",
     "@types/pg": "^8.20.0",
-    "prisma": "^7.8.0",
+    "prisma": "7.10.0",
     "tsc-alias": "^1.8.17",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   },
   "allowScripts": {
-    "@prisma/engines@7.8.0": true,
+    "@prisma/engines@7.10.0": true,
     "esbuild@0.28.0": true,
-    "prisma@7.8.0": true
+    "prisma@7.10.0": true
+  },
+  "overrides": {
+    "socket.io-parser": "4.2.7",
+    "fast-uri": "3.1.5",
+    "body-parser": "2.3.0"
   }
 }

@@ -4,15 +4,12 @@ import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { applyReviewTrust } from "../services/trust.service";
 import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
+import { ReviewSchema, ReviewUpdateSchema } from "../schema/marketplace.schema";
 
 export async function submitReview(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { completedServiceId, rating, text, tags } = req.body;
-
-    if (!completedServiceId || !rating) {
-      return res.status(400).json({ success: false, error: "completedServiceId and rating are required" });
-    }
+    const { completedServiceId, rating, text, tags } = ReviewSchema.parse(req.body);
 
     const completedService = await prisma.completedService.findUnique({
       where: { id: completedServiceId }
@@ -54,7 +51,7 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
         completedServiceId,
         authorId: user.id,
         targetId,
-        rating: parseInt(rating),
+        rating,
         text,
         tags: tags ? tags : undefined,
         editableUntil
@@ -62,7 +59,7 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
     });
 
     // Update target trust score
-    await applyReviewTrust(targetId, parseInt(rating));
+    await applyReviewTrust(targetId, rating);
 
     // Create notification and socket alert for the reviewed party
     if (isSeeker) {
@@ -91,7 +88,10 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
       success: true,
       data: review
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+    }
     next(err);
   }
 }
@@ -131,7 +131,7 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
   try {
     const user = (req as AuthenticatedRequest).user;
     const reviewId = req.params.id as string;
-    const { rating, text, tags } = req.body;
+    const { rating, text, tags } = ReviewUpdateSchema.parse(req.body);
 
     const existing = await prisma.review.findUnique({
       where: { id: reviewId }
@@ -154,7 +154,7 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
     }
 
     const oldRating = existing.rating;
-    const newRating = rating !== undefined ? parseInt(rating) : oldRating;
+    const newRating = rating !== undefined ? rating : oldRating;
 
     const updated = await prisma.review.update({
       where: { id: reviewId },
@@ -184,7 +184,10 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
       message: "Review updated successfully",
       data: updated
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+    }
     next(err);
   }
 }

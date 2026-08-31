@@ -4,6 +4,7 @@ import {
   LoginSchema,
   ForgotPasswordSchema,
   ResetPasswordSchema,
+  ChangePasswordSchema,
 } from "../schema/auth.schema";
 import {
   registerUser,
@@ -246,10 +247,13 @@ export async function updateProfileHandler(req: Request, res: Response, next: Ne
 export async function changePasswordHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = (req as any).user?.id;
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = ChangePasswordSchema.parse(req.body);
     await changeUserPassword(userId, currentPassword, newPassword);
     res.json({ success: true, message: "Password updated successfully" });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === "ZodError") {
+      return res.status(400).json({ success: false, errors: err.errors });
+    }
     next(err);
   }
 }
