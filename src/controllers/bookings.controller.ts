@@ -9,7 +9,7 @@ import {
 } from "../services/bookings.service";
 import { createPaymentIntent, getPaymentIntent, createPaymentMethod, attachPaymentMethod } from "../services/paymongo.service";
 import { assertDistinctAccounts } from "../utils/security";
-import { DirectBookingSchema, InitiatePaymentSchema, ConfirmOnlineBookingSchema } from "../schema/marketplace.schema";
+import { DirectBookingSchema, InitiatePaymentSchema, ConfirmOnlineBookingSchema, WaitlistSchema, DisputeSchema, CancellationRequestSchema, CancellationResponseSchema, DirectResponseSchema, DirectOfferSchema, BooleanDecisionSchema } from "../schema/marketplace.schema";
 import { prisma } from "../lib/prisma";
 
 // ── POST /bookings/direct ─────────────────────────────────────────────────────
@@ -243,7 +243,7 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
 export async function joinWaitlistHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { serviceId } = req.body;
+    const { serviceId } = WaitlistSchema.parse(req.body);
     const entry = await joinWaitlist(serviceId, user.id);
     res.status(201).json({ success: true, data: entry });
   } catch (err) {
@@ -398,11 +398,7 @@ export async function respondDirectRequest(req: Request, res: Response, next: Ne
   try {
     const user = (req as AuthenticatedRequest).user;
     const { id } = req.params;
-    const { accept } = req.body;
-
-    if (typeof accept !== "boolean") {
-      return res.status(400).json({ success: false, error: "accept must be a boolean" });
-    }
+    const { accept } = DirectResponseSchema.parse(req.body);
 
     const { respondToDirectBookingService } = await import("../services/bookings.service");
     const result = await respondToDirectBookingService(id as string, user.id, accept);
@@ -422,11 +418,7 @@ export async function respondDirectRequest(req: Request, res: Response, next: Ne
 export async function bookDirectFromOffer(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { offerId } = req.body;
-
-    if (!offerId) {
-      return res.status(400).json({ success: false, error: "offerId is required" });
-    }
+    const { offerId } = DirectOfferSchema.parse(req.body);
 
     const { createDirectFromOfferService } = await import("../services/bookings.service");
     const booking = await createDirectFromOfferService(offerId, user.id);
@@ -487,11 +479,7 @@ export async function disputeJob(req: Request, res: Response, next: NextFunction
   try {
     const user = (req as AuthenticatedRequest).user;
     const { id } = req.params;
-    const { reason, description, evidenceUrl } = req.body;
-
-    if (!reason) {
-      return res.status(400).json({ success: false, error: "reason is required" });
-    }
+    const { reason, description, evidenceUrl } = DisputeSchema.parse(req.body);
 
     const { disputeJobService } = await import("../services/bookings.service");
     const report = await disputeJobService(id as string, user.id, reason, description, evidenceUrl);
@@ -532,7 +520,7 @@ export async function cancelBookingHandler(req: Request, res: Response, next: Ne
   try {
     const user = (req as AuthenticatedRequest).user;
     const id = req.params.id as string;
-    const { reason } = req.body;
+    const { reason } = CancellationRequestSchema.parse(req.body);
     const { requestCancellation } = await import("../services/cancellation.service");
     const result = await requestCancellation(id, user.id, reason);
     res.json({ success: true, data: result });
@@ -545,10 +533,7 @@ export async function respondCancellationRequestHandler(req: Request, res: Respo
   try {
     const user = (req as AuthenticatedRequest).user;
     const id = req.params.id as string;
-    const { approve, providerNote } = req.body;
-    if (typeof approve !== "boolean") {
-      return res.status(400).json({ success: false, error: "approve must be a boolean" });
-    }
+    const { approve, providerNote } = CancellationResponseSchema.parse(req.body);
     const { respondToCancellationRequest } = await import("../services/cancellation.service");
     const result = await respondToCancellationRequest(id, user.id, approve, providerNote);
     res.json({ success: true, data: result });
@@ -572,10 +557,7 @@ export async function escalateCancellationRequestHandler(req: Request, res: Resp
 export async function adminResolveCancellationRequestHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const id = req.params.id as string;
-    const { approve, adminNote } = req.body;
-    if (typeof approve !== "boolean") {
-      return res.status(400).json({ success: false, error: "approve must be a boolean" });
-    }
+    const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
     const { adminResolveCancellationRequest } = await import("../services/cancellation.service");
     const result = await adminResolveCancellationRequest(id, approve, adminNote);
     res.json({ success: true, data: result });

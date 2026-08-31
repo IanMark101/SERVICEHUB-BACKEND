@@ -5,8 +5,8 @@ import { prisma } from "../lib/prisma";
 export async function searchUsers(req: Request, res: Response, next: NextFunction) {
   try {
     const { search, role, page = "1", limit = "10" } = req.query;
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
+    const pageNum = Math.max(1, Math.min(10_000, parseInt(page as string, 10) || 1));
+    const limitNum = Math.max(1, Math.min(50, parseInt(limit as string, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
 
     const where: any = { isActive: true };

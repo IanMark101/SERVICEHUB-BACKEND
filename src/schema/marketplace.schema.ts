@@ -76,3 +76,38 @@ const VerificationProofSchema = z.object({
 export const VerificationSubmissionSchema = z.object({
   proofs: z.array(VerificationProofSchema).min(1).max(2),
 }).strict();
+
+const ManagedImageUrl = z.string().url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname.endsWith("res.cloudinary.com");
+}, "Image must be a secure Cloudinary URL");
+
+export const CategorySuggestionSchema = z.object({
+  name: Text(80).min(3),
+  description: Text(500).min(10),
+}).strict();
+
+export const MessageSchema = z.object({
+  content: Text(2_000).optional(),
+  imageUrl: ManagedImageUrl.optional(),
+}).strict().refine((value) => Boolean(value.content || value.imageUrl), "Message content or image is required");
+
+export const WaitlistSchema = z.object({ serviceId: Cuid }).strict();
+
+export const DisputeSchema = z.object({
+  reason: z.enum(["POOR_SERVICE_QUALITY", "INCOMPLETE_SERVICE", "SCAM_OR_FRAUD", "INAPPROPRIATE_BEHAVIOR", "OVERPRICING", "NO_SHOW"]),
+  description: Text(2_000).optional(),
+  evidenceUrl: ManagedImageUrl.optional(),
+}).strict();
+
+export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3) }).strict();
+export const CancellationResponseSchema = z.object({ approve: z.boolean(), providerNote: Text(1_000).optional() }).strict();
+export const BooleanDecisionSchema = z.object({ approve: z.boolean(), adminNotes: Text(2_000).optional() }).strict();
+export const DirectResponseSchema = z.object({ accept: z.boolean() }).strict();
+export const DirectOfferSchema = z.object({ offerId: Cuid }).strict();
+export const TrustAdjustmentSchema = z.object({ delta: z.coerce.number().int().min(-100).max(100), reason: Text(500).optional() }).strict();
+export const ReportResolutionSchema = z.object({
+  action: z.enum(["warn", "trust_deduct", "suspend", "ban", "approve_refund", "dismiss"]),
+  adminNotes: Text(2_000).optional(),
+}).strict();
+export const AiMatchSchema = z.object({ requestId: Cuid }).strict();

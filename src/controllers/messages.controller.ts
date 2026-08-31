@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { getMessages, sendMessage, getConversations, getBookingMessagesForAdmin } from "../services/messages.service";
+import { MessageSchema } from "../schema/marketplace.schema";
 
 export async function listConversations(req: Request, res: Response, next: NextFunction) {
   try {
@@ -35,7 +36,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
     const bookingId = req.params.bookingId || req.params.completedServiceId;
-    const { content, imageUrl } = req.body;
+    const { content = "", imageUrl } = MessageSchema.parse(req.body);
 
     const message = await sendMessage(bookingId as string, user.id, content, imageUrl);
     res.status(201).json({ success: true, data: message });

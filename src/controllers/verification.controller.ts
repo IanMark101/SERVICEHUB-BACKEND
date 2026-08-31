@@ -7,6 +7,7 @@ import {
   reviewVerification,
 } from "../services/verification.service";
 import { VerificationSubmissionSchema } from "../schema/marketplace.schema";
+import { BooleanDecisionSchema } from "../schema/marketplace.schema";
 
 // ── POST /verifications/submit ────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ export async function adminReview(req: Request, res: Response, next: NextFunctio
   try {
     const admin = (req as AuthenticatedRequest).user;
     const { id } = req.params;
-    const { approve, adminNotes } = req.body as { approve: boolean; adminNotes?: string };
+    const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
 
     const result = await reviewVerification(id as string, admin.id, approve, adminNotes);
     res.json({ success: true, data: result });

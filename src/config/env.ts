@@ -13,6 +13,7 @@ const envSchema = z.object({
   // PayMongo (test mode for capstone)
   PAYMONGO_SECRET_KEY: z.string().optional(),
   PAYMONGO_PUBLIC_KEY: z.string().optional(),
+  PAYMONGO_WEBHOOK_SECRET: z.string().min(16).optional(),
   // Gemini AI
   GEMINI_API_KEY: z.string().optional(),
   // Email SMTP
@@ -25,7 +26,11 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const parsed = envSchema.superRefine((value, ctx) => {
+  if (value.NODE_ENV === "production" && (!value.PAYMONGO_SECRET_KEY || !value.PAYMONGO_WEBHOOK_SECRET)) {
+    ctx.addIssue({ code: "custom", message: "Production requires PAYMONGO_SECRET_KEY and PAYMONGO_WEBHOOK_SECRET" });
+  }
+}).safeParse(process.env);
 
 if (!parsed.success) {
   console.error("❌ Invalid environment variables:");

@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { summarizeProviderReviews, matchProvidersToRequest } from "../services/ai.service";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
+import { AiMatchSchema } from "../schema/marketplace.schema";
 
 export async function getProviderSummary(req: Request, res: Response, next: NextFunction) {
   try {
@@ -14,12 +16,9 @@ export async function getProviderSummary(req: Request, res: Response, next: Next
 
 export async function matchProviders(req: Request, res: Response, next: NextFunction) {
   try {
-    const { requestId } = req.body;
-    if (!requestId) {
-      return res.status(400).json({ success: false, error: "Missing requestId" });
-    }
+    const { requestId } = AiMatchSchema.parse(req.body);
 
-    const result = await matchProvidersToRequest(requestId);
+    const result = await matchProvidersToRequest(requestId, (req as AuthenticatedRequest).user.id);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

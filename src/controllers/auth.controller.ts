@@ -5,6 +5,8 @@ import {
   ForgotPasswordSchema,
   ResetPasswordSchema,
   ChangePasswordSchema,
+  UpdateProfileSchema,
+  GoogleLoginSchema,
 } from "../schema/auth.schema";
 import {
   registerUser,
@@ -201,10 +203,7 @@ export async function getMe(req: Request, res: Response) {
 
 export async function googleLogin(req: Request, res: Response, next: NextFunction) {
   try {
-    const { token } = req.body;
-    if (!token) {
-      return res.status(400).json({ success: false, error: "Google token is required" });
-    }
+    const { token } = GoogleLoginSchema.parse(req.body);
 
     const { user, tokens } = await googleLoginUser(token);
 
@@ -235,7 +234,7 @@ export async function getPublicProfileHandler(req: Request, res: Response, next:
 export async function updateProfileHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = (req as any).user?.id;
-    const updated = await updateUserProfile(userId, req.body);
+    const updated = await updateUserProfile(userId, UpdateProfileSchema.parse(req.body));
     res.json({ success: true, data: updated, message: "Profile updated successfully" });
   } catch (err) {
     next(err);

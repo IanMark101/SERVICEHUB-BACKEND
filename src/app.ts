@@ -21,6 +21,7 @@ import usersRoutes from "./routes/users.routes";
 import communityRoutes from "./routes/community.routes";
 import uploadRoutes from "./routes/upload.routes";
 import { apiLimiter } from "./middlewares/rateLimiter.middleware";
+import { receivePaymongoWebhook } from "./controllers/payments.controller";
 
 const app = express();
 
@@ -31,6 +32,9 @@ app.use(cors({
   credentials: true, // allow cookies (refresh token)
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 }));
+
+// This route must receive the unmodified request bytes for signature checks.
+app.post("/api/payments/paymongo/webhook", express.raw({ type: "application/json", limit: "1mb" }), receivePaymongoWebhook);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -69,6 +73,9 @@ app.use("/api/upload", uploadRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error("Unhandled error:", err);
+  if (err?.name === "ZodError") {
+    return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+  }
   const status = err.status || err.statusCode || 500;
   const message = env.NODE_ENV === "production" ? "Internal server error" : err.message;
   res.status(status).json({ success: false, error: message });

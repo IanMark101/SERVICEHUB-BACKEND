@@ -75,15 +75,15 @@ export async function summarizeProviderReviews(providerId: string, serviceId?: s
   }
 }
 
-export async function matchProvidersToRequest(requestId: string) {
+export async function matchProvidersToRequest(requestId: string, seekerId: string) {
   try {
     const request = await prisma.serviceRequest.findUnique({
-      where: { id: requestId },
+      where: { id: requestId, seekerId },
       include: { category: true },
     });
 
     if (!request) {
-      return { suggestions: [], reason: "Request not found" };
+      return { suggestions: [], reason: "Request not found or access denied" };
     }
 
     if (!env.GEMINI_API_KEY) {

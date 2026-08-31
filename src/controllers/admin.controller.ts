@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { adminReviewService, listPendingServices as adminListPendingServices } from "../services/services.service";
 import { applyTrustEvent, applyReportPenaltyTrust, getTrustHistory } from "../services/trust.service";
 import { safeEmit, safeBroadcast } from "../lib/socket";
+import { BooleanDecisionSchema, ReportResolutionSchema, TrustAdjustmentSchema } from "../schema/marketplace.schema";
 
 // ── GET /admin/overview ───────────────────────────────────────────────────────
 export async function getOverview(_req: Request, res: Response, next: NextFunction) {
@@ -30,8 +31,8 @@ export async function getOverview(_req: Request, res: Response, next: NextFuncti
 export async function listUsers(req: Request, res: Response, next: NextFunction) {
   try {
     const { search, role, status, page = "1", limit = "10" } = req.query;
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
+    const pageNum = Math.max(1, Math.min(10_000, parseInt(page as string, 10) || 1));
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
 
     const where: any = {};
@@ -87,11 +88,7 @@ export async function listUsers(req: Request, res: Response, next: NextFunction)
 // ── PATCH /admin/users/:id/trust ──────────────────────────────────────────────
 export async function updateTrustScore(req: Request, res: Response, next: NextFunction) {
   try {
-    const { delta, reason } = req.body;
-    const parsedDelta = parseInt(delta, 10);
-    if (isNaN(parsedDelta)) {
-      return res.status(400).json({ success: false, error: "delta must be a number" });
-    }
+    const { delta: parsedDelta, reason } = TrustAdjustmentSchema.parse(req.body);
     await applyTrustEvent(req.params.id as string, parsedDelta, reason || "Admin manual override");
     res.json({ success: true });
   } catch (err) {
@@ -144,7 +141,7 @@ export async function listPendingServices(_req: Request, res: Response, next: Ne
 // ── PATCH /admin/services/:id/review ──────────────────────────────────────────
 export async function reviewService(req: Request, res: Response, next: NextFunction) {
   try {
-    const { approve, adminNotes } = req.body;
+    const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
     const result = await adminReviewService(req.params.id as string, (req as AuthenticatedRequest).user.id, approve, adminNotes);
     safeBroadcast("SERVICE_LISTING_APPROVED", { id: req.params.id, approved: approve });
     safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: req.params.id, status: approve ? "ACTIVE" : "REJECTED" });
@@ -171,7 +168,7 @@ export async function listCategorySuggestions(_req: Request, res: Response, next
 // ── PATCH /admin/categories/suggestions/:id ────────────────────────────────────
 export async function resolveCategorySuggestion(req: Request, res: Response, next: NextFunction) {
   try {
-    const { approve } = req.body;
+    const { approve } = BooleanDecisionSchema.parse(req.body);
     const suggestion = await prisma.categorySuggested.update({
       where: { id: req.params.id as string },
       data: { status: approve ? "APPROVED" : "REJECTED", reviewedAt: new Date() },
@@ -240,7 +237,7 @@ export async function listReports(_req: Request, res: Response, next: NextFuncti
 // ── PATCH /admin/reports/:id/resolve ──────────────────────────────────────────
 export async function resolveReport(req: Request, res: Response, next: NextFunction) {
   try {
-    const { action, adminNotes } = req.body;
+    const { action, adminNotes } = ReportResolutionSchema.parse(req.body);
     const report = await prisma.report.findUnique({
       where: { id: req.params.id as string },
       include: { booking: true, reporter: true, reportedUser: true },
@@ -347,10 +344,7 @@ export async function resolveReport(req: Request, res: Response, next: NextFunct
 // ── PATCH /admin/cancellation-requests/:id/resolve ─────────────────────────────
 export async function resolveCancellationRequest(req: Request, res: Response, next: NextFunction) {
   try {
-    const { approve, adminNote } = req.body;
-    if (typeof approve !== "boolean") {
-      return res.status(400).json({ success: false, error: "approve must be a boolean" });
-    }
+    const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
     const { adminResolveCancellationRequest } = await import("../services/cancellation.service");
     const result = await adminResolveCancellationRequest(req.params.id as string, approve, adminNote);
     res.json({ success: true, data: result });
