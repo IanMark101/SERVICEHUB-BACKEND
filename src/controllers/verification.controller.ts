@@ -42,8 +42,10 @@ export async function getStatus(req: Request, res: Response, next: NextFunction)
 
 export async function adminList(req: Request, res: Response, next: NextFunction) {
   try {
-    const list = await listPendingVerifications();
-    res.json({ success: true, data: list });
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+    const result = await listPendingVerifications(page, limit);
+    res.json({ success: true, data: result.items, pagination: result.pagination });
   } catch (err) {
     next(err);
   }

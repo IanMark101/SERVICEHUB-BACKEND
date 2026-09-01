@@ -1,19 +1,35 @@
 import { Request, Response } from 'express';
-import { uploadImageToCloudinary } from '../config/cloudinary';
+import { uploadImageToCloudinary, uploadPrivateVerificationImage } from '../config/cloudinary';
+import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-function validateImageDataUrl(image: unknown): string | null {
+function validateImageDataUrl(image: unknown, maxBytes = MAX_IMAGE_BYTES): string | null {
   if (typeof image !== 'string') return null;
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(image);
   if (!match || !ALLOWED_IMAGE_TYPES.has(match[1].toLowerCase())) return null;
   const estimatedBytes = Math.floor((match[2].length * 3) / 4);
-  if (estimatedBytes > MAX_IMAGE_BYTES) return null;
+  if (estimatedBytes > maxBytes) return null;
   return image;
 }
 
 export class UploadController {
+  async uploadVerification(req: Request, res: Response): Promise<void> {
+    try {
+      const validatedImage = validateImageDataUrl(req.body?.image, 5 * 1024 * 1024);
+      if (!validatedImage) {
+        res.status(400).json({ success: false, error: 'A JPEG, PNG, or WebP image no larger than 5MB is required.' });
+        return;
+      }
+      const userId = (req as AuthenticatedRequest).user.id;
+      const storageKey = await uploadPrivateVerificationImage(validatedImage, userId);
+      res.status(201).json({ success: true, data: { storageKey } });
+    } catch (error: any) {
+      res.status(error?.status || 500).json({ success: false, error: error?.message || 'Verification upload failed.' });
+    }
+  }
+
   /**
    * POST /api/upload/avatar
    * Uploads a square avatar image to Cloudinary (folder: servicehub/avatars)

@@ -30,12 +30,31 @@ export async function requireAuth(req, res, next) {
                 verificationStatus: true,
                 emailVerified: true,
                 isActive: true,
+                moderationStatus: true,
+                suspendedUntil: true,
+                postingSuspended: true,
             },
         });
         if (!user) {
             return res.status(401).json({ success: false, error: "User not found" });
         }
-        if (!user.isActive) {
+        if (user.moderationStatus === "SUSPENDED" &&
+            user.suspendedUntil &&
+            user.suspendedUntil <= new Date()) {
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    isActive: true,
+                    moderationStatus: "ACTIVE",
+                    suspendedUntil: null,
+                    moderationReason: null,
+                },
+            });
+            user.isActive = true;
+            user.moderationStatus = "ACTIVE";
+            user.suspendedUntil = null;
+        }
+        if (!user.isActive || user.moderationStatus !== "ACTIVE") {
             return res.status(403).json({ success: false, error: "Account suspended" });
         }
         if (!user.emailVerified && !(req.baseUrl === "/api/auth" && req.path === "/me")) {
@@ -125,9 +144,12 @@ export async function optionalAuth(req, res, next) {
                 verificationStatus: true,
                 emailVerified: true,
                 isActive: true,
+                moderationStatus: true,
+                suspendedUntil: true,
+                postingSuspended: true,
             },
         });
-        if (user && user.isActive) {
+        if (user && user.isActive && user.moderationStatus === "ACTIVE") {
             req.user = user;
         }
     }
@@ -153,6 +175,17 @@ export function requireTrustedOrigin(req, res, next) {
     }
     if (!origin || !trustedOrigin || origin !== trustedOrigin) {
         return res.status(403).json({ success: false, error: "Untrusted request origin" });
+    }
+    next();
+}
+export function requirePostingPrivilege(req, res, next) {
+    const user = req.user;
+    if (user.postingSuspended) {
+        return res.status(403).json({
+            success: false,
+            error: "Your service-listing privilege is suspended pending administrator review",
+            code: "POSTING_SUSPENDED",
+        });
     }
     next();
 }

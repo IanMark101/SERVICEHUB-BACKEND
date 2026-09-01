@@ -1,164 +1,208 @@
 import { prisma } from "../lib/prisma";
-import { applyVerificationApprovalTrust } from "./trust.service";
 import { safeEmit } from "../lib/socket";
-// ── Submit Verification ────────────────────────────────────────────────────────
+import { deletePrivateVerificationImage, getPrivateVerificationUrl } from "../config/cloudinary";
 export async function submitVerification(userId, proofs) {
-    if (!proofs || proofs.length === 0) {
-        const err = new Error("At least one document is required");
-        err.status = 400;
-        throw err;
+    if (!proofs.length) {
+        const error = new Error("At least one document is required");
+        error.status = 400;
+        throw error;
     }
-    // Check user's current status
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { verificationStatus: true, name: true, email: true },
-    });
-    if (user?.verificationStatus === "APPROVED") {
-        const err = new Error("Your account is already verified.");
-        err.status = 400;
-        throw err;
+    if (proofs.some((proof) => !proof.storageKey.startsWith(`servicehub/verification/${userId}/`))) {
+        const error = new Error("Verification document does not belong to this user");
+        error.status = 403;
+        throw error;
     }
-    // Find any existing verification record for this user
-    const existing = await prisma.serviceVerification.findFirst({
-        where: { userId },
-        orderBy: { submittedAt: "desc" },
-    });
-    let verification;
-    if (existing) {
-        // Delete old proofs attached to this verification record
-        await prisma.verificationProof.deleteMany({
-            where: { verificationId: existing.id },
+    const result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUnique({
+            where: { id: userId },
+            select: { verificationStatus: true, name: true, email: true },
         });
-        // Update existing verification record to PENDING_REVIEW with new proofs
-        verification = await prisma.serviceVerification.update({
-            where: { id: existing.id },
-            data: {
-                status: "PENDING_REVIEW",
-                submittedAt: new Date(),
-                reviewedAt: null,
-                adminId: null,
-                adminNotes: null,
-                proofs: {
-                    create: proofs.map((p) => ({
-                        fileUrl: p.fileUrl,
-                        documentType: p.documentType,
-                    })),
+        if (!user) {
+            const error = new Error("User not found");
+            error.status = 404;
+            throw error;
+        }
+        if (user.verificationStatus === "APPROVED") {
+            const error = new Error("Your account is already verified");
+            error.status = 409;
+            throw error;
+        }
+        const existing = await tx.serviceVerification.findFirst({
+            where: { userId },
+            orderBy: { submittedAt: "desc" },
+            include: { proofs: { select: { storageKey: true } } },
+        });
+        const verification = existing
+            ? await tx.serviceVerification.update({
+                where: { id: existing.id },
+                data: {
+                    status: "PENDING_REVIEW",
+                    submittedAt: new Date(),
+                    reviewedAt: null,
+                    adminId: null,
+                    adminNotes: null,
+                    proofs: {
+                        deleteMany: {},
+                        create: proofs.map((proof) => ({
+                            storageKey: proof.storageKey,
+                            documentType: proof.documentType,
+                        })),
+                    },
                 },
-            },
-            include: { proofs: true },
-        });
-    }
-    else {
-        // Create brand new verification record
-        verification = await prisma.serviceVerification.create({
-            data: {
-                userId,
-                status: "PENDING_REVIEW",
-                proofs: {
-                    create: proofs.map((p) => ({
-                        fileUrl: p.fileUrl,
-                        documentType: p.documentType,
-                    })),
+                include: { proofs: true },
+            })
+            : await tx.serviceVerification.create({
+                data: {
+                    userId,
+                    status: "PENDING_REVIEW",
+                    proofs: {
+                        create: proofs.map((proof) => ({
+                            storageKey: proof.storageKey,
+                            documentType: proof.documentType,
+                        })),
+                    },
                 },
-            },
-            include: { proofs: true },
-        });
-    }
-    // Update user's verificationStatus to PENDING_REVIEW
-    await prisma.user.update({
-        where: { id: userId },
-        data: { verificationStatus: "PENDING_REVIEW" },
-    });
-    // Create in-app notification records for all admin users so it shows up in their bell dropdown
-    const admins = await prisma.user.findMany({
-        where: { role: "admin" },
-        select: { id: true },
-    });
-    if (admins.length > 0) {
-        const adminNotifs = admins.map((admin) => ({
-            userId: admin.id,
-            title: "📁 New Verification Submission",
-            body: `${user?.name || "A user"} (${user?.email || userId}) submitted verification documents for review.`,
-            link: "/admin/verifications",
-        }));
-        await prisma.notification.createMany({ data: adminNotifs });
-        admins.forEach((admin) => {
-            safeEmit(`user:${admin.id}`, "notification", {
-                title: "📁 New Verification Submission",
-                body: `${user?.name || "A user"} submitted verification documents.`,
-                link: "/admin/verifications",
+                include: { proofs: true },
             });
+        await tx.user.update({ where: { id: userId }, data: { verificationStatus: "PENDING_REVIEW" } });
+        const admins = await tx.user.findMany({
+            where: { role: "admin", isActive: true },
+            select: { id: true },
         });
-    }
-    // Emit real-time queue update for Admin Verifications page
-    safeEmit("admin", "verification_submitted", { userId, verificationId: verification.id });
-    return verification;
+        if (admins.length) {
+            await tx.notification.createMany({
+                data: admins.map((admin) => ({
+                    userId: admin.id,
+                    title: "New Verification Submission",
+                    body: `${user.name} (${user.email}) submitted verification documents for review.`,
+                    link: "/admin/verifications",
+                })),
+            });
+        }
+        return {
+            verification,
+            admins,
+            replacedStorageKeys: existing?.proofs.map((proof) => proof.storageKey).filter((key) => Boolean(key)) || [],
+        };
+    });
+    await Promise.allSettled(result.replacedStorageKeys.map(deletePrivateVerificationImage));
+    result.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", {
+        title: "New Verification Submission",
+        link: "/admin/verifications",
+    }));
+    safeEmit("admin", "verification_submitted", { userId, verificationId: result.verification.id });
+    return result.verification;
 }
-// ── Get My Verification Status ─────────────────────────────────────────────────
 export async function getVerificationStatus(userId) {
     const verification = await prisma.serviceVerification.findFirst({
         where: { userId },
         orderBy: { submittedAt: "desc" },
         include: { proofs: true },
     });
-    return verification;
+    if (!verification)
+        return null;
+    return {
+        ...verification,
+        proofs: verification.proofs.map((proof) => ({
+            ...proof,
+            fileUrl: proof.storageKey ? getPrivateVerificationUrl(proof.storageKey) : proof.fileUrl,
+        })),
+    };
 }
-// ── Admin: List Pending Verifications ─────────────────────────────────────────
-export async function listPendingVerifications() {
-    return prisma.serviceVerification.findMany({
-        where: { status: "PENDING_REVIEW" },
-        include: {
-            user: {
-                select: { id: true, name: true, email: true, trustScore: true, verificationStatus: true },
+export async function listPendingVerifications(page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const where = { status: "PENDING_REVIEW" };
+    const [items, total] = await Promise.all([
+        prisma.serviceVerification.findMany({
+            where,
+            include: {
+                user: {
+                    select: { id: true, name: true, email: true, trustScore: true, verificationStatus: true },
+                },
+                proofs: true,
             },
-            proofs: true,
-        },
-        orderBy: { submittedAt: "asc" }, // FCFS — oldest first
-    });
+            orderBy: { submittedAt: "asc" },
+            skip,
+            take: limit,
+        }),
+        prisma.serviceVerification.count({ where }),
+    ]);
+    return {
+        items: items.map((item) => ({
+            ...item,
+            proofs: item.proofs.map((proof) => ({
+                ...proof,
+                fileUrl: proof.storageKey ? getPrivateVerificationUrl(proof.storageKey) : proof.fileUrl,
+            })),
+        })),
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
 }
-// ── Admin: Approve or Reject Verification ─────────────────────────────────────
 export async function reviewVerification(verificationId, adminId, approve, adminNotes) {
-    const verification = await prisma.serviceVerification.findUnique({
-        where: { id: verificationId },
-        include: { user: true },
-    });
-    if (!verification) {
-        const err = new Error("Verification not found");
-        err.status = 404;
-        throw err;
-    }
     const newStatus = approve ? "APPROVED" : "REJECTED";
-    // Update verification record
-    await prisma.serviceVerification.update({
-        where: { id: verificationId },
-        data: {
-            status: newStatus,
-            adminId,
-            adminNotes: adminNotes || null,
-            reviewedAt: new Date(),
-        },
+    const verification = await prisma.$transaction(async (tx) => {
+        const current = await tx.serviceVerification.findUnique({
+            where: { id: verificationId },
+            include: { user: true },
+        });
+        if (!current) {
+            const error = new Error("Verification not found");
+            error.status = 404;
+            throw error;
+        }
+        const claimed = await tx.serviceVerification.updateMany({
+            where: { id: verificationId, status: "PENDING_REVIEW" },
+            data: { status: newStatus, adminId, adminNotes: adminNotes || null, reviewedAt: new Date() },
+        });
+        if (claimed.count !== 1) {
+            const error = new Error("Verification has already been reviewed");
+            error.status = 409;
+            throw error;
+        }
+        await tx.user.update({ where: { id: current.userId }, data: { verificationStatus: newStatus } });
+        if (approve) {
+            const rows = await tx.$queryRaw `
+        SELECT "trustScore" FROM "users" WHERE "id" = ${current.userId} FOR UPDATE
+      `;
+            const scoreBefore = rows[0].trustScore;
+            const scoreAfter = Math.min(100, scoreBefore + 5);
+            await tx.user.update({ where: { id: current.userId }, data: { trustScore: scoreAfter } });
+            await tx.trustScoreEvent.create({
+                data: {
+                    userId: current.userId,
+                    delta: scoreAfter - scoreBefore,
+                    reason: "Residency & Identity Verification Approved by Cordova Admin",
+                    scoreBefore,
+                    scoreAfter,
+                    actorAdminId: adminId,
+                },
+            });
+        }
+        await tx.notification.create({
+            data: {
+                userId: current.userId,
+                title: approve ? "Verification Approved" : "Verification Rejected",
+                body: approve
+                    ? 'You are now a Verified Resident of Cordova. Your "Verified" badge is active.'
+                    : `Your verification was not approved. Reason: ${adminNotes}`,
+                link: `/seeker/user-profile?id=${current.userId}`,
+            },
+        });
+        await tx.adminAuditLog.create({
+            data: {
+                actorId: adminId,
+                targetUserId: current.userId,
+                action: approve ? "VERIFICATION_APPROVED" : "VERIFICATION_REJECTED",
+                resourceType: "ServiceVerification",
+                resourceId: verificationId,
+                reason: adminNotes || "Verification requirements satisfied",
+            },
+        });
+        return current;
     });
-    // Update user's verification status
-    await prisma.user.update({
-        where: { id: verification.userId },
-        data: { verificationStatus: newStatus },
+    safeEmit(`user:${verification.userId}`, "notification", {
+        title: approve ? "Verification Approved" : "Verification Rejected",
     });
-    if (approve) {
-        // Masterprompt Part 5 & 15: one-time +5 for verification approval
-        await applyVerificationApprovalTrust(verification.userId);
-    }
-    // In-app notification for the user
-    await prisma.notification.create({
-        data: {
-            userId: verification.userId,
-            title: approve ? "Verification Approved ✅" : "Verification Rejected",
-            body: approve
-                ? 'You are now a Verified Resident of Cordova! Your "Verified" badge is now active.'
-                : `Your verification was not approved. Reason: ${adminNotes || "Please resubmit with clearer documents."}`,
-            link: verification.user.role === "provider" ? `/provider/user-profile?id=${verification.userId}` : `/seeker/user-profile?id=${verification.userId}`,
-        },
-    });
-    safeEmit(`user:${verification.userId}`, "notification", { title: approve ? "Verification Approved ✅" : "Verification Rejected" });
     return { status: newStatus };
 }
 //# sourceMappingURL=verification.service.js.map

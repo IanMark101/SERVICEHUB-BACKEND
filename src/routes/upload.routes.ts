@@ -11,5 +11,6 @@ const router = Router();
 router.use(requireAuth, requireMarketplaceUser);
 router.post('/avatar', uploadLimiter, (req, res) => uploadController.uploadAvatar(req, res));
 router.post('/image', uploadLimiter, (req, res) => uploadController.uploadImage(req, res));
+router.post('/verification', uploadLimiter, (req, res) => uploadController.uploadVerification(req, res));
 
 export default router;

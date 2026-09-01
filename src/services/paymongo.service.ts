@@ -79,6 +79,7 @@ export async function createPaymentIntent(params: {
 
 export async function getPaymentIntent(paymentIntentId: string): Promise<{
   id: string;
+  paymentId?: string;
   status: string;
   amount: number;
   currency: string;
@@ -87,6 +88,7 @@ export async function getPaymentIntent(paymentIntentId: string): Promise<{
   const body = await paymongoFetch(`/payment_intents/${paymentIntentId}`);
   return {
     id: body.data.id,
+    paymentId: body.data.attributes.payments?.[0]?.id,
     status: body.data.attributes.status,
     amount: body.data.attributes.amount / 100, // convert back to PHP
     currency: body.data.attributes.currency,

@@ -21,6 +21,9 @@ export interface AuthenticatedRequest extends Request {
     verificationStatus: string;
     emailVerified: boolean;
     isActive: boolean;
+    moderationStatus: string;
+    suspendedUntil?: Date | null;
+    postingSuspended: boolean;
   };
 }
 
@@ -56,6 +59,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         verificationStatus: true,
         emailVerified: true,
         isActive: true,
+        moderationStatus: true,
+        suspendedUntil: true,
+        postingSuspended: true,
       },
     });
 
@@ -63,7 +69,26 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ success: false, error: "User not found" });
     }
 
-    if (!user.isActive) {
+    if (
+      user.moderationStatus === "SUSPENDED" &&
+      user.suspendedUntil &&
+      user.suspendedUntil <= new Date()
+    ) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          isActive: true,
+          moderationStatus: "ACTIVE",
+          suspendedUntil: null,
+          moderationReason: null,
+        },
+      });
+      user.isActive = true;
+      user.moderationStatus = "ACTIVE";
+      user.suspendedUntil = null;
+    }
+
+    if (!user.isActive || user.moderationStatus !== "ACTIVE") {
       return res.status(403).json({ success: false, error: "Account suspended" });
     }
 
@@ -165,10 +190,13 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
         verificationStatus: true,
         emailVerified: true,
         isActive: true,
+        moderationStatus: true,
+        suspendedUntil: true,
+        postingSuspended: true,
       },
     });
 
-    if (user && user.isActive) {
+    if (user && user.isActive && user.moderationStatus === "ACTIVE") {
       (req as AuthenticatedRequest).user = user;
     }
   } catch (err) {
@@ -194,6 +222,18 @@ export function requireTrustedOrigin(req: Request, res: Response, next: NextFunc
 
   if (!origin || !trustedOrigin || origin !== trustedOrigin) {
     return res.status(403).json({ success: false, error: "Untrusted request origin" });
+  }
+  next();
+}
+
+export function requirePostingPrivilege(req: Request, res: Response, next: NextFunction) {
+  const user = (req as AuthenticatedRequest).user;
+  if (user.postingSuspended) {
+    return res.status(403).json({
+      success: false,
+      error: "Your service-listing privilege is suspended pending administrator review",
+      code: "POSTING_SUSPENDED",
+    });
   }
   next();
 }

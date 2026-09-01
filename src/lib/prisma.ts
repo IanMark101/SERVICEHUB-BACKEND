@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma";
 import { env } from "../config/env";
+import { enforceDatabaseTlsVerification } from "../config/database-url";
 
 // Singleton Prisma client — prevents connection pool exhaustion in development
 // (hot reload would otherwise create multiple instances)
@@ -15,7 +16,9 @@ let prismaInstance: PrismaClient;
 if (globalForPrisma.prisma) {
   prismaInstance = globalForPrisma.prisma;
 } else {
-  const pool = new Pool({ connectionString: env.DATABASE_URL });
+  const pool = new Pool({
+    connectionString: enforceDatabaseTlsVerification(env.DATABASE_URL),
+  });
   const adapter = new PrismaPg(pool);
   
   prismaInstance = new PrismaClient({

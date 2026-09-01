@@ -1,5 +1,6 @@
 import rateLimit from "express-rate-limit";
 import { env } from "../config/env";
+import type { AuthenticatedRequest } from "./auth.middleware";
 
 const isDev = env.NODE_ENV !== "production";
 
@@ -56,5 +57,20 @@ export const uploadLimiter = rateLimit({
   message: {
     success: false,
     error: "Too many upload attempts. Please try again later.",
+  },
+});
+
+// Limits high-impact administrator mutations per authenticated account. This
+// is applied after requireAuth, so shared municipal/admin-office IP addresses
+// do not cause unrelated administrators to throttle one another.
+export const adminMutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 300 : 100,
+  keyGenerator: (req) => (req as AuthenticatedRequest).user?.id || req.ip || "unknown",
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "Too many administrator changes. Please pause and try again shortly.",
   },
 });

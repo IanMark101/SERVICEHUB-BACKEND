@@ -25,7 +25,7 @@ if (hasSeparateKeys) {
   });
   console.log('[Cloudinary] Configured successfully via CLOUDINARY_URL');
 } else {
-  console.warn('[Cloudinary] Credentials not provided in .env. Uploads will use fallback mode.');
+  console.warn('[Cloudinary] Credentials not provided; upload routes are disabled.');
 }
 
 export interface UploadOptions {
@@ -50,10 +50,13 @@ export async function uploadImageToCloudinary(
   const crop = options.crop || 'fill';
   const gravity = options.gravity || 'face';
 
-  // If Cloudinary is not configured, fall back gracefully
+  // Returning a browser-supplied data URL would let multi-megabyte blobs leak
+  // into profiles/messages and bypass the HTTPS Cloudinary URL policy. Fail
+  // closed until managed storage is configured instead.
   if (!isConfigured) {
-    console.log('[Cloudinary Fallback] Returning image directly (Add Cloudinary keys to .env for production CDN storage)');
-    return fileData;
+    const error = new Error('Image uploads are unavailable because Cloudinary is not configured.') as any;
+    error.status = 503;
+    throw error;
   }
 
   try {
@@ -77,6 +80,51 @@ export async function uploadImageToCloudinary(
     console.error('[Cloudinary Upload Error]:', error?.message || error);
     throw new Error(error?.message || 'Failed to upload image to Cloudinary');
   }
+}
+
+export async function uploadPrivateVerificationImage(fileData: string, userId: string): Promise<string> {
+  if (!isConfigured) {
+    const error = new Error('Verification uploads are unavailable because Cloudinary is not configured.') as any;
+    error.status = 503;
+    throw error;
+  }
+  const result = await cloudinary.uploader.upload(fileData, {
+    folder: `servicehub/verification/${userId}`,
+    resource_type: 'image',
+    type: 'authenticated',
+    format: 'jpg',
+    transformation: [{ width: 1800, height: 1800, crop: 'limit', quality: 'auto:good', fetch_format: 'auto' }],
+  });
+  return `${result.public_id}.${result.format || 'jpg'}`;
+}
+
+export function getPrivateVerificationUrl(storageKey: string): string {
+  const parsed = /^(.*)\.(jpe?g|png|webp)$/i.exec(storageKey);
+  if (parsed) {
+    return cloudinary.utils.private_download_url(parsed[1], parsed[2], {
+      resource_type: 'image',
+      type: 'authenticated',
+      expires_at: Math.floor(Date.now() / 1000) + 5 * 60,
+      attachment: false,
+    });
+  }
+  // Backward-compatible access for proofs uploaded before format metadata was
+  // embedded in the storage key. New uploads always use the expiring path.
+  return cloudinary.url(storageKey, {
+    secure: true,
+    type: 'authenticated',
+    sign_url: true,
+  });
+}
+
+export async function deletePrivateVerificationImage(storageKey: string): Promise<void> {
+  if (!isConfigured) return;
+  const publicId = storageKey.replace(/\.(?:jpe?g|png|webp)$/i, '');
+  await cloudinary.uploader.destroy(publicId, {
+    resource_type: 'image',
+    type: 'authenticated',
+    invalidate: true,
+  });
 }
 
 export default cloudinary;

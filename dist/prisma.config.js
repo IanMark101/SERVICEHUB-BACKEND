@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
+import { enforceDatabaseTlsVerification } from "./src/config/database-url";
 export default defineConfig({
     schema: "prisma/schema.prisma",
     migrations: {
@@ -7,7 +8,7 @@ export default defineConfig({
         seed: "npx tsx prisma/seed.ts",
     },
     datasource: {
-        url: process.env["DATABASE_URL"],
+        url: enforceDatabaseTlsVerification(process.env["DATABASE_URL"]),
     },
 });
 //# sourceMappingURL=prisma.config.js.map

@@ -15,7 +15,7 @@ export const DirectBookingSchema = z.object({
 export const InitiatePaymentSchema = z.object({
   serviceId: Cuid,
   offerId: Cuid.optional(),
-  paymentMethodType: z.enum(["gcash", "paymaya"]).default("gcash"),
+  paymentMethodType: z.enum(["gcash", "paymaya", "card"]).default("gcash"),
 }).strict();
 
 export const ConfirmOnlineBookingSchema = z.object({
@@ -66,11 +66,12 @@ export const ReviewUpdateSchema = z.object({
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 const VerificationProofSchema = z.object({
-  fileUrl: z.string().regex(
-    /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i,
-    "Proof must be a JPEG, PNG, or WebP data URL",
-  ).max(10 * 1024 * 1024),
-  documentType: z.enum(["GOVERNMENT_ID", "BARANGAY_ID", "PROOF_OF_RESIDENCY"]),
+  storageKey: z.string().trim().min(10).max(500).regex(/^servicehub\/verification\/[A-Za-z0-9_\/-]+\.(?:jpg|jpeg|png|webp)$/i),
+  documentType: z.enum([
+    "GOVERNMENT_ID",
+    "BARANGAY_ID",
+    "PROOF_OF_RESIDENCE",
+  ]),
 }).strict();
 
 export const VerificationSubmissionSchema = z.object({
@@ -96,18 +97,51 @@ export const WaitlistSchema = z.object({ serviceId: Cuid }).strict();
 
 export const DisputeSchema = z.object({
   reason: z.enum(["POOR_SERVICE_QUALITY", "INCOMPLETE_SERVICE", "SCAM_OR_FRAUD", "INAPPROPRIATE_BEHAVIOR", "OVERPRICING", "NO_SHOW"]),
-  description: Text(2_000).optional(),
+  description: Text(2_000).min(10),
   evidenceUrl: ManagedImageUrl.optional(),
 }).strict();
 
 export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3).optional() }).strict();
 export const CancellationResponseSchema = z.object({ approve: z.boolean(), providerNote: Text(1_000).optional() }).strict();
-export const BooleanDecisionSchema = z.object({ approve: z.boolean(), adminNotes: Text(2_000).optional() }).strict();
+export const BooleanDecisionSchema = z.object({
+  approve: z.boolean(),
+  adminNotes: Text(2_000).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (!value.approve && (!value.adminNotes || value.adminNotes.length < 3)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["adminNotes"],
+      message: "A clear rejection reason is required",
+    });
+  }
+});
 export const DirectResponseSchema = z.object({ accept: z.boolean() }).strict();
 export const DirectOfferSchema = z.object({ offerId: Cuid }).strict();
-export const TrustAdjustmentSchema = z.object({ delta: z.coerce.number().int().min(-100).max(100), reason: Text(500).optional() }).strict();
+export const TrustAdjustmentSchema = z.object({
+  delta: z.coerce.number().int().min(-100).max(100).refine((value) => value !== 0, "Trust adjustment cannot be zero"),
+  reason: Text(500).min(3),
+}).strict();
 export const ReportResolutionSchema = z.object({
   action: z.enum(["warn", "trust_deduct", "suspend", "ban", "approve_refund", "dismiss"]),
-  adminNotes: Text(2_000).optional(),
+  adminNotes: Text(2_000).min(3),
 }).strict();
+export const SuspendUserSchema = z.object({
+  reason: Text(500).min(3),
+  durationDays: z.coerce.number().int().min(1).max(365),
+}).strict();
+export const BanUserSchema = z.object({ reason: Text(500).min(3) }).strict();
+export const RestoreUserSchema = z.object({ reason: Text(500).min(3).default("Administrator restored account") }).strict();
+export const PromoteUserSchema = z.object({ reason: Text(500).min(3) }).strict();
 export const AiMatchSchema = z.object({ requestId: Cuid }).strict();
+
+export const AnnouncementCreateSchema = z.object({
+  title: Text(120).min(5),
+  body: Text(1_500).min(10),
+  isPublished: z.boolean().optional().default(true),
+}).strict();
+
+export const AnnouncementUpdateSchema = z.object({
+  title: Text(120).min(5).optional(),
+  body: Text(1_500).min(10).optional(),
+  isPublished: z.boolean().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required");

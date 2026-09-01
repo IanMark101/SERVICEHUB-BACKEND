@@ -5,7 +5,9 @@ import { getProviderSummary, matchProviders } from "../controllers/ai.controller
 
 const router = Router();
 
-router.get("/provider-summary/:providerId", aiLimiter, getProviderSummary);
+// Review summaries can invoke Gemini and consume paid quota; do not expose
+// that capability to anonymous callers.
+router.get("/provider-summary/:providerId", aiLimiter, requireAuth, requireMarketplaceUser, getProviderSummary);
 router.post("/match-providers", aiLimiter, requireAuth, requireMarketplaceUser, matchProviders);
 
 export default router;

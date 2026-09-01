@@ -53,4 +53,18 @@ export const uploadLimiter = rateLimit({
         error: "Too many upload attempts. Please try again later.",
     },
 });
+// Limits high-impact administrator mutations per authenticated account. This
+// is applied after requireAuth, so shared municipal/admin-office IP addresses
+// do not cause unrelated administrators to throttle one another.
+export const adminMutationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: isDev ? 300 : 100,
+    keyGenerator: (req) => req.user?.id || req.ip || "unknown",
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: {
+        success: false,
+        error: "Too many administrator changes. Please pause and try again shortly.",
+    },
+});
 //# sourceMappingURL=rateLimiter.middleware.js.map

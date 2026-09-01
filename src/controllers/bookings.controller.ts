@@ -75,7 +75,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
-      select: { providerId: true, price: true, paymentMethods: true, status: true, isAvailable: true },
+      select: { providerId: true, price: true, paymentMethods: true, status: true, isAvailable: true, queueLimit: true },
     });
 
     if (!service) {
@@ -105,11 +105,12 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
     }
 
     const normalizedPaymentMethod = paymentMethodType || "gcash";
-    const paymentMethods = service.paymentMethods as { gcash?: boolean; maya?: boolean };
+    const paymentMethods = service.paymentMethods as { gcash?: boolean; maya?: boolean; card?: boolean };
     if (
       (normalizedPaymentMethod === "gcash" && !paymentMethods?.gcash) ||
       (normalizedPaymentMethod === "paymaya" && !paymentMethods?.maya) ||
-      !["gcash", "paymaya"].includes(normalizedPaymentMethod)
+      (normalizedPaymentMethod === "card" && !paymentMethods?.card) ||
+      !["gcash", "paymaya", "card"].includes(normalizedPaymentMethod)
     ) {
       return res.status(400).json({ success: false, error: "This payment method is not accepted for the service" });
     }
@@ -129,6 +130,18 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
       return res.status(400).json({
         success: false,
         error: "You already have an active booking for this service in progress. Please check your Activity tab.",
+      });
+    }
+
+    const [ongoingCount, waitingCount] = await Promise.all([
+      prisma.booking.count({ where: { serviceId, status: "ONGOING" } }),
+      prisma.queue.count({ where: { serviceId, status: "WAITING" } }),
+    ]);
+    if (ongoingCount + waitingCount >= service.queueLimit) {
+      return res.status(409).json({
+        success: false,
+        error: "The service queue is full. Join the waitlist before starting a payment.",
+        code: "QUEUE_FULL",
       });
     }
 
@@ -226,6 +239,8 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
       serviceId,
       seekerId: user.id,
       paymentId: paymentIntentId,
+      paymongoPaymentId: intent.paymentId,
+      amount: intent.amount,
       offerId,
       paymentMethod: trustedPaymentMethod,
     });
@@ -571,7 +586,7 @@ export async function adminResolveCancellationRequestHandler(req: Request, res: 
     const id = req.params.id as string;
     const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
     const { adminResolveCancellationRequest } = await import("../services/cancellation.service");
-    const result = await adminResolveCancellationRequest(id, approve, adminNote);
+    const result = await adminResolveCancellationRequest(id, approve, adminNote, (req as AuthenticatedRequest).user.id);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

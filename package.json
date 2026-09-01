@@ -9,7 +9,8 @@
     "start": "node ./dist/server.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "npx tsx prisma/seed.ts"
+    "db:seed": "npx tsx prisma/seed.ts",
+    "test:admin-contracts": "tsx --test src/schema/admin-contracts.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

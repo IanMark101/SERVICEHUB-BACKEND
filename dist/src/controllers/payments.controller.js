@@ -39,7 +39,7 @@ export async function receivePaymongoWebhook(req, res, next) {
         const intent = await getPaymentIntent(paymentIntentId);
         const metadata = intent.metadata;
         const expectedAmount = Number(metadata.servicehub_expected_amount);
-        const methodMap = { gcash: "GCash", paymaya: "Maya" };
+        const methodMap = { gcash: "GCash", paymaya: "Maya", card: "Card" };
         const paymentMethod = methodMap[metadata.servicehub_payment_method];
         if (intent.status !== "succeeded" || intent.currency !== "PHP" || !metadata.servicehub_service_id ||
             !metadata.servicehub_seeker_id || !paymentMethod || !Number.isFinite(expectedAmount) ||
@@ -51,6 +51,8 @@ export async function receivePaymongoWebhook(req, res, next) {
             seekerId: metadata.servicehub_seeker_id,
             offerId: metadata.servicehub_offer_id || undefined,
             paymentId: intent.id,
+            paymongoPaymentId: intent.paymentId,
+            amount: intent.amount,
             paymentMethod,
         });
         return res.status(200).json({ success: true });

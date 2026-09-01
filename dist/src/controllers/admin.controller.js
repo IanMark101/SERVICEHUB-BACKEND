@@ -1,23 +1,126 @@
 import { prisma } from "../lib/prisma";
-import { adminReviewService, listPendingServices as adminListPendingServices } from "../services/services.service";
+import { listPendingServices as adminListPendingServices } from "../services/services.service";
+import { reviewServiceListing, resolveCategory } from "../services/admin-moderation.service";
+import { listAdminReports, resolveAdminReport } from "../services/admin-report.service";
 import { applyTrustEvent, applyReportPenaltyTrust } from "../services/trust.service";
-import { safeEmit, safeBroadcast } from "../lib/socket";
-import { BooleanDecisionSchema, ReportResolutionSchema, TrustAdjustmentSchema } from "../schema/marketplace.schema";
+import { safeEmit, safeBroadcast, disconnectUserSockets } from "../lib/socket";
+import { AnnouncementCreateSchema, AnnouncementUpdateSchema, BanUserSchema, BooleanDecisionSchema, PromoteUserSchema, ReportResolutionSchema, RestoreUserSchema, SuspendUserSchema, TrustAdjustmentSchema } from "../schema/marketplace.schema";
 // ── GET /admin/overview ───────────────────────────────────────────────────────
 export async function getOverview(_req, res, next) {
     try {
-        const [totalUsers, activeServices, pendingVerifications, openReports, pendingListings, categorySuggestions] = await Promise.all([
-            prisma.user.count(),
-            prisma.service.count({ where: { status: "ACTIVE" } }),
+        const [totalUsers, activeServices, pendingVerifications, openReports, pendingListings, categorySuggestions, recentAuditLogs] = await Promise.all([
+            prisma.user.count({ where: { role: { not: "admin" } } }),
+            prisma.service.count({ where: { status: "ACTIVE", isAvailable: true, provider: { isActive: true } } }),
             prisma.serviceVerification.count({ where: { status: "PENDING_REVIEW" } }),
             prisma.report.count({ where: { status: { in: ["PENDING", "UNDER_REVIEW"] } } }),
             prisma.service.count({ where: { status: "PENDING_REVIEW" } }),
             prisma.categorySuggested.count({ where: { status: "PENDING" } }),
+            prisma.adminAuditLog.findMany({
+                include: { actor: { select: { id: true, name: true } }, targetUser: { select: { id: true, name: true } } },
+                orderBy: { createdAt: "desc" },
+                take: 8,
+            }),
         ]);
         res.json({
             success: true,
-            data: { totalUsers, activeServices, pendingVerifications, openReports, pendingListings, categorySuggestions },
+            data: { totalUsers, activeServices, pendingVerifications, openReports, pendingListings, categorySuggestions, recentAuditLogs },
         });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+async function assertCanModerateUser(adminId, targetId, allowAdminRestore = false) {
+    if (adminId === targetId) {
+        const error = new Error("Administrators cannot moderate their own account");
+        error.status = 409;
+        throw error;
+    }
+    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { role: true } });
+    if (!target) {
+        const error = new Error("User not found");
+        error.status = 404;
+        throw error;
+    }
+    if (target.role === "admin" && !allowAdminRestore) {
+        const error = new Error("Administrator accounts cannot be suspended or banned from this moderation screen");
+        error.status = 409;
+        throw error;
+    }
+}
+// ── Community Hub announcements (official admin content only) ───────────────
+export async function listAnnouncements(_req, res, next) {
+    try {
+        const announcements = await prisma.announcement.findMany({
+            include: { author: { select: { id: true, name: true } } },
+            orderBy: { createdAt: "desc" },
+            take: 100,
+        });
+        res.json({ success: true, data: announcements });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function createAnnouncement(req, res, next) {
+    try {
+        const admin = req.user;
+        const input = AnnouncementCreateSchema.parse(req.body);
+        const announcement = await prisma.announcement.create({
+            data: {
+                title: input.title,
+                body: input.body,
+                authorId: admin.id,
+                isPublished: input.isPublished,
+                publishedAt: input.isPublished ? new Date() : null,
+            },
+            include: { author: { select: { id: true, name: true } } },
+        });
+        await prisma.adminAuditLog.create({
+            data: {
+                actorId: admin.id,
+                action: "ANNOUNCEMENT_CREATED",
+                resourceType: "Announcement",
+                resourceId: announcement.id,
+                reason: input.isPublished ? "Published official Community Hub announcement" : "Created announcement draft",
+            },
+        });
+        safeBroadcast("COMMUNITY_ANNOUNCEMENTS_CHANGED", { id: announcement.id });
+        res.status(201).json({ success: true, data: announcement });
+    }
+    catch (err) {
+        next(err);
+    }
+}
+export async function updateAnnouncement(req, res, next) {
+    try {
+        const admin = req.user;
+        const input = AnnouncementUpdateSchema.parse(req.body);
+        const existing = await prisma.announcement.findUnique({ where: { id: req.params.id } });
+        if (!existing) {
+            return res.status(404).json({ success: false, error: "Announcement not found" });
+        }
+        const becomingPublished = input.isPublished === true && !existing.isPublished;
+        const announcement = await prisma.announcement.update({
+            where: { id: existing.id },
+            data: {
+                ...input,
+                ...(becomingPublished && { publishedAt: new Date() }),
+            },
+            include: { author: { select: { id: true, name: true } } },
+        });
+        await prisma.adminAuditLog.create({
+            data: {
+                actorId: admin.id,
+                action: "ANNOUNCEMENT_UPDATED",
+                resourceType: "Announcement",
+                resourceId: announcement.id,
+                reason: input.isPublished === false ? "Archived announcement" : input.isPublished === true ? "Published announcement" : "Edited announcement content",
+                metadata: input,
+            },
+        });
+        safeBroadcast("COMMUNITY_ANNOUNCEMENTS_CHANGED", { id: announcement.id });
+        res.json({ success: true, data: announcement });
     }
     catch (err) {
         next(err);
@@ -43,9 +146,13 @@ export async function listUsers(req, res, next) {
         if (status) {
             if (status === "active") {
                 where.isActive = true;
+                where.moderationStatus = "ACTIVE";
             }
             else if (status === "suspended") {
-                where.isActive = false;
+                where.moderationStatus = "SUSPENDED";
+            }
+            else if (status === "banned") {
+                where.moderationStatus = "BANNED";
             }
         }
         const [users, total] = await Promise.all([
@@ -53,7 +160,9 @@ export async function listUsers(req, res, next) {
                 where,
                 select: {
                     id: true, name: true, email: true, phone: true, role: true,
-                    trustScore: true, verificationStatus: true, emailVerified: true, isActive: true, createdAt: true,
+                    trustScore: true, verificationStatus: true, emailVerified: true, isActive: true,
+                    moderationStatus: true, suspendedUntil: true, moderationReason: true,
+                    postingSuspended: true, postingSuspendReason: true, createdAt: true,
                 },
                 orderBy: { createdAt: "desc" },
                 skip,
@@ -80,7 +189,8 @@ export async function listUsers(req, res, next) {
 export async function updateTrustScore(req, res, next) {
     try {
         const { delta: parsedDelta, reason } = TrustAdjustmentSchema.parse(req.body);
-        await applyTrustEvent(req.params.id, parsedDelta, reason || "Admin manual override");
+        const adminId = req.user.id;
+        await applyTrustEvent(req.params.id, parsedDelta, reason, adminId);
         res.json({ success: true });
     }
     catch (err) {
@@ -90,7 +200,22 @@ export async function updateTrustScore(req, res, next) {
 // ── PATCH /admin/users/:id/suspend ────────────────────────────────────────────
 export async function suspendUser(req, res, next) {
     try {
-        await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } });
+        const adminId = req.user.id;
+        const targetId = req.params.id;
+        const { reason, durationDays } = SuspendUserSchema.parse(req.body);
+        await assertCanModerateUser(adminId, targetId);
+        const suspendedUntil = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
+        await prisma.$transaction(async (tx) => {
+            await tx.user.update({
+                where: { id: targetId },
+                data: { isActive: false, moderationStatus: "SUSPENDED", suspendedUntil, moderationReason: reason },
+            });
+            await tx.refreshToken.deleteMany({ where: { userId: targetId } });
+            await tx.adminAuditLog.create({
+                data: { actorId: adminId, targetUserId: targetId, action: "USER_SUSPENDED", resourceType: "User", resourceId: targetId, reason, metadata: { durationDays, suspendedUntil: suspendedUntil.toISOString() } },
+            });
+        });
+        await disconnectUserSockets(targetId, "Account temporarily suspended by an administrator");
         res.json({ success: true, message: "User suspended" });
     }
     catch (err) {
@@ -100,9 +225,18 @@ export async function suspendUser(req, res, next) {
 // ── PATCH /admin/users/:id/ban ────────────────────────────────────────────────
 export async function banUser(req, res, next) {
     try {
-        await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } });
-        // Invalidate all sessions
-        await prisma.refreshToken.deleteMany({ where: { userId: req.params.id } });
+        const adminId = req.user.id;
+        const targetId = req.params.id;
+        const { reason } = BanUserSchema.parse(req.body);
+        await assertCanModerateUser(adminId, targetId);
+        await prisma.$transaction(async (tx) => {
+            await tx.user.update({ where: { id: targetId }, data: { isActive: false, moderationStatus: "BANNED", suspendedUntil: null, moderationReason: reason } });
+            await tx.refreshToken.deleteMany({ where: { userId: targetId } });
+            await tx.adminAuditLog.create({
+                data: { actorId: adminId, targetUserId: targetId, action: "USER_BANNED", resourceType: "User", resourceId: targetId, reason },
+            });
+        });
+        await disconnectUserSockets(targetId, "Account permanently banned by an administrator");
         res.json({ success: true, message: "User banned" });
     }
     catch (err) {
@@ -112,7 +246,16 @@ export async function banUser(req, res, next) {
 // ── PATCH /admin/users/:id/restore ────────────────────────────────────────────
 export async function restoreUser(req, res, next) {
     try {
-        await prisma.user.update({ where: { id: req.params.id }, data: { isActive: true } });
+        const adminId = req.user.id;
+        const targetId = req.params.id;
+        const { reason } = RestoreUserSchema.parse(req.body || {});
+        await assertCanModerateUser(adminId, targetId, true);
+        await prisma.$transaction(async (tx) => {
+            await tx.user.update({ where: { id: targetId }, data: { isActive: true, moderationStatus: "ACTIVE", suspendedUntil: null, moderationReason: null } });
+            await tx.adminAuditLog.create({
+                data: { actorId: adminId, targetUserId: targetId, action: "USER_RESTORED", resourceType: "User", resourceId: targetId, reason },
+            });
+        });
         res.json({ success: true, message: "User restored" });
     }
     catch (err) {
@@ -120,10 +263,12 @@ export async function restoreUser(req, res, next) {
     }
 }
 // ── GET /admin/services/pending ───────────────────────────────────────────────
-export async function listPendingServices(_req, res, next) {
+export async function listPendingServices(req, res, next) {
     try {
-        const services = await adminListPendingServices();
-        res.json({ success: true, data: services });
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+        const result = await adminListPendingServices(page, limit);
+        res.json({ success: true, data: result.items, pagination: result.pagination });
     }
     catch (err) {
         next(err);
@@ -133,9 +278,7 @@ export async function listPendingServices(_req, res, next) {
 export async function reviewService(req, res, next) {
     try {
         const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
-        const result = await adminReviewService(req.params.id, req.user.id, approve, adminNotes);
-        safeBroadcast("SERVICE_LISTING_APPROVED", { id: req.params.id, approved: approve });
-        safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: req.params.id, status: approve ? "ACTIVE" : "REJECTED" });
+        const result = await reviewServiceListing(req.params.id, req.user.id, approve, adminNotes);
         res.json({ success: true, data: result });
     }
     catch (err) {
@@ -143,21 +286,33 @@ export async function reviewService(req, res, next) {
     }
 }
 // ── GET /admin/categories/suggestions ─────────────────────────────────────────
-export async function listCategorySuggestions(_req, res, next) {
+export async function listCategorySuggestions(req, res, next) {
     try {
-        const suggestions = await prisma.categorySuggested.findMany({
-            where: { status: "PENDING" },
-            include: { submitter: { select: { id: true, name: true } } },
-            orderBy: { submittedAt: "asc" },
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+        const where = { status: "PENDING" };
+        const [suggestions, total] = await Promise.all([
+            prisma.categorySuggested.findMany({
+                where,
+                include: { submitter: { select: { id: true, name: true } } },
+                orderBy: { submittedAt: "asc" },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+            prisma.categorySuggested.count({ where }),
+        ]);
+        res.json({
+            success: true,
+            data: suggestions,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
         });
-        res.json({ success: true, data: suggestions });
     }
     catch (err) {
         next(err);
     }
 }
 // ── PATCH /admin/categories/suggestions/:id ────────────────────────────────────
-export async function resolveCategorySuggestion(req, res, next) {
+async function resolveCategorySuggestionLegacy(req, res, next) {
     try {
         const { approve } = BooleanDecisionSchema.parse(req.body);
         const suggestion = await prisma.categorySuggested.update({
@@ -201,7 +356,76 @@ export async function resolveCategorySuggestion(req, res, next) {
     }
 }
 // ── GET /admin/reports ────────────────────────────────────────────────────────
-export async function listReports(_req, res, next) {
+export async function resolveCategorySuggestion(req, res, next) {
+    try {
+        const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
+        const suggestion = await resolveCategory(req.params.id, req.user.id, approve, adminNotes);
+        res.json({ success: true, data: suggestion });
+    }
+    catch (error) {
+        next(error);
+    }
+}
+export async function restorePostingPrivilege(req, res, next) {
+    try {
+        const adminId = req.user.id;
+        const targetId = req.params.id;
+        const { reason } = RestoreUserSchema.parse(req.body || {});
+        await assertCanModerateUser(adminId, targetId, true);
+        await prisma.$transaction(async (tx) => {
+            await tx.user.update({
+                where: { id: targetId },
+                data: { postingSuspended: false, postingSuspendedAt: null, postingSuspendReason: null },
+            });
+            await tx.adminAuditLog.create({
+                data: { actorId: adminId, targetUserId: targetId, action: "POSTING_PRIVILEGE_RESTORED", resourceType: "User", resourceId: targetId, reason },
+            });
+        });
+        res.json({ success: true, message: "Service-listing privilege restored" });
+    }
+    catch (error) {
+        next(error);
+    }
+}
+export async function promoteUserToAdmin(req, res, next) {
+    try {
+        const actorId = req.user.id;
+        const targetId = req.params.id;
+        const { reason } = PromoteUserSchema.parse(req.body);
+        if (actorId === targetId) {
+            return res.status(409).json({ success: false, error: "You are already an administrator" });
+        }
+        await prisma.$transaction(async (tx) => {
+            const target = await tx.user.findUnique({ where: { id: targetId } });
+            if (!target) {
+                const error = new Error("User not found");
+                error.status = 404;
+                throw error;
+            }
+            if (!target.isActive || !target.emailVerified || target.moderationStatus !== "ACTIVE") {
+                const error = new Error("Only an active, email-verified account can be promoted");
+                error.status = 422;
+                throw error;
+            }
+            if (target.role === "admin") {
+                const error = new Error("User is already an administrator");
+                error.status = 409;
+                throw error;
+            }
+            await tx.user.update({ where: { id: targetId }, data: { role: "admin" } });
+            await tx.refreshToken.deleteMany({ where: { userId: targetId } });
+            await tx.adminAuditLog.create({
+                data: { actorId, targetUserId: targetId, action: "USER_PROMOTED_TO_ADMIN", resourceType: "User", resourceId: targetId, reason },
+            });
+        });
+        await disconnectUserSockets(targetId, "Account permissions changed. Please sign in again.");
+        res.json({ success: true, message: "User promoted to administrator" });
+    }
+    catch (error) {
+        next(error);
+    }
+}
+async function listReportsLegacy(_req, res, next) {
     try {
         const reports = await prisma.report.findMany({
             where: { status: { in: ["PENDING", "UNDER_REVIEW"] } },
@@ -224,7 +448,7 @@ export async function listReports(_req, res, next) {
     }
 }
 // ── PATCH /admin/reports/:id/resolve ──────────────────────────────────────────
-export async function resolveReport(req, res, next) {
+async function resolveReportLegacy(req, res, next) {
     try {
         const { action, adminNotes } = ReportResolutionSchema.parse(req.body);
         const report = await prisma.report.findUnique({
@@ -332,11 +556,32 @@ export async function resolveReport(req, res, next) {
     }
 }
 // ── PATCH /admin/cancellation-requests/:id/resolve ─────────────────────────────
+export async function listReports(req, res, next) {
+    try {
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.max(1, Math.min(25, Number(req.query.limit) || 10));
+        const result = await listAdminReports(page, limit);
+        res.json({ success: true, data: result.items, pagination: result.pagination });
+    }
+    catch (error) {
+        next(error);
+    }
+}
+export async function resolveReport(req, res, next) {
+    try {
+        const { action, adminNotes } = ReportResolutionSchema.parse(req.body);
+        const result = await resolveAdminReport(req.params.id, req.user.id, action, adminNotes);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        next(error);
+    }
+}
 export async function resolveCancellationRequest(req, res, next) {
     try {
         const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
         const { adminResolveCancellationRequest } = await import("../services/cancellation.service");
-        const result = await adminResolveCancellationRequest(req.params.id, approve, adminNote);
+        const result = await adminResolveCancellationRequest(req.params.id, approve, adminNote, req.user.id);
         res.json({ success: true, data: result });
     }
     catch (err) {

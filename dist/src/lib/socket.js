@@ -26,9 +26,9 @@ export function initSocket(httpServer) {
             const payload = jwt.verify(token, env.JWT_ACCESS_SECRET);
             const user = await prisma.user.findUnique({
                 where: { id: payload.sub },
-                select: { id: true, role: true, isActive: true, emailVerified: true },
+                select: { id: true, role: true, isActive: true, emailVerified: true, moderationStatus: true },
             });
-            if (!user || !user.isActive || !user.emailVerified) {
+            if (!user || !user.isActive || !user.emailVerified || user.moderationStatus !== "ACTIVE") {
                 return next(new Error("Authentication error: account unavailable"));
             }
             // Roles and suspension status are read from the database, not from a
@@ -59,6 +59,10 @@ export function initSocket(httpServer) {
                 acknowledge?.({ ok: false, error: "Invalid booking ID" });
                 return;
             }
+            if (socket.rooms.size >= 100) {
+                acknowledge?.({ ok: false, error: "Too many active realtime subscriptions" });
+                return;
+            }
             try {
                 const booking = await prisma.booking.findFirst({
                     where: {
@@ -80,8 +84,17 @@ export function initSocket(httpServer) {
             }
         });
         // Join a service queue room on demand (for real-time queue counter updates)
-        socket.on("join_service", (serviceId) => {
+        socket.on("join_service", (serviceId, acknowledge) => {
+            if (typeof serviceId !== "string" || !/^[a-z0-9_-]{10,64}$/i.test(serviceId)) {
+                acknowledge?.({ ok: false, error: "Invalid service ID" });
+                return;
+            }
+            if (socket.rooms.size >= 100) {
+                acknowledge?.({ ok: false, error: "Too many active realtime subscriptions" });
+                return;
+            }
             socket.join(`service:${serviceId}`);
+            acknowledge?.({ ok: true });
         });
         socket.on("disconnect", () => {
             console.log(`[Socket.io] User disconnected: ${userId}`);
@@ -121,5 +134,14 @@ export function safeBroadcast(event, data) {
     catch {
         // Socket not initialized — silently skip
     }
+}
+/** Notify and immediately disconnect every active socket for a moderated user. */
+export async function disconnectUserSockets(userId, reason) {
+    if (!io)
+        return;
+    const room = `user:${userId}`;
+    io.to(room).emit("forceLogout", { reason });
+    const sockets = await io.in(room).fetchSockets();
+    sockets.forEach((socket) => socket.disconnect(true));
 }
 //# sourceMappingURL=socket.js.map

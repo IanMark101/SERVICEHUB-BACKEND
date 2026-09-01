@@ -91,8 +91,11 @@ export async function browseServices(params) {
 }
 // ── Get Single Service ─────────────────────────────────────────────────────────
 export async function getServiceById(id) {
-    const service = await prisma.service.findUnique({
-        where: { id },
+    const service = await prisma.service.findFirst({
+        // This is a public endpoint. Draft, rejected, paused, and unverified
+        // provider listings are available through authenticated owner/admin APIs,
+        // never by guessing an ID here.
+        where: { id, ...PUBLIC_SERVICE_WHERE },
         include: {
             provider: {
                 select: {
@@ -108,6 +111,9 @@ export async function getServiceById(id) {
             queueEntries: {
                 where: { status: { in: ["WAITING", "SERVING"] } },
                 orderBy: { position: "asc" },
+                // Queue records contain seeker and payment data. Public service detail
+                // pages need availability only, never identifiers or payment metadata.
+                select: { position: true, estimatedWait: true },
             },
         },
     });
@@ -261,12 +267,24 @@ export async function deleteService(serviceId, providerId) {
         err.status = 404;
         throw err;
     }
-    // Erase all child records and hard delete service listing from database
+    // A listing with active work cannot be erased: deleting its queue rows would
+    // orphan a paid booking and leave its payment state unresolved.
+    const activeBooking = await prisma.booking.findFirst({
+        where: {
+            serviceId,
+            status: { in: ["PENDING_APPROVAL", "WAITING", "ACCEPTED", "ONGOING", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"] },
+        },
+        select: { id: true },
+    });
+    if (activeBooking) {
+        const err = new Error("Cannot delete a service with an active booking. Pause the listing and finish or cancel its bookings first.");
+        err.status = 409;
+        throw err;
+    }
     await prisma.queueNotify.deleteMany({ where: { serviceId } });
-    await prisma.queue.deleteMany({ where: { serviceId } });
-    await prisma.directRequest.deleteMany({ where: { serviceId } });
-    return prisma.service.delete({
+    return prisma.service.update({
         where: { id: serviceId },
+        data: { status: "DELETED", isAvailable: false },
     });
 }
 // ── Get My Listings (Provider) ─────────────────────────────────────────────────
@@ -294,17 +312,27 @@ export async function getMyServices(providerId) {
     });
 }
 // ── Admin: List Pending Services ───────────────────────────────────────────────
-export async function listPendingServices() {
-    return prisma.service.findMany({
-        where: { status: "PENDING_REVIEW" },
-        include: {
-            provider: {
-                select: { id: true, name: true, email: true, trustScore: true, verificationStatus: true },
+export async function listPendingServices(page = 1, limit = 20) {
+    const where = { status: "PENDING_REVIEW" };
+    const [items, total] = await Promise.all([
+        prisma.service.findMany({
+            where,
+            include: {
+                provider: {
+                    select: { id: true, name: true, email: true, trustScore: true, verificationStatus: true },
+                },
+                category: true,
             },
-            category: true,
-        },
-        orderBy: { createdAt: "asc" },
-    });
+            orderBy: { createdAt: "asc" },
+            skip: (page - 1) * limit,
+            take: limit,
+        }),
+        prisma.service.count({ where }),
+    ]);
+    return {
+        items,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
 }
 // ── Admin: Approve or Reject Service Listing ──────────────────────────────────
 export async function adminReviewService(serviceId, adminId, approve, adminNotes) {

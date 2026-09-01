@@ -3,7 +3,7 @@ import { safeEmit } from "../lib/socket";
 
 export async function recalculateQueue(serviceId: string): Promise<void> {
   const activeEntries = await prisma.queue.findMany({
-    where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
+    where: { serviceId, status: "WAITING" },
     orderBy: { position: "asc" },
   });
 
@@ -14,10 +14,17 @@ export async function recalculateQueue(serviceId: string): Promise<void> {
 
   if (!service) return;
 
+  // An active job occupies the first slot while its Queue record is retained
+  // as SERVING for payment traceability. Waiting entries retain a one-based offset so
+  // the next customer is position 2 (not position 1 with a zero-minute wait).
+  const activeOngoingCount = await prisma.booking.count({
+    where: { serviceId, status: "ONGOING" },
+  });
+
   // Re-number all positions sequentially and recalculate wait times
   // ALSO sync the corresponding Booking.queuePosition (Spec Part 4)
   for (let i = 0; i < activeEntries.length; i++) {
-    const newPosition = i + 1;
+    const newPosition = activeOngoingCount + i + 1;
     const newWait = service.estimatedDurationMins * (newPosition - 1);
     await prisma.queue.update({
       where: { id: activeEntries[i].id },
@@ -46,7 +53,7 @@ export async function notifyWaitlist(serviceId: string): Promise<void> {
   });
 
   const queueCount = await prisma.queue.count({
-    where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
+    where: { serviceId, status: "WAITING" },
   });
 
   const currentQueueSize = activeOngoingCount + queueCount;

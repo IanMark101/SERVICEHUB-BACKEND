@@ -63,7 +63,7 @@ app.use((err, _req, res, _next) => {
         return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
     }
     const status = err.status || err.statusCode || 500;
-    const message = env.NODE_ENV === "production" ? "Internal server error" : err.message;
+    const message = env.NODE_ENV === "production" && status >= 500 ? "Internal server error" : err.message;
     res.status(status).json({ success: false, error: message });
 });
 export default app;

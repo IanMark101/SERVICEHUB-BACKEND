@@ -4,10 +4,11 @@ import { applyCancellationTrust, applyServiceCompletionTrust } from "./trust.ser
 import { safeEmit } from "../lib/socket";
 import { assertDistinctAccounts } from "../utils/security";
 import { sendMessage } from "./messages.service";
+import { refundBookingPayment } from "./payment-refund.service";
 // ── FCFS Queue Logic ──────────────────────────────────────────────────────────
 export async function getNextQueuePosition(serviceId) {
     const lastEntry = await prisma.queue.findFirst({
-        where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
+        where: { serviceId, status: "WAITING" },
         orderBy: { position: "desc" },
     });
     if (lastEntry) {
@@ -30,6 +31,8 @@ export async function calculateEstimatedWait(serviceId, position) {
     return service.estimatedDurationMins * (position - 1);
 }
 async function resolveFinalPrice(booking) {
+    if (booking.agreedAmount != null)
+        return Number(booking.agreedAmount);
     if (booking.directRequest)
         return Number(booking.directRequest.agreedPrice);
     if (booking.offer)
@@ -100,6 +103,7 @@ export async function createDirectRequest(params) {
                 serviceId,
                 directRequestId: directRequest.id,
                 paymentMethod: "On-site Cash",
+                agreedAmount: agreedPrice,
                 paymentStatus: "UNPAID",
                 status: "PENDING_APPROVAL",
                 started: false,
@@ -183,6 +187,7 @@ export async function respondToDirectBookingService(requestId, providerId, accep
                     serviceId: directRequest.serviceId,
                     directRequestId: directRequest.id,
                     paymentMethod: "On-site Cash",
+                    agreedAmount: directRequest.agreedPrice,
                     paymentStatus: "UNPAID",
                     status: "ACCEPTED",
                     started: false,
@@ -218,6 +223,10 @@ export async function respondToDirectBookingService(requestId, providerId, accep
     }
     else {
         // Decline
+        const hasHeldOnlinePayment = targetBooking && ["PAID_HELD", "FROZEN_HELD"].includes(targetBooking.paymentStatus);
+        if (hasHeldOnlinePayment) {
+            await refundBookingPayment(targetBooking.id, providerId, "Full refund because the provider declined the paid booking request");
+        }
         const updated = await prisma.$transaction(async (tx) => {
             if (directRequest) {
                 await tx.directRequest.update({
@@ -226,24 +235,11 @@ export async function respondToDirectBookingService(requestId, providerId, accep
                 });
             }
             if (targetBooking) {
-                // If payment was held in escrow (GCash), record refund transaction
-                if (targetBooking.paymentStatus === "PAID_HELD") {
-                    await tx.transaction.create({
-                        data: {
-                            walletOwnerId: targetBooking.seekerId,
-                            amount: targetBooking.service?.price || 0,
-                            type: "REFUND",
-                            description: `Escrow refund for declined booking: ${targetBooking.service?.title || 'Service'}`,
-                            status: "completed",
-                            relatedBookingId: targetBooking.id,
-                        },
-                    });
-                }
                 return tx.booking.update({
                     where: { id: targetBooking.id },
                     data: {
                         status: "DECLINED",
-                        paymentStatus: targetBooking.paymentStatus === "PAID_HELD" ? "REFUNDED" : targetBooking.paymentStatus,
+                        paymentStatus: hasHeldOnlinePayment ? "REFUNDED" : targetBooking.paymentStatus,
                     },
                 });
             }
@@ -253,8 +249,8 @@ export async function respondToDirectBookingService(requestId, providerId, accep
             data: {
                 userId: effectiveSeekerId,
                 title: "Booking Request Declined ❌",
-                body: targetBooking?.paymentStatus === "PAID_HELD"
-                    ? "Your booking request was declined by the provider. Your Escrow payment has been refunded."
+                body: hasHeldOnlinePayment
+                    ? "Your booking request was declined by the provider. Your PayMongo refund was submitted."
                     : "Your booking request was declined by the provider.",
                 link: `/seeker/seeker-activity?tab=canceled&booking=${targetBooking?.id || directRequest?.id}`,
             },
@@ -300,6 +296,7 @@ export async function createDirectFromOfferService(offerId, seekerId) {
                 providerId: offer.providerId,
                 offerId: offer.id,
                 paymentMethod: "On-site Cash",
+                agreedAmount: offer.offeredPrice,
                 paymentStatus: "UNPAID",
                 status: "ACCEPTED",
             },
@@ -354,7 +351,7 @@ export async function addToQueue(params) {
         data: {
             userId: service.providerId,
             title: "New Paid Booking Request! ðŸ”’",
-            body: `A client requested "${service.title}" with payment secured in Escrow via GCash. Review and accept.`,
+            body: `A client requested "${service.title}" with payment secured in Escrow via ${params.paymentMethod || "online payment"}. Review and accept.`,
             link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
         },
     });
@@ -365,14 +362,17 @@ export async function addToQueue(params) {
     return { queueEntry, isImmediate };
 }
 async function addToQueueLocked(params, tx) {
-    const { serviceId, seekerId, paymentId, offerId, scheduledDate, scheduledTime, paymentMethod } = params;
+    const { serviceId, seekerId, paymentId, paymongoPaymentId, amount, offerId, scheduledDate, scheduledTime, paymentMethod } = params;
     const service = await tx.service.findUnique({
         where: { id: serviceId },
         select: { queueLimit: true, estimatedDurationMins: true, isAvailable: true, title: true, status: true, providerId: true },
     });
-    if (!service || service.status !== "ACTIVE" || (!offerId && !service.isAvailable)) {
-        const err = new Error("This service is currently paused by the provider and not available for new bookings");
-        err.status = 400;
+    // The caller reaches this function only after PayMongo confirms capture.
+    // Preserve a durable booking/payment link even if availability changed
+    // between payment initiation and the asynchronous confirmation callback.
+    if (!service) {
+        const err = new Error("The paid service no longer exists; manual payment reconciliation is required");
+        err.status = 409;
         throw err;
     }
     // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
@@ -398,17 +398,14 @@ async function addToQueueLocked(params, tx) {
         where: { serviceId, status: "ONGOING" },
     });
     const queueCount = await tx.queue.count({
-        where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
+        where: { serviceId, status: "WAITING" },
     });
     const currentSize = activeOngoingCount + queueCount;
-    if (currentSize >= service.queueLimit) {
-        const err = new Error("Queue is full. Please join the waitlist instead.");
-        err.status = 409;
-        err.code = "QUEUE_FULL";
-        throw err;
-    }
+    // Capacity is checked before the payment intent is created. If a race fills
+    // the last slot after capture, retain the paid booking instead of stranding
+    // money without a local record; it becomes the next waiting position.
     const lastEntry = await tx.queue.findFirst({
-        where: { serviceId, status: { in: ["WAITING", "SERVING"] } },
+        where: { serviceId, status: "WAITING" },
         orderBy: { position: "desc" },
     });
     const position = lastEntry ? lastEntry.position + 1 : (activeOngoingCount > 0 ? 2 : 1);
@@ -425,6 +422,7 @@ async function addToQueueLocked(params, tx) {
             serviceId,
             offerId,
             paymentMethod: paymentMethod || "GCash",
+            agreedAmount: amount,
             paymentStatus: "PAID_HELD",
             status: offerId ? "ACCEPTED" : "PENDING_APPROVAL",
             queuePosition: position,
@@ -439,6 +437,7 @@ async function addToQueueLocked(params, tx) {
             seekerId,
             offerId: offerId || null,
             paymentId,
+            paymongoPaymentId: paymongoPaymentId || null,
             position,
             estimatedWait,
             paymentStatus: "PAID_HELD",
@@ -475,46 +474,52 @@ async function addToQueueLocked(params, tx) {
 }
 // ── Provider Start Job ────────────────────────────────────────────────────────
 export async function providerStartJob(id, providerId) {
-    // Find booking
-    let booking = await prisma.booking.findUnique({
-        where: { id },
-        include: { queue: true }
-    });
-    let queueEntry = booking?.queue;
-    if (!booking) {
-        // If not found by booking ID, try by queue ID
-        const qe = await prisma.queue.findUnique({
-            where: { id },
-            include: { booking: true }
+    const result = await prisma.$transaction(async (tx) => {
+        let booking = await tx.booking.findUnique({ where: { id }, include: { queue: true } });
+        let queueEntry = booking?.queue ?? null;
+        if (!booking) {
+            const entry = await tx.queue.findUnique({ where: { id }, include: { booking: { include: { queue: true } } } });
+            booking = entry?.booking ?? null;
+            queueEntry = entry ?? null;
+        }
+        if (!booking || booking.providerId !== providerId) {
+            const err = new Error("Booking or queue entry not found or access denied");
+            err.status = 404;
+            throw err;
+        }
+        if (booking.status !== "ACCEPTED") {
+            const err = new Error("Only an accepted booking can be started.");
+            err.status = 400;
+            throw err;
+        }
+        if (queueEntry) {
+            await tx.$executeRaw `SELECT pg_advisory_xact_lock(hashtext(${queueEntry.serviceId}))`;
+            const firstWaiting = await tx.queue.findFirst({
+                where: { serviceId: queueEntry.serviceId, status: "WAITING" },
+                orderBy: { position: "asc" },
+                select: { id: true },
+            });
+            const ongoing = await tx.booking.count({ where: { serviceId: queueEntry.serviceId, status: "ONGOING" } });
+            if (firstWaiting?.id !== queueEntry.id || ongoing > 0) {
+                const err = new Error("Start the first waiting booking after the current job is completed.");
+                err.status = 409;
+                throw err;
+            }
+            // Keep the payment intent/payment ID linked throughout service and
+            // dispute handling. Deleting this row made later refunds impossible.
+            await tx.queue.update({
+                where: { id: queueEntry.id },
+                data: { status: "SERVING", position: 1, estimatedWait: 0 },
+            });
+        }
+        const updatedBooking = await tx.booking.update({
+            where: { id: booking.id },
+            data: { status: "ONGOING", started: true },
         });
-        if (qe) {
-            booking = qe.booking;
-            queueEntry = qe;
-        }
-    }
-    if (!booking || booking.providerId !== providerId) {
-        const err = new Error("Booking or queue entry not found or access denied");
-        err.status = 404;
-        throw err;
-    }
-    if (booking.status === "CANCELED" || booking.status === "DECLINED" || booking.status === "COMPLETED" || booking.status === "REMOVED") {
-        const err = new Error(`Cannot start job for a booking with status ${booking.status}.`);
-        err.status = 400;
-        throw err;
-    }
-    // Update Booking status to ONGOING and started to true
-    const updatedBooking = await prisma.booking.update({
-        where: { id: booking.id },
-        data: {
-            status: "ONGOING",
-            started: true
-        }
+        return { booking: updatedBooking, queueEntry };
     });
-    // Starting a queued job removes it from Queue; active work is tracked by Booking.
+    const { booking, queueEntry } = result;
     if (queueEntry) {
-        await prisma.queue.delete({
-            where: { id: queueEntry.id },
-        });
         await recalculateQueue(queueEntry.serviceId);
         await notifyWaitlist(queueEntry.serviceId);
     }
@@ -532,7 +537,7 @@ export async function providerStartJob(id, providerId) {
     safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
     safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
     await sendMessage(booking.id, booking.providerId, "Provider started the job.", undefined, true);
-    return updatedBooking;
+    return booking;
 }
 // ── Provider Remove Queue Entry ───────────────────────────────────────────────
 export async function providerRemoveQueueEntry(queueId, providerId) {
@@ -545,16 +550,27 @@ export async function providerRemoveQueueEntry(queueId, providerId) {
         err.status = 404;
         throw err;
     }
+    if (["DONE", "CANCELLED", "REMOVED"].includes(queueEntry.status)) {
+        const err = new Error("This queue booking can no longer be removed");
+        err.status = 409;
+        throw err;
+    }
+    if (!queueEntry.bookingId) {
+        const err = new Error("Paid queue entry is missing its booking");
+        err.status = 409;
+        throw err;
+    }
+    await refundBookingPayment(queueEntry.bookingId, providerId, "Full refund because the provider cancelled the queue booking");
     // Update Queue status to REMOVED
     await prisma.queue.update({
         where: { id: queueId },
-        data: { status: "REMOVED", paymentStatus: "FROZEN_HELD" }
+        data: { status: "REMOVED", paymentStatus: "REFUNDED" }
     });
     // Update corresponding Booking status to REMOVED
     if (queueEntry.bookingId) {
         await prisma.booking.update({
             where: { id: queueEntry.bookingId },
-            data: { status: "REMOVED", paymentStatus: "FROZEN_HELD" }
+            data: { status: "REMOVED", paymentStatus: "REFUNDED" }
         });
         await sendMessage(queueEntry.bookingId, providerId, "Booking cancelled.", undefined, true);
     }
@@ -568,7 +584,7 @@ export async function providerRemoveQueueEntry(queueId, providerId) {
         data: {
             userId: queueEntry.seekerId,
             title: "Booking Cancelled by Provider ⚠️",
-            body: "The provider removed your booking from their queue. Refund is being processed.",
+            body: "The provider removed your booking from their queue. Your PayMongo refund was submitted.",
             link: `/seeker/seeker-activity?tab=canceled&booking=${queueEntry.bookingId}`,
         },
     });
@@ -656,6 +672,7 @@ export async function confirmCompletionService(bookingId, seekerId) {
         throw err;
     }
     const finalPrice = await resolveFinalPrice(booking);
+    const isOnlinePayment = booking.paymentMethod !== "On-site Cash";
     // Create CompletedService record
     const completedService = await prisma.completedService.create({
         data: {
@@ -677,6 +694,12 @@ export async function confirmCompletionService(bookingId, seekerId) {
             paymentStatus: "RELEASED"
         }
     });
+    if (booking.queue) {
+        await prisma.queue.update({
+            where: { id: booking.queue.id },
+            data: { status: "DONE", paymentStatus: "RELEASED" },
+        });
+    }
     // Mark the ServiceRequest as permanently closed — it was fulfilled
     if (booking.offerId) {
         const offerObj = await prisma.offer.findUnique({
@@ -690,7 +713,7 @@ export async function confirmCompletionService(bookingId, seekerId) {
             });
         }
     }
-    if (booking.paymentMethod === 'GCash') {
+    if (isOnlinePayment) {
         await sendMessage(booking.id, seekerId, "Funds released.", undefined, true);
     }
     else {
@@ -703,7 +726,7 @@ export async function confirmCompletionService(bookingId, seekerId) {
             type: "EARNING",
             amount: finalPrice,
             relatedBookingId: completedService.id,
-            description: booking.paymentMethod === "GCash"
+            description: isOnlinePayment
                 ? "Payment released by seeker confirmation"
                 : "Cash payment confirmed by seeker",
         },
@@ -718,7 +741,7 @@ export async function confirmCompletionService(bookingId, seekerId) {
         data: {
             userId: booking.providerId,
             title: "Payment Confirmed 💰",
-            body: booking.paymentMethod === "GCash"
+            body: isOnlinePayment
                 ? `₱${finalPrice} has been released to your wallet.`
                 : `Seeker confirmed completion of cash-based job for ₱${finalPrice}.`,
             link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
@@ -728,6 +751,10 @@ export async function confirmCompletionService(bookingId, seekerId) {
     safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
     safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
     safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "completed" });
+    if (booking.queue) {
+        await recalculateQueue(booking.queue.serviceId);
+        await notifyWaitlist(booking.queue.serviceId);
+    }
     return completedService;
 }
 // ── Seeker: Dispute Job ───────────────────────────────────────────────────────
@@ -838,6 +865,22 @@ export async function cancelQueueEntry(queueId, seekerId) {
         err.status = 400;
         throw err;
     }
+    if (entry.status === "CANCELLED")
+        return { cancelled: true, alreadyCancelled: true };
+    if (entry.status === "REMOVED") {
+        const err = new Error("This booking was already removed by the provider");
+        err.status = 409;
+        throw err;
+    }
+    const hasHeldOnlinePayment = ["PAID_HELD", "FROZEN_HELD"].includes(entry.paymentStatus);
+    if (hasHeldOnlinePayment) {
+        if (!entry.bookingId) {
+            const err = new Error("Paid queue entry is missing its booking");
+            err.status = 409;
+            throw err;
+        }
+        await refundBookingPayment(entry.bookingId, seekerId, "Full refund for cancelled queue booking");
+    }
     // Per spec Part 9: started boolean on Booking is the single source of truth
     if (entry.bookingId) {
         const booking = await prisma.booking.findUnique({
@@ -848,46 +891,20 @@ export async function cancelQueueEntry(queueId, seekerId) {
             await applyCancellationTrust(seekerId, false);
         }
     }
-    await prisma.queue.update({
-        where: { id: queueId },
-        data: { status: "CANCELLED", paymentStatus: entry.paymentStatus === "PAID_HELD" ? "REFUNDED" : entry.paymentStatus }
-    });
-    if (entry.bookingId) {
-        await prisma.booking.update({
-            where: { id: entry.bookingId },
-            data: { status: "CANCELED", paymentStatus: entry.paymentStatus === "PAID_HELD" ? "REFUNDED" : "UNPAID" }
+    if (!hasHeldOnlinePayment) {
+        await prisma.queue.update({
+            where: { id: queueId },
+            data: { status: "CANCELLED", paymentStatus: entry.paymentStatus },
         });
-        await sendMessage(entry.bookingId, seekerId, "Booking cancelled.", undefined, true);
     }
-    // If an online payment was refunded, create a REFUND transaction record (Spec Part 5)
-    if (entry.paymentStatus === "PAID_HELD") {
-        const booking = await prisma.booking.findUnique({
-            where: { id: entry.bookingId || undefined },
-            include: { service: true, offer: true, directRequest: true }
-        });
-        let refundAmount = 0;
-        if (booking) {
-            if (booking.directRequest) {
-                refundAmount = Number(booking.directRequest.agreedPrice);
-            }
-            else if (booking.offer) {
-                refundAmount = Number(booking.offer.offeredPrice);
-            }
-            else if (booking.service) {
-                refundAmount = Number(booking.service.price);
-            }
-        }
-        if (refundAmount > 0) {
-            await prisma.transaction.create({
-                data: {
-                    walletOwnerId: seekerId,
-                    type: "REFUND",
-                    amount: refundAmount,
-                    relatedBookingId: entry.bookingId,
-                    description: "Full refund for cancelled queue booking",
-                },
+    if (entry.bookingId) {
+        if (!hasHeldOnlinePayment) {
+            await prisma.booking.update({
+                where: { id: entry.bookingId },
+                data: { status: "CANCELED", paymentStatus: "UNPAID" },
             });
         }
+        await sendMessage(entry.bookingId, seekerId, "Booking cancelled.", undefined, true);
     }
     await recalculateQueue(entry.serviceId);
     await notifyWaitlist(entry.serviceId);

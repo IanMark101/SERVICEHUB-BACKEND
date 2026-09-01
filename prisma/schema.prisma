@@ -113,6 +113,12 @@ enum TransactionType {
   REFUND
 }
 
+enum AccountModerationStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
 enum BookingStatus {
   PENDING_APPROVAL
   WAITING
@@ -147,6 +153,12 @@ model User {
   trustScore          Int                @default(50)
   verificationStatus  VerificationStatus @default(UNVERIFIED)
   isActive            Boolean            @default(true)
+  moderationStatus    AccountModerationStatus @default(ACTIVE)
+  suspendedUntil      DateTime?
+  moderationReason    String?
+  postingSuspended    Boolean            @default(false)
+  postingSuspendedAt  DateTime?
+  postingSuspendReason String?
   emailVerified       Boolean            @default(false)
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
@@ -197,11 +209,22 @@ model User {
   // Notifications
   notifications         Notification[]
 
+  // Official Community Hub announcements (admin authored only)
+  announcementsAuthored Announcement[]        @relation("AnnouncementAuthor")
+
   // Category suggestions
   categorySuggestions   CategorySuggested[]
 
   // Trust Score audit log
   trustScoreEvents      TrustScoreEvent[]
+  adminActionsAuthored  AdminAuditLog[]      @relation("AdminAuditActor")
+  adminActionsReceived  AdminAuditLog[]      @relation("AdminAuditTarget")
+  trustEventsAuthored   TrustScoreEvent[]    @relation("TrustEventAdmin")
+  reportsResolved       Report[]             @relation("ReportAdmin")
+  servicesReviewed      Service[]            @relation("ServiceReviewer")
+  categoriesReviewed    CategorySuggested[]  @relation("CategoryReviewer")
+  cancellationsResolved CancellationRequest[] @relation("CancellationAdmin")
+  refundsRequested      PaymentRefund[]      @relation("RefundAdmin")
 
 
   @@map("users")
@@ -265,7 +288,10 @@ model VerificationProof {
   id             String              @id @default(cuid())
   verificationId String
   verification   ServiceVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
-  fileUrl        String
+  fileUrl        String?
+  storageKey     String?
+  mimeType       String?
+  sizeBytes      Int?
   documentType   String              // "barangay_id" | "government_id" | "proof_of_residency" | "skill_cert"
   uploadedAt     DateTime            @default(now())
 
@@ -296,6 +322,9 @@ model CategorySuggested {
   status      CategorySuggestionStatus @default(PENDING)
   submittedAt DateTime                 @default(now())
   reviewedAt  DateTime?
+  reviewedById String?
+  reviewedBy   User?                    @relation("CategoryReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  adminNotes   String?
 
   @@map("categories_suggested")
 }
@@ -326,6 +355,9 @@ model Service {
   isAvailable          Boolean       @default(false)
   rejectionCount       Int           @default(0)
   adminNotes           String?
+  reviewedById         String?
+  reviewedBy           User?         @relation("ServiceReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt           DateTime?
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -422,6 +454,7 @@ model Queue {
   // (cash bookings NEVER appear here — enforced at application layer)
   offerId       String?     @unique // FK to accepted Offer (Flow B online path)
   paymentId     String      @unique // PayMongo payment intent ID — required, cash never enters
+  paymongoPaymentId String?     @unique
   paymentStatus PaymentStatus @default(PAID_HELD)
   position      Int
   status        QueueStatus @default(WAITING)
@@ -466,6 +499,7 @@ model Booking {
   directRequest   DirectRequest? @relation(fields: [directRequestId], references: [id], onDelete: SetNull)
   
   paymentMethod   String         // "GCash" | "On-site Cash"
+  agreedAmount    Decimal?       @db.Decimal(10, 2) // immutable price snapshot at booking/payment time
   paymentStatus   PaymentStatus  @default(PAID_HELD)
   status          BookingStatus  @default(WAITING)
   queuePosition   Int?
@@ -486,6 +520,7 @@ model Booking {
   messages         Message[]
   reports          Report[]
   cancellationRequests CancellationRequest[]
+  refund           PaymentRefund?
 
   @@map("bookings")
 }
@@ -558,6 +593,7 @@ model Report {
   evidenceUrl        String?
   status             ReportStatus    @default(PENDING)
   adminId            String?
+  admin              User?           @relation("ReportAdmin", fields: [adminId], references: [id], onDelete: SetNull)
   adminNotes         String?
   resolvedAt         DateTime?
   createdAt          DateTime        @default(now())
@@ -624,6 +660,23 @@ model Notification {
   @@map("notifications")
 }
 
+// ─── COMMUNITY HUB ANNOUNCEMENTS ────────────────────────────────────────────
+// Official notices only. This intentionally is not a user-generated feed.
+model Announcement {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  authorId    String
+  author      User     @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  isPublished Boolean  @default(true)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished, publishedAt])
+  @@map("announcements")
+}
+
 // ─────────────────────────────────────────────
 // TRUST SCORE HISTORY (immutable audit log)
 // ─────────────────────────────────────────────
@@ -636,6 +689,8 @@ model TrustScoreEvent {
   reason      String   // human-readable label shown in Trust History tab
   scoreBefore Int      // snapshot of score BEFORE this event
   scoreAfter  Int      // snapshot of score AFTER this event (clamped 0–100)
+  actorAdminId String?
+  actorAdmin   User?    @relation("TrustEventAdmin", fields: [actorAdminId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
   @@map("trust_score_events")
@@ -664,8 +719,48 @@ model CancellationRequest {
   status       String    // "PENDING" | "APPROVED" | "DECLINED" | "ESCALATED" | "RESOLVED"
   providerNote String?
   adminNote    String?
+  adminId      String?
+  admin        User?     @relation("CancellationAdmin", fields: [adminId], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now())
   resolvedAt   DateTime?
 
   @@map("cancellation_requests")
+}
+
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+  actorId      String
+  actor        User     @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  targetUserId String?
+  targetUser   User?    @relation("AdminAuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  action       String
+  resourceType String
+  resourceId   String?
+  reason       String
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("admin_audit_logs")
+}
+
+model PaymentRefund {
+  id               String   @id @default(cuid())
+  bookingId        String   @unique
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  paymentId        String   @unique
+  paymongoRefundId String?  @unique
+  amount           Decimal  @db.Decimal(10, 2)
+  status           String   @default("PENDING")
+  reason           String
+  requestedById    String
+  requestedBy      User     @relation("RefundAdmin", fields: [requestedById], references: [id], onDelete: Restrict)
+  failureReason    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("payment_refunds")
 }

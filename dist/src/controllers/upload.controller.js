@@ -1,18 +1,33 @@
-import { uploadImageToCloudinary } from '../config/cloudinary';
+import { uploadImageToCloudinary, uploadPrivateVerificationImage } from '../config/cloudinary';
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-function validateImageDataUrl(image) {
+function validateImageDataUrl(image, maxBytes = MAX_IMAGE_BYTES) {
     if (typeof image !== 'string')
         return null;
     const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(image);
     if (!match || !ALLOWED_IMAGE_TYPES.has(match[1].toLowerCase()))
         return null;
     const estimatedBytes = Math.floor((match[2].length * 3) / 4);
-    if (estimatedBytes > MAX_IMAGE_BYTES)
+    if (estimatedBytes > maxBytes)
         return null;
     return image;
 }
 export class UploadController {
+    async uploadVerification(req, res) {
+        try {
+            const validatedImage = validateImageDataUrl(req.body?.image, 5 * 1024 * 1024);
+            if (!validatedImage) {
+                res.status(400).json({ success: false, error: 'A JPEG, PNG, or WebP image no larger than 5MB is required.' });
+                return;
+            }
+            const userId = req.user.id;
+            const storageKey = await uploadPrivateVerificationImage(validatedImage, userId);
+            res.status(201).json({ success: true, data: { storageKey } });
+        }
+        catch (error) {
+            res.status(error?.status || 500).json({ success: false, error: error?.message || 'Verification upload failed.' });
+        }
+    }
     /**
      * POST /api/upload/avatar
      * Uploads a square avatar image to Cloudinary (folder: servicehub/avatars)

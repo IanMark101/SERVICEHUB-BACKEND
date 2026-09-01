@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { recalculateQueue, notifyWaitlist } from "./queue.service";
 import { safeEmit } from "../lib/socket";
 import { sendMessage } from "./messages.service";
+import { refundBookingPayment } from "./payment-refund.service";
 // ── Perform Immediate Cancel & Process Refund/Escrow ──────────────────────────
 export async function performImmediateCancel(bookingId) {
     const booking = await prisma.booking.findUnique({
@@ -10,18 +11,23 @@ export async function performImmediateCancel(bookingId) {
     });
     if (!booking)
         return;
+    if (booking.status === "CANCELED")
+        return;
+    const hasHeldOnlinePayment = ["PAID_HELD", "FROZEN_HELD"].includes(booking.paymentStatus);
+    if (hasHeldOnlinePayment) {
+        await refundBookingPayment(booking.id, booking.seekerId, "Full refund for cancelled booking");
+    }
     // Determine the correct refund status:
     // - If payment was held (online), issue a full refund → REFUNDED
     // - Otherwise keep the existing status (UNPAID for cash, etc.)
-    const newPaymentStatus = booking.paymentStatus === "PAID_HELD" ? "REFUNDED" : booking.paymentStatus;
+    const newPaymentStatus = hasHeldOnlinePayment ? "REFUNDED" : booking.paymentStatus;
     // Update Booking status to CANCELED
-    await prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-            status: "CANCELED",
-            paymentStatus: newPaymentStatus
-        }
-    });
+    if (!hasHeldOnlinePayment) {
+        await prisma.booking.update({
+            where: { id: bookingId },
+            data: { status: "CANCELED", paymentStatus: newPaymentStatus },
+        });
+    }
     if (booking.directRequestId) {
         await prisma.directRequest.update({
             where: { id: booking.directRequestId },
@@ -30,41 +36,15 @@ export async function performImmediateCancel(bookingId) {
     }
     await sendMessage(bookingId, booking.seekerId, "Booking cancelled.", undefined, true);
     if (booking.queue) {
-        await prisma.queue.update({
-            where: { id: booking.queue.id },
-            data: {
-                status: "CANCELLED",
-                paymentStatus: booking.queue.paymentStatus === "PAID_HELD" ? "REFUNDED" : booking.queue.paymentStatus
-            }
-        });
+        if (!hasHeldOnlinePayment) {
+            await prisma.queue.update({
+                where: { id: booking.queue.id },
+                data: { status: "CANCELLED", paymentStatus: booking.queue.paymentStatus },
+            });
+        }
         // Recalculate queue and notify waitlist
         await recalculateQueue(booking.queue.serviceId);
         await notifyWaitlist(booking.queue.serviceId);
-    }
-    // If an online payment was refunded, create a REFUND transaction record
-    if (booking.paymentStatus === "PAID_HELD") {
-        // Determine the refund amount
-        let refundAmount = 0;
-        if (booking.directRequest) {
-            refundAmount = Number(booking.directRequest.agreedPrice);
-        }
-        else if (booking.offer) {
-            refundAmount = Number(booking.offer.offeredPrice);
-        }
-        else if (booking.service) {
-            refundAmount = Number(booking.service.price);
-        }
-        if (refundAmount > 0) {
-            await prisma.transaction.create({
-                data: {
-                    walletOwnerId: booking.seekerId,
-                    type: "REFUND",
-                    amount: refundAmount,
-                    relatedBookingId: booking.id,
-                    description: "Full refund for cancelled booking",
-                },
-            });
-        }
     }
     // Notify provider
     await prisma.notification.create({
@@ -80,7 +60,7 @@ export async function performImmediateCancel(bookingId) {
     safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancelled" });
     safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancelled" });
     // Notify seeker about the refund (if online payment)
-    if (booking.paymentStatus === "PAID_HELD") {
+    if (hasHeldOnlinePayment) {
         await prisma.notification.create({
             data: {
                 userId: booking.seekerId,
@@ -100,6 +80,14 @@ export async function requestCancellation(bookingId, seekerId, reason) {
     if (!booking || booking.seekerId !== seekerId) {
         const err = new Error("Booking not found or access denied");
         err.status = 404;
+        throw err;
+    }
+    if (booking.status === "CANCELED") {
+        return { cancelled: true, immediate: true, alreadyCancelled: true };
+    }
+    if (["COMPLETED", "CLOSED", "REMOVED"].includes(booking.status)) {
+        const err = new Error("This booking can no longer be cancelled");
+        err.status = 409;
         throw err;
     }
     if (booking.started === false) {
@@ -250,7 +238,7 @@ export async function escalateCancellationRequest(requestId, seekerId) {
     return updated;
 }
 // ── Resolve Cancellation Request (Admin/Moderator Action) ─────────────────────
-export async function adminResolveCancellationRequest(requestId, approve, adminNote) {
+export async function adminResolveCancellationRequest(requestId, approve, adminNote, adminId) {
     const cancelReq = await prisma.cancellationRequest.findUnique({
         where: { id: requestId },
         include: { booking: true }
@@ -265,12 +253,18 @@ export async function adminResolveCancellationRequest(requestId, approve, adminN
         err.status = 400;
         throw err;
     }
+    // External refunds must succeed before the moderation case is marked
+    // resolved. A gateway failure therefore leaves the case retryable.
+    if (approve) {
+        await performImmediateCancel(cancelReq.bookingId);
+    }
     // Update request status to RESOLVED
     const updatedRequest = await prisma.cancellationRequest.update({
         where: { id: requestId },
         data: {
             status: "RESOLVED",
             adminNote,
+            adminId,
             resolvedAt: new Date()
         }
     });
@@ -279,12 +273,12 @@ export async function adminResolveCancellationRequest(requestId, approve, adminN
         where: { bookingId: cancelReq.bookingId, status: { in: ["PENDING", "UNDER_REVIEW"] } },
         data: {
             status: "RESOLVED",
+            adminId,
             adminNotes: `Resolved via cancellation request flow: ${adminNote || ""}`,
             resolvedAt: new Date()
         }
     });
     if (approve) {
-        await performImmediateCancel(cancelReq.bookingId);
         // Notify both parties
         await prisma.notification.createMany({
             data: [
@@ -328,6 +322,19 @@ export async function adminResolveCancellationRequest(requestId, approve, adminN
     }
     safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_admin_resolved" });
     safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_admin_resolved" });
+    if (adminId) {
+        await prisma.adminAuditLog.create({
+            data: {
+                actorId: adminId,
+                targetUserId: cancelReq.booking.providerId,
+                action: approve ? "CANCELLATION_APPROVED" : "CANCELLATION_DENIED",
+                resourceType: "CancellationRequest",
+                resourceId: requestId,
+                reason: adminNote || "Administrator resolved escalated cancellation",
+                metadata: { bookingId: cancelReq.bookingId },
+            },
+        });
+    }
     return updatedRequest;
 }
 //# sourceMappingURL=cancellation.service.js.map

@@ -13,17 +13,21 @@ import { prisma } from "../lib/prisma";
  *    so the Trust History tab always matches the displayed score exactly.
  * 3. Score is always clamped between 0 and 100.
  */
-export async function applyTrustEvent(userId, delta, reason) {
-    // Use a transaction so the score update and history record are always atomic.
+export async function applyTrustEvent(userId, delta, reason, actorAdminId) {
+    // Lock the user row so concurrent trust events cannot overwrite each other.
     await prisma.$transaction(async (tx) => {
-        const user = await tx.user.findUnique({
-            where: { id: userId },
-            select: { trustScore: true },
-        });
-        if (!user)
-            return;
+        const users = await tx.$queryRaw `
+      SELECT "trustScore" FROM "users" WHERE "id" = ${userId} FOR UPDATE
+    `;
+        const user = users[0];
+        if (!user) {
+            const error = new Error("User not found");
+            error.status = 404;
+            throw error;
+        }
         const scoreBefore = user.trustScore;
         const scoreAfter = Math.min(100, Math.max(0, scoreBefore + delta));
+        const effectiveDelta = scoreAfter - scoreBefore;
         // 1. Update the live score on the User record
         await tx.user.update({
             where: { id: userId },
@@ -34,12 +38,26 @@ export async function applyTrustEvent(userId, delta, reason) {
         await tx.trustScoreEvent.create({
             data: {
                 userId,
-                delta,
+                delta: effectiveDelta,
                 reason,
                 scoreBefore,
                 scoreAfter,
+                actorAdminId,
             },
         });
+        if (actorAdminId) {
+            await tx.adminAuditLog.create({
+                data: {
+                    actorId: actorAdminId,
+                    targetUserId: userId,
+                    action: "TRUST_SCORE_ADJUSTED",
+                    resourceType: "User",
+                    resourceId: userId,
+                    reason,
+                    metadata: { requestedDelta: delta, scoreBefore, scoreAfter },
+                },
+            });
+        }
         console.log(`[TrustEngine] ${userId}: ${delta > 0 ? "+" : ""}${delta} (${scoreBefore} → ${scoreAfter}) — ${reason}`);
     });
 }
@@ -66,8 +84,8 @@ export async function recordAccountCreationBaseline(userId) {
  * Masterprompt Part 15: verification approval grants a one-time +5.
  * (Part 5 confirms this exact value: "one-time trust_score: +5")
  */
-export async function applyVerificationApprovalTrust(userId) {
-    await applyTrustEvent(userId, +5, "Residency & Identity Verification Approved by Cordova Admin");
+export async function applyVerificationApprovalTrust(userId, actorAdminId) {
+    await applyTrustEvent(userId, +5, "Residency & Identity Verification Approved by Cordova Admin", actorAdminId);
 }
 /**
  * Masterprompt Part 10 (Path A): provider gets a small trust increase
@@ -115,8 +133,8 @@ export async function applyCancellationTrust(userId, isProvider) {
 /**
  * Masterprompt Part 15: deduction for a validated report against the user.
  */
-export async function applyReportPenaltyTrust(userId) {
-    await applyTrustEvent(userId, -10, "Valid report filed and confirmed by admin");
+export async function applyReportPenaltyTrust(userId, actorAdminId) {
+    await applyTrustEvent(userId, -10, "Valid report filed and confirmed by admin", actorAdminId);
 }
 /**
  * Masterprompt Part 17: deduction on 2nd repeated listing rejection.
