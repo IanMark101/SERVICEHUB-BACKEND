@@ -193,7 +193,8 @@ export async function sendMessage(
   senderId: string,
   content: string,
   imageUrl?: string,
-  isSystem: boolean = false
+  isSystem: boolean = false,
+  senderRole?: string,
 ) {
   if (!content?.trim() && !imageUrl) {
     const err = new Error("Message content is required") as any;
@@ -202,7 +203,7 @@ export async function sendMessage(
   }
 
   // Validate access and get booking details
-  const booking = await checkMessagingAccess(bookingId, senderId);
+  const booking = await checkMessagingAccess(bookingId, senderId, senderRole);
 
   // Validate permissions: messaging is active only when Accepted or In Progress
   // System messages can bypass this check to log status changes.

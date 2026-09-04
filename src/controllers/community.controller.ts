@@ -43,6 +43,8 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
         where: {
           verificationStatus: "APPROVED",
           isActive: true,
+          moderationStatus: "ACTIVE",
+          emailVerified: true,
           completedAsProvider: {
             some: { completedAt: { gte: leaderboardWeekStart, lt: leaderboardWeekEnd } },
           },
@@ -80,7 +82,7 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
       prisma.completedService.count(),
 
       // ── 3. Verified Residents (Real DB Count) ──────────────────────────────
-      prisma.user.count({ where: { verificationStatus: "APPROVED", isActive: true } }),
+      prisma.user.count({ where: { verificationStatus: "APPROVED", isActive: true, moderationStatus: "ACTIVE", emailVerified: true } }),
 
       // ── 4. Active Discoverable Providers (Marketplace Aligned) ────────────
       getActivePublicProviderCount(),

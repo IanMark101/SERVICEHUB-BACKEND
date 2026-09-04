@@ -50,7 +50,8 @@ export async function createRequest(seekerId: string, params: {
 export async function listRequests(categoryId?: string) {
   return prisma.serviceRequest.findMany({
     where: {
-      status: { in: ["OPEN", "IN_PROGRESS"] },
+      status: "OPEN",
+      seeker: { isActive: true, moderationStatus: "ACTIVE", emailVerified: true, verificationStatus: "APPROVED" },
       ...(categoryId && { categoryId }),
     },
     include: {
@@ -112,6 +113,17 @@ export async function updateRequest(requestId: string, seekerId: string, params:
     throw err;
   }
 
+  if (!["OPEN", "CLOSED"].includes(request.status)) {
+    const err = new Error("A matched, payment-pending, or completed request cannot be edited or reopened") as any;
+    err.status = 409;
+    throw err;
+  }
+  if (request.status === "CLOSED" && (params.status !== "OPEN" || Object.keys(params).some((key) => key !== "status"))) {
+    const err = new Error("A paused request must be reopened before its details can be edited") as any;
+    err.status = 409;
+    throw err;
+  }
+
   const nextBudgetMin = params.budgetMin ?? Number(request.budgetMin);
   const nextBudgetMax = params.budgetMax ?? Number(request.budgetMax);
   if (!Number.isFinite(nextBudgetMin) || !Number.isFinite(nextBudgetMax) || nextBudgetMax < nextBudgetMin) {
@@ -137,12 +149,17 @@ export async function cancelRequest(requestId: string, seekerId: string) {
     throw err;
   }
 
-  // Pure erase from database: hard delete all associated offers and the request itself
-  await prisma.offer.deleteMany({
-    where: { requestId },
-  });
+  if (request.status !== "OPEN") {
+    const err = new Error("Only an open unmatched request can be cancelled directly") as any;
+    err.status = 409;
+    throw err;
+  }
 
-  return prisma.serviceRequest.delete({
-    where: { id: requestId },
+  return prisma.$transaction(async (tx) => {
+    await tx.offer.updateMany({ where: { requestId, status: "PENDING" }, data: { status: "REJECTED" } });
+    return tx.serviceRequest.update({
+      where: { id: requestId },
+      data: { status: "CANCELED" },
+    });
   });
 }

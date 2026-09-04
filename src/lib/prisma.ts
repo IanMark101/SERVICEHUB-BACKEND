@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../generated/prisma";
+import { PrismaClient } from "@prisma/client";
 import { env } from "../config/env";
 import { enforceDatabaseTlsVerification } from "../config/database-url";
 
@@ -23,7 +23,7 @@ if (globalForPrisma.prisma) {
   
   prismaInstance = new PrismaClient({
     adapter,
-    log: env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+    log: env.PRISMA_LOG_QUERIES === "true" ? ["query", "error", "warn"] : ["error", "warn"],
   });
 
   if (env.NODE_ENV !== "production") {

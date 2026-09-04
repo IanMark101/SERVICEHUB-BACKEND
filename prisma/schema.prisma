@@ -4,7 +4,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -52,6 +51,7 @@ enum ServiceType {
 
 enum RequestStatus {
   OPEN
+  PAYMENT_PENDING
   IN_PROGRESS
   CLOSED
   CANCELED
@@ -59,8 +59,10 @@ enum RequestStatus {
 
 enum OfferStatus {
   PENDING
+  PENDING_PAYMENT
   ACCEPTED
   REJECTED
+  WITHDRAWN
 }
 
 enum DirectRequestStatus {
@@ -81,8 +83,29 @@ enum PaymentStatus {
   UNPAID
   PAID_HELD
   FROZEN_HELD
+  CASH_CONFIRMED
   RELEASED
   REFUNDED
+}
+
+enum PaymentAttemptStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+  REFUND_REQUIRED
+  REFUNDED
+}
+
+enum ProcessedWebhookStatus {
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+enum BookingOriginType {
+  DIRECT_LISTING
+  OFFER
 }
 
 enum ReportReason {
@@ -138,94 +161,94 @@ enum BookingStatus {
 // ─────────────────────────────────────────────
 
 model User {
-  id                  String             @id @default(cuid())
-  name                String
-  email               String             @unique
-  passwordHash        String
-  phone               String
-  location            String
-  avatarUrl           String?
-  bio                 String?
-  facebookUrl         String?
-  instagramUrl        String?
-  websiteUrl          String?
-  role                String             @default("user") // "user" | "admin"
-  trustScore          Int                @default(50)
-  verificationStatus  VerificationStatus @default(UNVERIFIED)
-  isActive            Boolean            @default(true)
-  moderationStatus    AccountModerationStatus @default(ACTIVE)
-  suspendedUntil      DateTime?
-  moderationReason    String?
-  postingSuspended    Boolean            @default(false)
-  postingSuspendedAt  DateTime?
+  id                   String                  @id @default(cuid())
+  name                 String
+  email                String                  @unique
+  passwordHash         String
+  phone                String
+  location             String
+  avatarUrl            String?
+  bio                  String?
+  facebookUrl          String?
+  instagramUrl         String?
+  websiteUrl           String?
+  role                 String                  @default("user") // "user" | "admin"
+  trustScore           Int                     @default(50)
+  verificationStatus   VerificationStatus      @default(UNVERIFIED)
+  isActive             Boolean                 @default(true)
+  moderationStatus     AccountModerationStatus @default(ACTIVE)
+  suspendedUntil       DateTime?
+  moderationReason     String?
+  postingSuspended     Boolean                 @default(false)
+  postingSuspendedAt   DateTime?
   postingSuspendReason String?
-  emailVerified       Boolean            @default(false)
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  emailVerified        Boolean                 @default(false)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
   // Auth relations
-  refreshTokens         RefreshToken[]
-  emailVerifTokens      EmailVerificationToken[]
-  passwordResetTokens   PasswordResetToken[]
+  refreshTokens       RefreshToken[]
+  emailVerifTokens    EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
 
   // Verification relations
-  verifications         ServiceVerification[]
+  verifications ServiceVerification[]
 
   // Marketplace relations — as seeker
-  serviceRequests       ServiceRequest[]
-  directRequestsSeeker  DirectRequest[]        @relation("SeekerDirectRequests")
-  queueEntries          Queue[]
-  queueNotifications    QueueNotify[]
-  bookingsAsSeeker      Booking[]              @relation("SeekerBookings")
+  serviceRequests      ServiceRequest[]
+  directRequestsSeeker DirectRequest[]  @relation("SeekerDirectRequests")
+  queueEntries         Queue[]
+  queueNotifications   QueueNotify[]
+  bookingsAsSeeker     Booking[]        @relation("SeekerBookings")
 
   // Marketplace relations — as provider
-  services              Service[]
-  offers                Offer[]                @relation("ProviderOffers")
-  directRequestsProvider DirectRequest[]       @relation("ProviderDirectRequests")
-  bookingsAsProvider    Booking[]              @relation("ProviderBookings")
+  services               Service[]
+  offers                 Offer[]         @relation("ProviderOffers")
+  directRequestsProvider DirectRequest[] @relation("ProviderDirectRequests")
+  bookingsAsProvider     Booking[]       @relation("ProviderBookings")
 
   // Completed services
-  completedAsSeeker     CompletedService[]     @relation("SeekerCompleted")
-  completedAsProvider   CompletedService[]     @relation("ProviderCompleted")
+  completedAsSeeker   CompletedService[] @relation("SeekerCompleted")
+  completedAsProvider CompletedService[] @relation("ProviderCompleted")
 
   // Reviews
-  reviewsAuthored       Review[]               @relation("ReviewAuthor")
-  reviewsReceived       Review[]               @relation("ReviewTarget")
+  reviewsAuthored Review[] @relation("ReviewAuthor")
+  reviewsReceived Review[] @relation("ReviewTarget")
 
   // Reports
-  reportsFiledBy        Report[]               @relation("ReporterReports")
-  reportsAgainst        Report[]               @relation("ReportedUserReports")
+  reportsFiledBy Report[] @relation("ReporterReports")
+  reportsAgainst Report[] @relation("ReportedUserReports")
 
   // Admin actions on verifications
-  verificationsReviewed ServiceVerification[]  @relation("AdminReviewer")
+  verificationsReviewed ServiceVerification[] @relation("AdminReviewer")
 
   // Messages
-  messagesSent          Message[]              @relation("MessageSender")
-  messagesReceived      Message[]              @relation("MessageReceiver")
+  messagesSent     Message[] @relation("MessageSender")
+  messagesReceived Message[] @relation("MessageReceiver")
 
   // Transactions (wallet)
-  transactions          Transaction[]
+  transactions Transaction[]
 
   // Notifications
-  notifications         Notification[]
+  notifications Notification[]
 
   // Official Community Hub announcements (admin authored only)
-  announcementsAuthored Announcement[]        @relation("AnnouncementAuthor")
+  announcementsAuthored Announcement[] @relation("AnnouncementAuthor")
 
   // Category suggestions
-  categorySuggestions   CategorySuggested[]
+  categorySuggestions CategorySuggested[]
 
   // Trust Score audit log
   trustScoreEvents      TrustScoreEvent[]
-  adminActionsAuthored  AdminAuditLog[]      @relation("AdminAuditActor")
-  adminActionsReceived  AdminAuditLog[]      @relation("AdminAuditTarget")
-  trustEventsAuthored   TrustScoreEvent[]    @relation("TrustEventAdmin")
-  reportsResolved       Report[]             @relation("ReportAdmin")
-  servicesReviewed      Service[]            @relation("ServiceReviewer")
-  categoriesReviewed    CategorySuggested[]  @relation("CategoryReviewer")
+  adminActionsAuthored  AdminAuditLog[]       @relation("AdminAuditActor")
+  adminActionsReceived  AdminAuditLog[]       @relation("AdminAuditTarget")
+  trustEventsAuthored   TrustScoreEvent[]     @relation("TrustEventAdmin")
+  reportsResolved       Report[]              @relation("ReportAdmin")
+  servicesReviewed      Service[]             @relation("ServiceReviewer")
+  categoriesReviewed    CategorySuggested[]   @relation("CategoryReviewer")
   cancellationsResolved CancellationRequest[] @relation("CancellationAdmin")
-  refundsRequested      PaymentRefund[]      @relation("RefundAdmin")
-
+  cancellationResponses CancellationRequest[] @relation("CancellationResponder")
+  refundsRequested      PaymentRefund[]       @relation("RefundAdmin")
 
   @@map("users")
 }
@@ -279,7 +302,7 @@ model ServiceVerification {
   admin       User?              @relation("AdminReviewer", fields: [adminId], references: [id])
   adminNotes  String?
 
-  proofs      VerificationProof[]
+  proofs VerificationProof[]
 
   @@map("service_verifications")
 }
@@ -292,7 +315,7 @@ model VerificationProof {
   storageKey     String?
   mimeType       String?
   sizeBytes      Int?
-  documentType   String              // "barangay_id" | "government_id" | "proof_of_residency" | "skill_cert"
+  documentType   String // "barangay_id" | "government_id" | "proof_of_residency" | "skill_cert"
   uploadedAt     DateTime            @default(now())
 
   @@map("verification_proofs")
@@ -303,25 +326,25 @@ model VerificationProof {
 // ─────────────────────────────────────────────
 
 model Category {
-  id       String    @id @default(cuid())
-  name     String    @unique
-  isActive Boolean   @default(true)
+  id       String  @id @default(cuid())
+  name     String  @unique
+  isActive Boolean @default(true)
 
-  services         Service[]
-  serviceRequests  ServiceRequest[]
+  services        Service[]
+  serviceRequests ServiceRequest[]
 
   @@map("categories")
 }
 
 model CategorySuggested {
-  id          String                   @id @default(cuid())
-  submitterId String
-  submitter   User                     @relation(fields: [submitterId], references: [id], onDelete: Cascade)
-  name        String
-  description String
-  status      CategorySuggestionStatus @default(PENDING)
-  submittedAt DateTime                 @default(now())
-  reviewedAt  DateTime?
+  id           String                   @id @default(cuid())
+  submitterId  String
+  submitter    User                     @relation(fields: [submitterId], references: [id], onDelete: Cascade)
+  name         String
+  description  String
+  status       CategorySuggestionStatus @default(PENDING)
+  submittedAt  DateTime                 @default(now())
+  reviewedAt   DateTime?
   reviewedById String?
   reviewedBy   User?                    @relation("CategoryReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   adminNotes   String?
@@ -334,37 +357,37 @@ model CategorySuggested {
 // ─────────────────────────────────────────────
 
 model Service {
-  id                   String        @id @default(cuid())
-  providerId           String
-  provider             User          @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  categoryId           String
-  category             Category      @relation(fields: [categoryId], references: [id])
-  title                String
-  description          String
-  price                Decimal       @db.Decimal(10, 2)
-  priceType            PriceType     @default(FIXED)
+  id                    String        @id @default(cuid())
+  providerId            String
+  provider              User          @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  categoryId            String
+  category              Category      @relation(fields: [categoryId], references: [id])
+  title                 String
+  description           String
+  price                 Decimal       @db.Decimal(10, 2)
+  priceType             PriceType     @default(FIXED)
   // serviceType classifies the listing. ONE_TIME = single engagement (plumbing, repairs).
   // SESSION_BASED = repeatable sessions against the same listing (tutoring, fitness coaching).
   // Multiple Bookings against a SESSION_BASED listing represent individual sessions.
-  serviceType          ServiceType   @default(ONE_TIME)
+  serviceType           ServiceType   @default(ONE_TIME)
   estimatedDurationMins Int
-  queueLimit           Int           @default(3)
+  queueLimit            Int           @default(3)
   // payment_methods stored as JSON: { gcash: bool, maya: bool, cash: bool }
-  paymentMethods       Json
-  status               ServiceStatus @default(PENDING_REVIEW)
-  isAvailable          Boolean       @default(false)
-  rejectionCount       Int           @default(0)
-  adminNotes           String?
-  reviewedById         String?
-  reviewedBy           User?         @relation("ServiceReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  reviewedAt           DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  paymentMethods        Json
+  status                ServiceStatus @default(PENDING_REVIEW)
+  isAvailable           Boolean       @default(false)
+  rejectionCount        Int           @default(0)
+  adminNotes            String?
+  reviewedById          String?
+  reviewedBy            User?         @relation("ServiceReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt            DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
-  directRequests  DirectRequest[]
-  queueEntries    Queue[]
-  queueNotify     QueueNotify[]
-  bookings        Booking[]
+  directRequests DirectRequest[]
+  queueEntries   Queue[]
+  queueNotify    QueueNotify[]
+  bookings       Booking[]
 
   @@unique([providerId, title])
   @@map("services")
@@ -384,32 +407,36 @@ model ServiceRequest {
   description String
   budgetMin   Decimal       @db.Decimal(10, 2)
   budgetMax   Decimal       @db.Decimal(10, 2)
-  urgency     String        // "low" | "medium" | "high"
+  urgency     String // "low" | "medium" | "high"
   status      RequestStatus @default(OPEN)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  offers      Offer[]
+  offers Offer[]
 
   @@map("service_requests")
 }
 
 model Offer {
-  id                String      @id @default(cuid())
-  requestId         String
-  request           ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  providerId        String
-  provider          User        @relation("ProviderOffers", fields: [providerId], references: [id], onDelete: Cascade)
-  offeredPrice      Decimal     @db.Decimal(10, 2)
-  estimatedDuration Int         // minutes
-  availability      String?
-  message           String?
-  status            OfferStatus @default(PENDING)
-  createdAt         DateTime    @default(now())
+  id                   String         @id @default(cuid())
+  requestId            String
+  request              ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  providerId           String
+  provider             User           @relation("ProviderOffers", fields: [providerId], references: [id], onDelete: Cascade)
+  // Nullable only for legacy rows. Every new offer must name the exact listing
+  // whose online queue and payment rules will be used.
+  serviceId            String?
+  offeredPrice         Decimal        @db.Decimal(10, 2)
+  estimatedDuration    Int // minutes
+  availability         String?
+  message              String?
+  status               OfferStatus    @default(PENDING)
+  paymentHoldExpiresAt DateTime?
+  createdAt            DateTime       @default(now())
 
   // CompletedService is created only after seeker confirmation, never at acceptance time.
-  completedService  CompletedService?
-  booking           Booking?
+  completedService CompletedService?
+  booking          Booking?
 
   @@map("offers")
 }
@@ -426,7 +453,7 @@ model DirectRequest {
   provider              User                @relation("ProviderDirectRequests", fields: [providerId], references: [id], onDelete: Cascade)
   serviceId             String
   service               Service             @relation(fields: [serviceId], references: [id])
-  selectedPaymentMethod String              // "cash" only (online goes through Queue)
+  selectedPaymentMethod String // "cash" only (online goes through Queue)
   agreedPrice           Decimal             @db.Decimal(10, 2)
   schedule              String?
   message               String?
@@ -434,8 +461,8 @@ model DirectRequest {
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
-  completedService  CompletedService?
-  booking           Booking?
+  completedService CompletedService?
+  booking          Booking?
 
   @@map("direct_requests")
 }
@@ -445,22 +472,22 @@ model DirectRequest {
 // ─────────────────────────────────────────────
 
 model Queue {
-  id            String      @id @default(cuid())
-  serviceId     String
-  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  seekerId      String
-  seeker        User        @relation(fields: [seekerId], references: [id], onDelete: Cascade)
+  id                String        @id @default(cuid())
+  serviceId         String
+  service           Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  seekerId          String
+  seeker            User          @relation(fields: [seekerId], references: [id], onDelete: Cascade)
   // bookingId references: offerId or directRequestId — stored as string for flexibility
   // (cash bookings NEVER appear here — enforced at application layer)
-  offerId       String?     @unique // FK to accepted Offer (Flow B online path)
-  paymentId     String      @unique // PayMongo payment intent ID — required, cash never enters
-  paymongoPaymentId String?     @unique
-  paymentStatus PaymentStatus @default(PAID_HELD)
-  position      Int
-  status        QueueStatus @default(WAITING)
-  estimatedWait Int         // minutes
-  joinedAt      DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  offerId           String?       @unique // FK to accepted Offer (Flow B online path)
+  paymentId         String        @unique // PayMongo payment intent ID — required, cash never enters
+  paymongoPaymentId String?       @unique
+  paymentStatus     PaymentStatus @default(PAID_HELD)
+  position          Int
+  status            QueueStatus   @default(WAITING)
+  estimatedWait     Int // minutes
+  joinedAt          DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   completedService CompletedService?
   bookingId        String?           @unique
@@ -497,30 +524,33 @@ model Booking {
   offer           Offer?         @relation(fields: [offerId], references: [id], onDelete: SetNull)
   directRequestId String?        @unique
   directRequest   DirectRequest? @relation(fields: [directRequestId], references: [id], onDelete: SetNull)
-  
-  paymentMethod   String         // "GCash" | "On-site Cash"
-  agreedAmount    Decimal?       @db.Decimal(10, 2) // immutable price snapshot at booking/payment time
-  paymentStatus   PaymentStatus  @default(PAID_HELD)
-  status          BookingStatus  @default(WAITING)
-  queuePosition   Int?
-  started         Boolean        @default(false)
+
+  originType          BookingOriginType?
+  paymentAttemptId    String?            @unique
+  paymentMethod       String // "GCash" | "On-site Cash"
+  agreedAmount        Decimal?           @db.Decimal(10, 2) // immutable price snapshot at booking/payment time
+  paymentStatus       PaymentStatus      @default(PAID_HELD)
+  status              BookingStatus      @default(WAITING)
+  statusBeforeDispute BookingStatus?
+  queuePosition       Int?
+  started             Boolean            @default(false)
   // Optional scheduling fields for session-based services.
   // scheduledDate: the date the session is scheduled (ISO 8601 date string stored as text for flexibility).
   // scheduledTime: the start time of the session (e.g. "14:00").
   // Each individual Booking represents one session; recurring means multiple Bookings on the same listing.
-  scheduledDate   String?        // e.g. "2026-08-15"
-  scheduledTime   String?        // e.g. "16:00"
-  hiddenBySeeker   Boolean        @default(false)
-  hiddenByProvider Boolean        @default(false)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  scheduledDate       String? // e.g. "2026-08-15"
+  scheduledTime       String? // e.g. "16:00"
+  hiddenBySeeker      Boolean            @default(false)
+  hiddenByProvider    Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
-  queue            Queue?
-  completedService CompletedService?
-  messages         Message[]
-  reports          Report[]
+  queue                Queue?
+  completedService     CompletedService?
+  messages             Message[]
+  reports              Report[]
   cancellationRequests CancellationRequest[]
-  refund           PaymentRefund?
+  refund               PaymentRefund?
 
   @@map("bookings")
 }
@@ -530,16 +560,16 @@ model Booking {
 // ─────────────────────────────────────────────
 
 model CompletedService {
-  id            String        @id @default(cuid())
+  id              String         @id @default(cuid())
   // Exactly one of the following FKs will be set depending on which flow completed
-  queueId       String?       @unique
-  queue         Queue?        @relation(fields: [queueId], references: [id])
-  directRequestId String?     @unique
-  directRequest DirectRequest? @relation(fields: [directRequestId], references: [id])
-  offerId       String?       @unique
-  offer         Offer?        @relation(fields: [offerId], references: [id])
-  bookingId     String?       @unique
-  booking       Booking?      @relation(fields: [bookingId], references: [id])
+  queueId         String?        @unique
+  queue           Queue?         @relation(fields: [queueId], references: [id])
+  directRequestId String?        @unique
+  directRequest   DirectRequest? @relation(fields: [directRequestId], references: [id])
+  offerId         String?        @unique
+  offer           Offer?         @relation(fields: [offerId], references: [id])
+  bookingId       String?        @unique
+  booking         Booking?       @relation(fields: [bookingId], references: [id])
 
   seekerId      String
   seeker        User          @relation("SeekerCompleted", fields: [seekerId], references: [id])
@@ -549,7 +579,7 @@ model CompletedService {
   paymentStatus PaymentStatus @default(PAID_HELD)
   completedAt   DateTime      @default(now())
 
-  reviews       Review[]
+  reviews Review[]
 
   @@map("completed_services")
 }
@@ -559,20 +589,21 @@ model CompletedService {
 // ─────────────────────────────────────────────
 
 model Review {
-  id                 String          @id @default(cuid())
+  id                 String           @id @default(cuid())
   completedServiceId String
   completedService   CompletedService @relation(fields: [completedServiceId], references: [id], onDelete: Cascade)
   authorId           String
-  author             User            @relation("ReviewAuthor", fields: [authorId], references: [id])
+  author             User             @relation("ReviewAuthor", fields: [authorId], references: [id])
   targetId           String
-  target             User            @relation("ReviewTarget", fields: [targetId], references: [id])
-  rating             Int             // 1–5
+  target             User             @relation("ReviewTarget", fields: [targetId], references: [id])
+  rating             Int // 1–5
   text               String?
-  tags               Json?           // string array e.g. ["On Time", "Skilled"]
-  aiSummaryUsed      Boolean         @default(false)
-  createdAt          DateTime        @default(now())
-  editableUntil      DateTime        // 24 hours after createdAt
+  tags               Json? // string array e.g. ["On Time", "Skilled"]
+  aiSummaryUsed      Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+  editableUntil      DateTime // 24 hours after createdAt
 
+  @@unique([completedServiceId, authorId])
   @@map("reviews")
 }
 
@@ -585,18 +616,19 @@ model Report {
   bookingId      String
   booking        Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   reporterId     String
-  reporter           User            @relation("ReporterReports", fields: [reporterId], references: [id])
-  reportedUserId     String
-  reportedUser       User            @relation("ReportedUserReports", fields: [reportedUserId], references: [id])
-  reason             ReportReason
-  description        String
-  evidenceUrl        String?
-  status             ReportStatus    @default(PENDING)
-  adminId            String?
-  admin              User?           @relation("ReportAdmin", fields: [adminId], references: [id], onDelete: SetNull)
-  adminNotes         String?
-  resolvedAt         DateTime?
-  createdAt          DateTime        @default(now())
+  reporter       User         @relation("ReporterReports", fields: [reporterId], references: [id])
+  reportedUserId String
+  reportedUser   User         @relation("ReportedUserReports", fields: [reportedUserId], references: [id])
+  reason         ReportReason
+  description    String
+  evidenceUrl    String?
+  reportType     String       @default("SAFETY")
+  status         ReportStatus @default(PENDING)
+  adminId        String?
+  admin          User?        @relation("ReportAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  adminNotes     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime     @default(now())
 
   @@map("reports")
 }
@@ -606,20 +638,20 @@ model Report {
 // ─────────────────────────────────────────────
 
 model Message {
-  id               String   @id @default(cuid())
+  id         String   @id @default(cuid())
   // CRITICAL: every message must be tied to a Booking
   // This enables: (1) unlock gate, (2) dispute evidence retrieval
-  bookingId        String
-  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  senderId         String
-  sender           User            @relation("MessageSender", fields: [senderId], references: [id])
-  receiverId       String
-  receiver         User            @relation("MessageReceiver", fields: [receiverId], references: [id])
-  content          String
-  imageUrl         String?
-  isRead             Boolean         @default(false)
-  isSystem         Boolean         @default(false)
-  createdAt          DateTime        @default(now())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  senderId   String
+  sender     User     @relation("MessageSender", fields: [senderId], references: [id])
+  receiverId String
+  receiver   User     @relation("MessageReceiver", fields: [receiverId], references: [id])
+  content    String
+  imageUrl   String?
+  isRead     Boolean  @default(false)
+  isSystem   Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
   @@map("messages")
 }
@@ -635,9 +667,11 @@ model Transaction {
   type             TransactionType
   amount           Decimal         @db.Decimal(10, 2)
   status           String          @default("completed") // "completed" | "pending" | "failed"
-  relatedBookingId String?         // CompletedService id
-  paymongoRefId    String?         // PayMongo reference
+  relatedBookingId String? // CompletedService id
+  paymongoRefId    String? // PayMongo reference
   description      String?
+  idempotencyKey   String?         @unique
+  settlementSource String?
   createdAt        DateTime        @default(now())
 
   @@map("transactions")
@@ -654,7 +688,7 @@ model Notification {
   title     String
   body      String
   isRead    Boolean  @default(false)
-  link      String?  // optional deep-link route
+  link      String? // optional deep-link route
   createdAt DateTime @default(now())
 
   @@map("notifications")
@@ -663,15 +697,15 @@ model Notification {
 // ─── COMMUNITY HUB ANNOUNCEMENTS ────────────────────────────────────────────
 // Official notices only. This intentionally is not a user-generated feed.
 model Announcement {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   body        String
   authorId    String
-  author      User     @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  isPublished Boolean  @default(true)
+  author      User      @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  isPublished Boolean   @default(true)
   publishedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([isPublished, publishedAt])
   @@map("announcements")
@@ -682,16 +716,17 @@ model Announcement {
 // ─────────────────────────────────────────────
 
 model TrustScoreEvent {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  delta       Int      // positive = gain, negative = deduction
-  reason      String   // human-readable label shown in Trust History tab
-  scoreBefore Int      // snapshot of score BEFORE this event
-  scoreAfter  Int      // snapshot of score AFTER this event (clamped 0–100)
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  delta        Int // positive = gain, negative = deduction
+  reason       String // human-readable label shown in Trust History tab
+  scoreBefore  Int // snapshot of score BEFORE this event
+  scoreAfter   Int // snapshot of score AFTER this event (clamped 0–100)
   actorAdminId String?
   actorAdmin   User?    @relation("TrustEventAdmin", fields: [actorAdminId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+  eventKey     String?  @unique
+  createdAt    DateTime @default(now())
 
   @@map("trust_score_events")
 }
@@ -701,29 +736,33 @@ model TrustScoreEvent {
 // ─────────────────────────────────────────────
 
 model AiReviewSummary {
-  id            String   @id @default(cuid())
-  providerId    String   @unique
-  summary       String
-  reviewCount   Int      // how many reviews were in the batch
-  generatedAt   DateTime @default(now())
+  id          String   @id @default(cuid())
+  providerId  String   @unique
+  summary     String
+  reviewCount Int // how many reviews were in the batch
+  generatedAt DateTime @default(now())
 
   @@map("ai_review_summaries")
 }
 
 model CancellationRequest {
-  id           String    @id @default(cuid())
-  bookingId    String
-  booking      Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  requestedBy  String
-  reason       String?
-  status       String    // "PENDING" | "APPROVED" | "DECLINED" | "ESCALATED" | "RESOLVED"
-  providerNote String?
-  adminNote    String?
-  adminId      String?
-  admin        User?     @relation("CancellationAdmin", fields: [adminId], references: [id], onDelete: SetNull)
-  createdAt    DateTime  @default(now())
-  resolvedAt   DateTime?
+  id            String    @id @default(cuid())
+  bookingId     String
+  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  requestedBy   String
+  responderId   String?
+  responder     User?     @relation("CancellationResponder", fields: [responderId], references: [id], onDelete: SetNull)
+  reason        String?
+  status        String // "PENDING" | "APPROVED" | "DECLINED" | "ESCALATED" | "RESOLVED"
+  providerNote  String?
+  responderNote String?
+  adminNote     String?
+  adminId       String?
+  admin         User?     @relation("CancellationAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
 
+  @@index([responderId, status])
   @@map("cancellation_requests")
 }
 
@@ -748,8 +787,9 @@ model AdminAuditLog {
 
 model PaymentRefund {
   id               String   @id @default(cuid())
-  bookingId        String   @unique
-  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  bookingId        String?  @unique
+  booking          Booking? @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  paymentAttemptId String?  @unique
   paymentId        String   @unique
   paymongoRefundId String?  @unique
   amount           Decimal  @db.Decimal(10, 2)
@@ -763,4 +803,63 @@ model PaymentRefund {
 
   @@index([status, createdAt])
   @@map("payment_refunds")
+}
+
+// Durable record created before contacting PayMongo. Browser redirects never
+// create bookings; only a verified webhook consumes a successful attempt.
+model PaymentAttempt {
+  id                String               @id @default(cuid())
+  idempotencyKey    String               @unique
+  seekerId          String
+  providerId        String
+  serviceId         String
+  offerId           String?
+  providerIntentId  String?              @unique
+  providerPaymentId String?              @unique
+  providerClientKey String?
+  redirectUrl       String?
+  amount            Decimal              @db.Decimal(10, 2)
+  currency          String               @default("PHP")
+  paymentMethod     String
+  status            PaymentAttemptStatus @default(PENDING)
+  failureReason     String?
+  expiresAt         DateTime
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([seekerId, serviceId, status])
+  @@index([offerId, status])
+  @@map("payment_attempts")
+}
+
+model ProcessedWebhookEvent {
+  id            String                 @id @default(cuid())
+  provider      String
+  eventId       String
+  eventType     String
+  status        ProcessedWebhookStatus @default(PROCESSING)
+  failureReason String?
+  processedAt   DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@unique([provider, eventId])
+  @@index([status, createdAt])
+  @@map("processed_webhook_events")
+}
+
+model CompletionEscalation {
+  id          String    @id @default(cuid())
+  bookingId   String
+  requestedBy String
+  reason      String
+  status      String    @default("PENDING")
+  adminId     String?
+  resolution  String?
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([bookingId, status])
+  @@index([status, createdAt])
+  @@map("completion_escalations")
 }

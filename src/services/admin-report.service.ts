@@ -1,10 +1,11 @@
 import { prisma } from "../lib/prisma";
 import { recalculateQueue, notifyWaitlist } from "./queue.service";
 import { disconnectUserSockets, safeEmit, safeBroadcast } from "../lib/socket";
-import { ReportStatus } from "../generated/prisma";
+import { ReportStatus } from "@prisma/client";
 import { refundBookingPayment } from "./payment-refund.service";
+import { settleCompletedBooking } from "./bookings/completion.service";
 
-export type ReportAction = "warn" | "trust_deduct" | "suspend" | "ban" | "approve_refund" | "dismiss";
+export type ReportAction = "warn" | "trust_deduct" | "suspend" | "ban" | "approve_refund" | "release_provider_and_complete" | "dismiss";
 
 const reportInclude = {
   reporter: { select: { id: true, name: true, trustScore: true, verificationStatus: true } },
@@ -74,6 +75,9 @@ export async function resolveAdminReport(
   if (action === "approve_refund") {
     return resolveRefundReport(reportId, adminId, adminNotes);
   }
+  if (action === "release_provider_and_complete") {
+    return resolveReleaseReport(reportId, adminId, adminNotes);
+  }
 
   const report = await prisma.$transaction(async (tx) => {
     const current = await tx.report.findUnique({
@@ -118,25 +122,40 @@ export async function resolveAdminReport(
         },
       });
     } else if (action === "suspend" || action === "ban") {
+      const unstartedProviderBookings = await tx.booking.count({
+        where: {
+          providerId: current.reportedUserId,
+          started: false,
+          status: { in: ["PENDING_APPROVAL", "WAITING", "ACCEPTED"] },
+        },
+      });
+      if (unstartedProviderBookings > 0) {
+        const error = new Error(
+          `Resolve or administratively cancel the provider's ${unstartedProviderBookings} unstarted booking(s) before suspension or banning`,
+        ) as Error & { status?: number };
+        error.status = 409;
+        throw error;
+      }
       const suspendedUntil = action === "suspend"
         ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
         : null;
       await tx.user.update({
         where: { id: current.reportedUserId },
         data: {
-          isActive: false,
+          isActive: true,
           moderationStatus: action === "ban" ? "BANNED" : "SUSPENDED",
           suspendedUntil,
           moderationReason: adminNotes,
         },
       });
-      await tx.refreshToken.deleteMany({ where: { userId: current.reportedUserId } });
     } else if (action === "dismiss" && ["DISPUTED", "UNDER_REVIEW"].includes(current.booking.status)) {
+      const restoredStatus = current.booking.statusBeforeDispute || "AWAITING_CONFIRMATION";
+      const restoredPayment = current.booking.paymentMethod === "On-site Cash" ? "UNPAID" : "PAID_HELD";
       await tx.booking.update({
         where: { id: current.bookingId },
-        data: { status: "AWAITING_CONFIRMATION", paymentStatus: "PAID_HELD" },
+        data: { status: restoredStatus, statusBeforeDispute: null, paymentStatus: restoredPayment },
       });
-      await tx.queue.updateMany({ where: { bookingId: current.bookingId }, data: { paymentStatus: "PAID_HELD" } });
+      await tx.queue.updateMany({ where: { bookingId: current.bookingId }, data: { paymentStatus: restoredPayment } });
     }
 
     await tx.cancellationRequest.updateMany({
@@ -173,12 +192,6 @@ export async function resolveAdminReport(
     return current;
   });
 
-  if (action === "suspend" || action === "ban") {
-    await disconnectUserSockets(
-      report.reportedUserId,
-      action === "ban" ? "Account permanently banned" : "Account temporarily suspended",
-    );
-  }
   safeEmit(`user:${report.reporterId}`, "notification", { title: "Report Resolved" });
   safeEmit(`user:${report.reportedUserId}`, "notification", { title: "Report Against You Resolved" });
   safeBroadcast("ADMIN_MODERATION_CHANGED", { reportId, action });
@@ -269,4 +282,64 @@ async function resolveRefundReport(reportId: string, adminId: string, adminNotes
   safeEmit(`user:${report.reportedUserId}`, "notification", { title: "Booking Refunded" });
   safeBroadcast("ADMIN_MODERATION_CHANGED", { reportId, action: "approve_refund" });
   return { resolved: true, action: "approve_refund", refundId: refund.refundId };
+}
+
+async function resolveReleaseReport(reportId: string, adminId: string, adminNotes: string) {
+  const report = await prisma.report.findUnique({ where: { id: reportId }, include: { booking: true } });
+  if (!report) {
+    const error = new Error("Report not found") as Error & { status?: number };
+    error.status = 404;
+    throw error;
+  }
+  if (!(["PENDING", "UNDER_REVIEW"] as string[]).includes(report.status)) {
+    const error = new Error("Report has already been resolved") as Error & { status?: number };
+    error.status = 409;
+    throw error;
+  }
+  if (report.booking.status !== "DISPUTED") {
+    const error = new Error("Only a disputed booking can be released and completed") as Error & { status?: number };
+    error.status = 422;
+    throw error;
+  }
+
+  const claimedForReview = await prisma.report.updateMany({
+    where: { id: reportId, status: "PENDING" },
+    data: { status: "UNDER_REVIEW", adminId, adminNotes },
+  });
+  if (claimedForReview.count !== 1) {
+    const error = new Error("Report is already being resolved") as Error & { status?: number };
+    error.status = 409;
+    throw error;
+  }
+
+  let completed: Awaited<ReturnType<typeof settleCompletedBooking>>;
+  try {
+    completed = await settleCompletedBooking(report.bookingId, { type: "ADMIN", userId: adminId });
+  } catch (cause) {
+    await prisma.report.updateMany({
+      where: { id: reportId, status: "UNDER_REVIEW", adminId },
+      data: { status: "PENDING", adminId: null, adminNotes: null },
+    });
+    throw cause;
+  }
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.report.updateMany({
+      where: { id: reportId, status: "UNDER_REVIEW", adminId },
+      data: { status: "RESOLVED", adminId, adminNotes, resolvedAt: new Date() },
+    });
+    if (claimed.count !== 1) return;
+    await tx.adminAuditLog.create({
+      data: {
+        actorId: adminId,
+        targetUserId: report.reportedUserId,
+        action: "REPORT_RELEASE_PROVIDER_AND_COMPLETE",
+        resourceType: "Report",
+        resourceId: reportId,
+        reason: adminNotes,
+        metadata: { bookingId: report.bookingId, completedServiceId: completed.id },
+      },
+    });
+  });
+  safeBroadcast("ADMIN_MODERATION_CHANGED", { reportId, action: "release_provider_and_complete" });
+  return { resolved: true, action: "release_provider_and_complete", completedServiceId: completed.id };
 }

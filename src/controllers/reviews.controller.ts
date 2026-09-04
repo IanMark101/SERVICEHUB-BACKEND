@@ -5,6 +5,14 @@ import { applyReviewTrust } from "../services/trust.service";
 import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
 import { ReviewSchema, ReviewUpdateSchema } from "../schema/marketplace.schema";
+import { invalidateProviderSummary, summarizeProviderReviews } from "../services/ai.service";
+
+function refreshProviderSummary(providerId: string) {
+  invalidateProviderSummary(providerId);
+  void summarizeProviderReviews(providerId).catch((error) => {
+    console.warn("[AI Service] Could not pre-warm provider summary", error);
+  });
+}
 
 export async function submitReview(req: Request, res: Response, next: NextFunction) {
   try {
@@ -88,6 +96,7 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
       success: true,
       data: review
     });
+    refreshProviderSummary(targetId);
   } catch (err: any) {
     if (err.name === "ZodError") {
       return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
@@ -184,6 +193,7 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
       message: "Review updated successfully",
       data: updated
     });
+    refreshProviderSummary(existing.targetId);
   } catch (err: any) {
     if (err.name === "ZodError") {
       return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });

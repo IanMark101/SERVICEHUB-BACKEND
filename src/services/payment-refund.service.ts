@@ -90,6 +90,7 @@ export async function refundBookingPayment(
       paymentId,
       amount: intent.amount,
       reason: "requested_by_customer",
+      idempotencyKey: `servicehub-booking-refund-${bookingId}`,
     });
   } catch (error) {
     await prisma.paymentRefund.update({
@@ -132,6 +133,8 @@ export async function refundBookingPayment(
           relatedBookingId: bookingId,
           paymongoRefId: gatewayRefund.id,
           description: reason,
+          settlementSource: "ONLINE_LEDGER",
+          idempotencyKey: `booking-refund:${bookingId}`,
         },
       });
     }

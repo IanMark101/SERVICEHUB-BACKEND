@@ -19,6 +19,7 @@ import {
   hideBooking,
 } from "../controllers/bookings.controller";
 import { requireAuth, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
+import { escalateCompletion } from "../controllers/bookings/completion-escalations.controller";
 
 const router = Router();
 
@@ -52,6 +53,7 @@ router.patch("/queue/:id/complete", completeJob); // provider marks job complete
 // Seeker actions
 router.post("/:id/dispute", disputeJob); // dispute a booking
 router.post("/:id/confirm", confirmCompletion); // confirm completion of booking
+router.post("/:id/completion-escalations", escalateCompletion);
 router.post("/:id/cancel", cancelBookingHandler); // cancel booking (or request cancellation)
 router.post("/cancellation-requests/:id/escalate", escalateCancellationRequestHandler); // escalate declined cancellation request
 

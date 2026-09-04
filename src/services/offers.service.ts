@@ -4,17 +4,18 @@ import { safeEmit } from "../lib/socket";
 
 export async function submitOffer(providerId: string, params: {
   requestId: string;
+  serviceId: string;
   offeredPrice: number;
   estimatedDuration: number;
   availability?: string;
   message?: string;
 }) {
-  const { requestId, offeredPrice, estimatedDuration, availability, message } = params;
+  const { requestId, serviceId, offeredPrice, estimatedDuration, availability, message } = params;
 
   // Check request is open and accepting offers
   const request = await prisma.serviceRequest.findUnique({
     where: { id: requestId },
-    select: { status: true, seekerId: true },
+    select: { status: true, seekerId: true, categoryId: true },
   });
 
   if (!request || request.status !== "OPEN") {
@@ -26,9 +27,24 @@ export async function submitOffer(providerId: string, params: {
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
   assertDistinctAccounts(providerId, request.seekerId, "submit offer");
 
+  const service = await prisma.service.findUnique({
+    where: { id: serviceId },
+    select: { providerId: true, categoryId: true, status: true, isAvailable: true, priceType: true },
+  });
+  if (!service || service.providerId !== providerId || service.categoryId !== request.categoryId || service.status !== "ACTIVE" || !service.isAvailable) {
+    const err = new Error("Select one of your active listings in the request category before submitting an offer") as any;
+    err.status = 400;
+    throw err;
+  }
+  if (service.priceType !== "FIXED") {
+    const err = new Error("Flow B payment currently requires a fixed-price provider listing") as any;
+    err.status = 400;
+    throw err;
+  }
+
   // Prevent duplicate offer from same provider
   const existing = await prisma.offer.findFirst({
-    where: { requestId, providerId, status: "PENDING" },
+    where: { requestId, providerId, status: { in: ["PENDING", "PENDING_PAYMENT"] } },
   });
 
   if (existing) {
@@ -41,6 +57,7 @@ export async function submitOffer(providerId: string, params: {
     data: {
       requestId,
       providerId,
+      serviceId,
       offeredPrice,
       estimatedDuration,
       availability,
@@ -145,41 +162,13 @@ export async function acceptOffer(offerId: string, seekerId: string) {
     throw err;
   }
 
-  const updatedOffer = await prisma.$transaction(async (tx) => {
-    const accepted = await tx.offer.update({
-      where: { id: offerId },
-      data: { status: "ACCEPTED" },
-    });
-
-    await tx.offer.updateMany({
-      where: {
-        requestId: offer.requestId,
-        id: { not: offerId },
-        status: "PENDING",
-      },
-      data: { status: "REJECTED" },
-    });
-
-    await tx.serviceRequest.update({
-      where: { id: offer.requestId },
-      data: { status: "IN_PROGRESS" },
-    });
-
-    return accepted;
-  });
-
-  // Notify provider
-  await prisma.notification.create({
-    data: {
-      userId: offer.providerId,
-      title: "Offer Accepted! 🎉",
-      body: `The seeker accepted your offer of ₱${offer.offeredPrice}! Check your Activity tab.`,
-      link: `/provider/provider-activity?tab=all`,
-    },
-  });
-  safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 🎉" });
-
-  return updatedOffer;
+  // Selection alone must not reject sibling offers or move the request to
+  // IN_PROGRESS. The chosen cash/online booking path performs that transition
+  // atomically with booking creation or verified payment confirmation.
+  const paymentRequired = new Error("Choose On-site Cash or GCash to accept this offer") as any;
+  paymentRequired.status = 409;
+  paymentRequired.code = "PAYMENT_METHOD_REQUIRED";
+  throw paymentRequired;
 }
 
 export async function rejectOffer(offerId: string, userId: string) {
@@ -209,9 +198,15 @@ export async function rejectOffer(offerId: string, userId: string) {
     throw err;
   }
 
+  if (offer.status !== "PENDING") {
+    const err = new Error("Only a pending unpaid offer can be withdrawn or rejected") as any;
+    err.status = 409;
+    throw err;
+  }
+
   const updatedOffer = await prisma.offer.update({
     where: { id: offerId },
-    data: { status: "REJECTED" },
+    data: { status: isProvider ? "WITHDRAWN" : "REJECTED" },
   });
 
   // Real-time socket notification

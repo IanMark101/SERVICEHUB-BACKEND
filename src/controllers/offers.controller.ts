@@ -12,10 +12,11 @@ import { OfferSchema } from "../schema/marketplace.schema";
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { requestId, offeredPrice, estimatedDuration, availability, message } = OfferSchema.parse(req.body);
+    const { requestId, serviceId, offeredPrice, estimatedDuration, availability, message } = OfferSchema.parse(req.body);
 
     const offer = await submitOffer(user.id, {
       requestId,
+      serviceId,
       offeredPrice,
       estimatedDuration,
       availability,

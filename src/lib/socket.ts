@@ -35,7 +35,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         where: { id: payload.sub },
         select: { id: true, role: true, isActive: true, emailVerified: true, moderationStatus: true },
       });
-      if (!user || !user.isActive || !user.emailVerified || user.moderationStatus !== "ACTIVE") {
+      if (!user || !user.isActive || !user.emailVerified) {
         return next(new Error("Authentication error: account unavailable"));
       }
       // Roles and suspension status are read from the database, not from a

@@ -20,7 +20,7 @@ import reviewsRoutes from "./routes/reviews.routes";
 import usersRoutes from "./routes/users.routes";
 import communityRoutes from "./routes/community.routes";
 import uploadRoutes from "./routes/upload.routes";
-import { apiLimiter } from "./middlewares/rateLimiter.middleware";
+import { apiLimiter, webhookLimiter } from "./middlewares/rateLimiter.middleware";
 import { receivePaymongoWebhook } from "./controllers/payments.controller";
 
 const app = express();
@@ -34,7 +34,7 @@ app.use(cors({
 }));
 
 // This route must receive the unmodified request bytes for signature checks.
-app.post("/api/payments/paymongo/webhook", express.raw({ type: "application/json", limit: "1mb" }), receivePaymongoWebhook);
+app.post("/api/payments/paymongo/webhook", webhookLimiter, express.raw({ type: "application/json", limit: "1mb" }), receivePaymongoWebhook);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));

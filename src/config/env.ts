@@ -10,12 +10,14 @@ const envSchema = z.object({
   PORT: z.string().default("3001"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   FRONTEND_URL: z.string().default("http://localhost:3000"),
+  PRISMA_LOG_QUERIES: z.enum(["true", "false"]).default("false"),
   // PayMongo (test mode for capstone)
   PAYMONGO_SECRET_KEY: z.string().optional(),
   PAYMONGO_PUBLIC_KEY: z.string().optional(),
   PAYMONGO_WEBHOOK_SECRET: z.string().min(16).optional(),
   // Gemini AI
   GEMINI_API_KEY: z.string().optional(),
+  GEMINI_SUMMARY_MODEL: z.string().default("gemini-2.5-flash"),
   // Email SMTP
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().optional(),
@@ -27,8 +29,8 @@ const envSchema = z.object({
 });
 
 const parsed = envSchema.superRefine((value, ctx) => {
-  if (value.NODE_ENV === "production" && (!value.PAYMONGO_SECRET_KEY || !value.PAYMONGO_WEBHOOK_SECRET)) {
-    ctx.addIssue({ code: "custom", message: "Production requires PAYMONGO_SECRET_KEY and PAYMONGO_WEBHOOK_SECRET" });
+  if (value.NODE_ENV === "production" && (!value.PAYMONGO_PUBLIC_KEY || !value.PAYMONGO_SECRET_KEY || !value.PAYMONGO_WEBHOOK_SECRET)) {
+    ctx.addIssue({ code: "custom", message: "Production requires PAYMONGO_PUBLIC_KEY, PAYMONGO_SECRET_KEY, and PAYMONGO_WEBHOOK_SECRET" });
   }
 }).safeParse(process.env);
 

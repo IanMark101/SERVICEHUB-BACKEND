@@ -5,7 +5,7 @@ import { sendMessage } from "./messages.service";
 import { refundBookingPayment } from "./payment-refund.service";
 
 // ── Perform Immediate Cancel & Process Refund/Escrow ──────────────────────────
-export async function performImmediateCancel(bookingId: string) {
+export async function performImmediateCancel(bookingId: string, actorId?: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { queue: true, service: true, offer: true, directRequest: true }
@@ -17,7 +17,7 @@ export async function performImmediateCancel(bookingId: string) {
   if (hasHeldOnlinePayment) {
     await refundBookingPayment(
       booking.id,
-      booking.seekerId,
+      actorId || booking.seekerId,
       "Full refund for cancelled booking",
     );
   }
@@ -39,6 +39,13 @@ export async function performImmediateCancel(bookingId: string) {
     await prisma.directRequest.update({
       where: { id: booking.directRequestId },
       data: { status: "DECLINED" }
+    });
+  }
+
+  if (booking.offer?.requestId) {
+    await prisma.serviceRequest.update({
+      where: { id: booking.offer.requestId },
+      data: { status: "CANCELED" },
     });
   }
 
@@ -86,12 +93,12 @@ export async function performImmediateCancel(bookingId: string) {
 }
 
 // ── Request Cancellation ───────────────────────────────────────────────────────
-export async function requestCancellation(bookingId: string, seekerId: string, reason?: string) {
+export async function requestCancellation(bookingId: string, userId: string, reason: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId }
   });
 
-  if (!booking || booking.seekerId !== seekerId) {
+  if (!booking || (booking.seekerId !== userId && booking.providerId !== userId)) {
     const err = new Error("Booking not found or access denied") as any;
     err.status = 404;
     throw err;
@@ -107,8 +114,16 @@ export async function requestCancellation(bookingId: string, seekerId: string, r
   }
 
   if (booking.started === false) {
-    // Seeker can cancel anytime instantly
-    await performImmediateCancel(bookingId);
+    await performImmediateCancel(bookingId, userId);
+    await prisma.cancellationRequest.create({
+      data: {
+        bookingId,
+        requestedBy: userId,
+        reason,
+        status: "APPROVED",
+        resolvedAt: new Date(),
+      },
+    });
     return { cancelled: true, immediate: true };
   } else {
     // started === true -> create CancellationRequest with status: PENDING
@@ -125,22 +140,24 @@ export async function requestCancellation(bookingId: string, seekerId: string, r
     const cancelReq = await prisma.cancellationRequest.create({
       data: {
         bookingId,
-        requestedBy: seekerId,
+        requestedBy: userId,
         reason,
         status: "PENDING"
       }
     });
 
-    // Notify provider
+    const otherPartyId = userId === booking.seekerId ? booking.providerId : booking.seekerId;
+    const requesterRole = userId === booking.seekerId ? "seeker" : "provider";
+    await prisma.cancellationRequest.update({ where: { id: cancelReq.id }, data: { responderId: otherPartyId } });
     await prisma.notification.create({
       data: {
-        userId: booking.providerId,
+        userId: otherPartyId,
         title: "Cancellation Request Received ⚠️",
-        body: `The seeker has requested to cancel your active booking. Please review and respond in your activity tab.`,
-        link: `/provider/provider-activity?tab=in_progress&booking=${booking.id}`,
+        body: `The ${requesterRole} requested to cancel this active booking. Please review and respond.`,
+        link: requesterRole === "seeker" ? `/provider/provider-activity?tab=in_progress&booking=${booking.id}` : `/seeker/seeker-activity?tab=active&booking=${booking.id}`,
       }
     });
-    safeEmit(`user:${booking.providerId}`, "notification", { title: "Cancellation Request Received ⚠️" });
+    safeEmit(`user:${otherPartyId}`, "notification", { title: "Cancellation Request Received ⚠️" });
     safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancellation_requested" });
     safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancellation_requested" });
     safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "cancellation_requested" });
@@ -152,16 +169,19 @@ export async function requestCancellation(bookingId: string, seekerId: string, r
 // ── Respond to Cancellation Request (Provider Action) ─────────────────────────
 export async function respondToCancellationRequest(
   requestId: string,
-  providerId: string,
+  responderId: string,
   approve: boolean,
-  providerNote?: string
+  responderNote?: string
 ) {
   const cancelReq = await prisma.cancellationRequest.findUnique({
     where: { id: requestId },
     include: { booking: true }
   });
 
-  if (!cancelReq || cancelReq.booking.providerId !== providerId) {
+  const expectedResponder = cancelReq
+    ? (cancelReq.requestedBy === cancelReq.booking.seekerId ? cancelReq.booking.providerId : cancelReq.booking.seekerId)
+    : null;
+  if (!cancelReq || expectedResponder !== responderId || cancelReq.requestedBy === responderId) {
     const err = new Error("Cancellation request not found or access denied") as any;
     err.status = 404;
     throw err;
@@ -178,22 +198,26 @@ export async function respondToCancellationRequest(
       where: { id: requestId },
       data: {
         status: "APPROVED",
+        responderId,
+        responderNote,
+        providerNote: responderNote,
         resolvedAt: new Date()
       }
     });
 
-    await performImmediateCancel(cancelReq.bookingId);
+    await performImmediateCancel(cancelReq.bookingId, responderId);
 
-    // Notify seeker
+    const requesterId = cancelReq.requestedBy;
+    const requesterRole = requesterId === cancelReq.booking.seekerId ? "seeker" : "provider";
     await prisma.notification.create({
       data: {
-        userId: cancelReq.booking.seekerId,
+        userId: requesterId,
         title: "Cancellation Request Approved 🎉",
-        body: "The provider has approved your cancellation request. Payout is refunded/cancelled.",
-        link: `/seeker/seeker-activity?tab=canceled&booking=${cancelReq.bookingId}`,
+        body: "The other participant approved your cancellation request. Any eligible online refund was submitted.",
+        link: `/${requesterRole}/${requesterRole}-activity?tab=canceled&booking=${cancelReq.bookingId}`,
       }
     });
-    safeEmit(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Cancellation Request Approved 🎉" });
+    safeEmit(`user:${requesterId}`, "notification", { title: "Cancellation Request Approved 🎉" });
     safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_approved" });
     safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_approved" });
 
@@ -203,21 +227,24 @@ export async function respondToCancellationRequest(
       where: { id: requestId },
       data: {
         status: "DECLINED",
-        providerNote,
+        responderId,
+        responderNote,
+        providerNote: responderNote,
         resolvedAt: new Date()
       }
     });
 
-    // Notify seeker
+    const requesterId = cancelReq.requestedBy;
+    const requesterRole = requesterId === cancelReq.booking.seekerId ? "seeker" : "provider";
     await prisma.notification.create({
       data: {
-        userId: cancelReq.booking.seekerId,
+        userId: requesterId,
         title: "Cancellation Request Declined ❌",
-        body: `The provider declined your cancellation request. Reason: "${providerNote || "No reason provided"}". You can escalate to Admin if needed.`,
-        link: `/seeker/seeker-activity?tab=active&booking=${cancelReq.bookingId}`,
+        body: `The other participant declined your cancellation request. Reason: "${responderNote || "No reason provided"}". You can escalate to Admin if needed.`,
+        link: `/${requesterRole}/${requesterRole}-activity?tab=active&booking=${cancelReq.bookingId}`,
       }
     });
-    safeEmit(`user:${cancelReq.booking.seekerId}`, "notification", { title: "Cancellation Request Declined ❌" });
+    safeEmit(`user:${requesterId}`, "notification", { title: "Cancellation Request Declined ❌" });
     safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_declined" });
     safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_declined" });
 
@@ -226,13 +253,13 @@ export async function respondToCancellationRequest(
 }
 
 // ── Escalate Cancellation Request (Seeker Action) ──────────────────────────────
-export async function escalateCancellationRequest(requestId: string, seekerId: string) {
+export async function escalateCancellationRequest(requestId: string, userId: string) {
   const cancelReq = await prisma.cancellationRequest.findUnique({
     where: { id: requestId },
     include: { booking: true }
   });
 
-  if (!cancelReq || cancelReq.booking.seekerId !== seekerId) {
+  if (!cancelReq || cancelReq.requestedBy !== userId) {
     const err = new Error("Cancellation request not found or access denied") as any;
     err.status = 404;
     throw err;
@@ -244,6 +271,11 @@ export async function escalateCancellationRequest(requestId: string, seekerId: s
     throw err;
   }
 
+  const otherPartyId = userId === cancelReq.booking.seekerId
+    ? cancelReq.booking.providerId
+    : cancelReq.booking.seekerId;
+  const requesterRole = userId === cancelReq.booking.seekerId ? "seeker" : "provider";
+
   const updated = await prisma.cancellationRequest.update({
     where: { id: requestId },
     data: { status: "ESCALATED" }
@@ -253,24 +285,26 @@ export async function escalateCancellationRequest(requestId: string, seekerId: s
   await prisma.report.create({
     data: {
       bookingId: cancelReq.bookingId,
-      reporterId: seekerId,
-      reportedUserId: cancelReq.booking.providerId,
+      reporterId: userId,
+      reportedUserId: otherPartyId,
       reason: "INCOMPLETE_SERVICE",
-      description: `Cancellation request escalated. Seeker requested cancellation. Reason: "${cancelReq.reason || 'No reason provided'}". Provider declined with note: "${cancelReq.providerNote || 'No reason provided'}".`,
+      description: `Cancellation request escalated. The ${requesterRole} requested cancellation. Reason: "${cancelReq.reason || 'No reason provided'}". The other participant declined with note: "${cancelReq.responderNote || cancelReq.providerNote || 'No reason provided'}".`,
+      reportType: "CANCELLATION_ESCALATION",
       status: "PENDING"
     }
   });
 
-  // Notify provider
   await prisma.notification.create({
     data: {
-      userId: cancelReq.booking.providerId,
+      userId: otherPartyId,
       title: "Cancellation Escalated to Admin ⚠️",
-      body: "The seeker has escalated their declined cancellation request to a Moderator/Admin.",
-      link: `/provider/provider-activity?tab=disputed&booking=${cancelReq.bookingId}`,
+      body: `The ${requesterRole} escalated the declined cancellation request for administrator review.`,
+      link: userId === cancelReq.booking.seekerId
+        ? `/provider/provider-activity?tab=disputed&booking=${cancelReq.bookingId}`
+        : `/seeker/seeker-activity?tab=disputed&booking=${cancelReq.bookingId}`,
     }
   });
-  safeEmit(`user:${cancelReq.booking.providerId}`, "notification", { title: "Cancellation Escalated to Admin ⚠️" });
+  safeEmit(`user:${otherPartyId}`, "notification", { title: "Cancellation Escalated to Admin ⚠️" });
   safeEmit(`user:${cancelReq.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_escalated" });
   safeEmit(`user:${cancelReq.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: cancelReq.bookingId, type: "cancellation_escalated" });
 
@@ -304,7 +338,7 @@ export async function adminResolveCancellationRequest(
   // External refunds must succeed before the moderation case is marked
   // resolved. A gateway failure therefore leaves the case retryable.
   if (approve) {
-    await performImmediateCancel(cancelReq.bookingId);
+    await performImmediateCancel(cancelReq.bookingId, adminId);
   }
 
   // Update request status to RESOLVED
@@ -330,19 +364,20 @@ export async function adminResolveCancellationRequest(
   });
 
   if (approve) {
+    const requesterRole = cancelReq.requestedBy === cancelReq.booking.seekerId ? "seeker" : "provider";
     // Notify both parties
     await prisma.notification.createMany({
       data: [
         {
           userId: cancelReq.booking.seekerId,
           title: "Admin Resolved Cancellation in your favor 🎉",
-          body: `Admin approved your cancellation request. ${adminNote || ""}`,
+          body: `The administrator approved the ${requesterRole}'s cancellation request. ${adminNote || ""}`,
           link: `/seeker/seeker-activity?tab=canceled&booking=${cancelReq.bookingId}`,
         },
         {
           userId: cancelReq.booking.providerId,
           title: "Admin Cancelled Booking ⚠️",
-          body: `Admin approved the seeker's cancellation request. ${adminNote || ""}`,
+          body: `The administrator approved the ${requesterRole}'s cancellation request. ${adminNote || ""}`,
           link: `/provider/provider-activity?tab=canceled&booking=${cancelReq.bookingId}`,
         }
       ]
@@ -356,13 +391,13 @@ export async function adminResolveCancellationRequest(
         {
           userId: cancelReq.booking.seekerId,
           title: "Admin Rejected Cancellation Request",
-          body: `Admin rejected your cancellation escalation. Booking will continue as ongoing. ${adminNote || ""}`,
+          body: `The administrator rejected the cancellation escalation. The booking remains ongoing. ${adminNote || ""}`,
           link: `/seeker/seeker-activity?tab=active&booking=${cancelReq.bookingId}`,
         },
         {
           userId: cancelReq.booking.providerId,
           title: "Admin Ruled in your favor on cancellation",
-          body: `Admin rejected the seeker's cancellation escalation. The booking remains ongoing. ${adminNote || ""}`,
+          body: `The administrator rejected the cancellation escalation. The booking remains ongoing. ${adminNote || ""}`,
           link: `/provider/provider-activity?tab=in_progress&booking=${cancelReq.bookingId}`,
         }
       ]

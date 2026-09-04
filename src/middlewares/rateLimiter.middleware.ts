@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { env } from "../config/env";
 import type { AuthenticatedRequest } from "./auth.middleware";
 
@@ -60,13 +60,33 @@ export const uploadLimiter = rateLimit({
   },
 });
 
+// The payment webhook is mounted before the general JSON middleware so its
+// signature can be checked against the original bytes. It needs its own abuse
+// boundary because it does not pass through the general API limiter.
+export const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: isDev ? 300 : 120,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "Too many webhook requests. Please retry shortly.",
+  },
+});
+
 // Limits high-impact administrator mutations per authenticated account. This
 // is applied after requireAuth, so shared municipal/admin-office IP addresses
 // do not cause unrelated administrators to throttle one another.
 export const adminMutationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isDev ? 300 : 100,
-  keyGenerator: (req) => (req as AuthenticatedRequest).user?.id || req.ip || "unknown",
+  keyGenerator: (req) => {
+    const userId = (req as AuthenticatedRequest).user?.id;
+    if (userId) return `admin:${userId}`;
+
+    const requestIp = req.ip;
+    return requestIp ? `ip:${ipKeyGenerator(requestIp)}` : "ip:unknown";
+  },
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: {

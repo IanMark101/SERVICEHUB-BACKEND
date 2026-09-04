@@ -27,6 +27,9 @@ import {
 } from "../controllers/verification.controller";
 import { adminViewMessages } from "../controllers/messages.controller";
 import { adminMutationLimiter } from "../middlewares/rateLimiter.middleware";
+import { listAdminCompletionEscalations, resolveAdminCompletionEscalation } from "../controllers/admin/completion-escalations.controller";
+import { listPaymentReconciliation, retryPaymentReconciliation } from "../controllers/admin/payments.controller";
+import { adminCancelUnstartedBooking, listAdminBookings, listAdminPaymentAttempts } from "../controllers/admin/booking-operations.controller";
 
 const router = Router();
 
@@ -71,6 +74,13 @@ router.patch("/categories/suggestions/:id", resolveCategorySuggestion);
 // Reports / Moderation
 router.get("/reports", listReports);
 router.patch("/reports/:id/resolve", resolveReport);
+router.get("/completion-escalations", listAdminCompletionEscalations);
+router.patch("/completion-escalations/:id/resolve", resolveAdminCompletionEscalation);
+router.get("/payments/reconciliation", listPaymentReconciliation);
+router.post("/payments/reconciliation/:id/retry", retryPaymentReconciliation);
+router.get("/bookings", listAdminBookings);
+router.post("/bookings/:bookingId/cancel", adminCancelUnstartedBooking);
+router.get("/payment-attempts", listAdminPaymentAttempts);
 
 // Resolve escalated cancellation requests
 router.patch("/cancellation-requests/:id/resolve", resolveCancellationRequest);

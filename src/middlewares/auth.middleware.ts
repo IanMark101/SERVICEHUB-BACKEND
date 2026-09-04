@@ -88,16 +88,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       user.suspendedUntil = null;
     }
 
-    if (!user.isActive || user.moderationStatus !== "ACTIVE") {
-      return res.status(403).json({ success: false, error: "Account suspended" });
+    // Moderated accounts keep restricted access so they can finish, dispute,
+    // cancel, or review existing engagements. Action-specific gates prevent
+    // them from creating or starting new marketplace work.
+    if (!user.isActive && user.moderationStatus !== "ACTIVE") {
+      await prisma.user.update({ where: { id: user.id }, data: { isActive: true } });
+      user.isActive = true;
     }
-
-    if (!user.emailVerified && !(req.baseUrl === "/api/auth" && req.path === "/me")) {
-      return res.status(403).json({
-        success: false,
-        error: "Please verify your email address first",
-        code: "EMAIL_NOT_VERIFIED",
-      });
+    if (!user.isActive) {
+      return res.status(403).json({ success: false, error: "Account inactive" });
     }
 
     (req as AuthenticatedRequest).user = user;
@@ -196,7 +195,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       },
     });
 
-    if (user && user.isActive && user.moderationStatus === "ACTIVE") {
+    if (user && user.isActive) {
       (req as AuthenticatedRequest).user = user;
     }
   } catch (err) {

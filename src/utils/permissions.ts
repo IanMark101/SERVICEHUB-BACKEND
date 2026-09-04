@@ -12,6 +12,8 @@ export interface UserPermissions {
 export function getUserPermissions(user: any): UserPermissions {
   const isVerified = user.verificationStatus === 'APPROVED';
   const isActive = user.isActive !== false;
+  const isModerationActive = user.moderationStatus === 'ACTIVE';
+  const isEmailVerified = user.emailVerified === true;
   const isAdmin = user.role === 'admin';
 
   if (isAdmin) {
@@ -27,7 +29,7 @@ export function getUserPermissions(user: any): UserPermissions {
     };
   }
 
-  const isEligible = isVerified && isActive;
+  const isEligible = isVerified && isActive && isModerationActive && isEmailVerified;
 
   return {
     canBrowse: true,
@@ -36,7 +38,7 @@ export function getUserPermissions(user: any): UserPermissions {
     canBookServices: isEligible,
     canAcceptBookings: isEligible,
     canMessage: true,
-    canReview: isEligible,
+    canReview: isVerified && isActive,
     canReport: true,
   };
 }

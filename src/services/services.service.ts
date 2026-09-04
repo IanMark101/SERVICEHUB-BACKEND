@@ -12,6 +12,8 @@ export const PUBLIC_SERVICE_WHERE = {
   provider: {
     verificationStatus: "APPROVED" as const,
     isActive: true,
+    moderationStatus: "ACTIVE" as const,
+    emailVerified: true,
   },
 };
 
@@ -26,6 +28,8 @@ export async function getActivePublicProviderCount() {
     where: {
       verificationStatus: "APPROVED",
       isActive: true,
+      moderationStatus: "ACTIVE",
+      emailVerified: true,
       services: {
         some: {
           status: "ACTIVE",

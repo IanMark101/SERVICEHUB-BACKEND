@@ -26,6 +26,7 @@ export const ConfirmOnlineBookingSchema = z.object({
 
 export const OfferSchema = z.object({
   requestId: Cuid,
+  serviceId: Cuid,
   offeredPrice: Money,
   estimatedDuration: z.coerce.number().int().min(15).max(480),
   availability: Text(500).optional(),
@@ -49,7 +50,7 @@ export const ServiceRequestUpdateSchema = z.object({
   description: Text(2_000).min(10).optional(),
   budgetMin: Money.optional(),
   budgetMax: Money.optional(),
-  status: z.enum(["OPEN", "IN_PROGRESS", "CLOSED", "CANCELED"]).optional(),
+  status: z.enum(["OPEN", "CLOSED"]).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 export const ReviewSchema = z.object({
@@ -101,8 +102,18 @@ export const DisputeSchema = z.object({
   evidenceUrl: ManagedImageUrl.optional(),
 }).strict();
 
-export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3).optional() }).strict();
-export const CancellationResponseSchema = z.object({ approve: z.boolean(), providerNote: Text(1_000).optional() }).strict();
+export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3) }).strict();
+export const CompletionEscalationSchema = z.object({ reason: Text(1_000).min(10) }).strict();
+export const AdminCompletionEscalationResolutionSchema = z.object({
+  action: z.enum(["release_provider_and_complete", "dismiss"]),
+  resolution: Text(2_000).min(3),
+}).strict();
+export const CancellationResponseSchema = z.object({
+  approve: z.boolean(),
+  responderNote: Text(1_000).optional(),
+  // Compatibility for clients released before the neutral responder field.
+  providerNote: Text(1_000).optional(),
+}).strict();
 export const BooleanDecisionSchema = z.object({
   approve: z.boolean(),
   adminNotes: Text(2_000).optional(),
@@ -122,7 +133,7 @@ export const TrustAdjustmentSchema = z.object({
   reason: Text(500).min(3),
 }).strict();
 export const ReportResolutionSchema = z.object({
-  action: z.enum(["warn", "trust_deduct", "suspend", "ban", "approve_refund", "dismiss"]),
+  action: z.enum(["warn", "trust_deduct", "suspend", "ban", "approve_refund", "release_provider_and_complete", "dismiss"]),
   adminNotes: Text(2_000).min(3),
 }).strict();
 export const SuspendUserSchema = z.object({

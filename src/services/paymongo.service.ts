@@ -4,9 +4,8 @@
  * During capstone development, PayMongo test mode is used exclusively.
  * No real money moves. Test cards/GCash numbers are provided by PayMongo docs.
  * 
- * Escrow simulation: PayMongo charges immediately, but ServiceHub's own DB
- * tracks payment_status (PAID_HELD → RELEASED/FROZEN_HELD/REFUNDED) to
- * represent "held in escrow" as described in master prompt Section 17.
+ * PayMongo charges immediately. PAID_HELD is only ServiceHub's internal
+ * fulfillment state and is not represented to users as regulated escrow.
  */
 
 import { env } from "../config/env";
@@ -14,19 +13,38 @@ import { env } from "../config/env";
 const PAYMONGO_BASE = "https://api.paymongo.com/v1";
 
 function getAuthHeader(): string {
-  const key = env.PAYMONGO_SECRET_KEY || "sk_test_placeholder";
+  const key = env.PAYMONGO_SECRET_KEY;
+  if (!key) {
+    const err = new Error("PayMongo is not configured") as any;
+    err.status = 503;
+    err.code = "PAYMONGO_NOT_CONFIGURED";
+    throw err;
+  }
   return "Basic " + Buffer.from(key + ":").toString("base64");
 }
 
 async function paymongoFetch(path: string, options: RequestInit = {}): Promise<any> {
-  const response = await fetch(`${PAYMONGO_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Authorization": getAuthHeader(),
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  let response: Response;
+  try {
+    response = await fetch(`${PAYMONGO_BASE}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Authorization": getAuthHeader(),
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+  } catch (cause: any) {
+    const err = new Error(cause?.name === "AbortError" ? "PayMongo request timed out" : "PayMongo is unavailable") as any;
+    err.status = 503;
+    err.code = "PAYMONGO_UNAVAILABLE";
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const body = await response.json() as any;
 
@@ -35,7 +53,7 @@ async function paymongoFetch(path: string, options: RequestInit = {}): Promise<a
       body?.errors?.[0]?.detail || "PayMongo API error"
     ) as any;
     err.status = response.status;
-    err.paymongoErrors = body?.errors;
+    err.code = "PAYMONGO_API_ERROR";
     throw err;
   }
 
@@ -50,6 +68,8 @@ export async function createPaymentIntent(params: {
   description: string;
   statementDescriptor?: string;
   metadata?: Record<string, string>;
+  paymentMethod: "gcash" | "paymaya" | "card";
+  idempotencyKey: string;
 }): Promise<{ id: string; clientKey: string; status: string }> {
   const body = await paymongoFetch("/payment_intents", {
     method: "POST",
@@ -58,7 +78,7 @@ export async function createPaymentIntent(params: {
         attributes: {
           amount: Math.round(params.amount * 100), // convert to cents
           currency: params.currency || "PHP",
-          payment_method_allowed: ["gcash", "paymaya", "card"],
+          payment_method_allowed: [params.paymentMethod],
           description: params.description,
           statement_descriptor: params.statementDescriptor || "ServiceHub Cordova",
           metadata: params.metadata,
@@ -66,6 +86,7 @@ export async function createPaymentIntent(params: {
         },
       },
     }),
+    headers: { "Idempotency-Key": params.idempotencyKey },
   });
 
   return {
@@ -109,9 +130,11 @@ export async function createRefund(params: {
   paymentId: string;
   amount?: number; // partial refund in PHP (optional — full refund if omitted)
   reason: string;
+  idempotencyKey?: string;
 }): Promise<{ id: string; status: string }> {
   const body = await paymongoFetch("/refunds", {
     method: "POST",
+    ...(params.idempotencyKey ? { headers: { "Idempotency-Key": params.idempotencyKey } } : {}),
     body: JSON.stringify({
       data: {
         attributes: {
