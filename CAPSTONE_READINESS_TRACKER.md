@@ -31,17 +31,27 @@ Additional estimates:
 
 Work through these phases in order. Do not mark an item complete until the associated implementation and verification evidence both exist.
 
-### Phase 1 â€” establish a reproducible baseline â€” **IN PROGRESS**
+### Phase 1 - establish a reproducible baseline - **DONE**
 
 - [x] Review and group the existing backend source changes. **DONE — security/payment/queue hardening, controller/service refactor, migrations, and executable tests reviewed as one baseline.**
 - [x] Review and group the existing frontend source changes. **DONE — component/hook refactor, auth/session handling, Admin flows, payment wording, and help content reviewed as one baseline.**
 - [x] Stop tracking generated backend `dist` files and confirm production builds regenerate them correctly. **DONE — `/dist` is ignored, tracked count is zero, and `npm run build` recreated `dist/src/server.js` successfully.**
 - [x] Commit the intended backend changes on `fix/admin-security-hardening`. **DONE — baseline commit `dcb0b9d`.**
 - [x] Commit the intended frontend changes on `fix/admin-security-hardening`. **DONE — baseline commit `dc46ef0`.**
-- [ ] Push both branches and verify the remote branch contains the current implementation.
-- [ ] Confirm both working trees are clean after builds, excluding deliberately ignored output.
+- [x] Push both branches and verify the remote branch contains the current implementation. **DONE - backend baseline reached `68cf517`; frontend reached `dc46ef0` on `origin/fix/admin-security-hardening`.**
+- [x] Confirm both working trees are clean after builds, excluding deliberately ignored output. **DONE - both trees were clean; generated backend `dist` remained present and ignored.**
 
-### Phase 2 â€” queue and lifecycle concurrency â€” **NOT STARTED**
+Phase 1 verification evidence:
+
+- Backend `npm run build`: passed.
+- Backend `npm test`: 14/14 passed.
+- Backend `npm run test:booking-integration`: 1/1 passed.
+- Frontend `npm run build`: passed; 90 routes generated.
+- `npx prisma validate`: passed.
+- `git diff --cached --check`: passed before both baseline commits.
+- Staged secret scan: only documented `.env.example` placeholders and a dummy webhook test value matched.
+
+### Phase 2 - queue and lifecycle concurrency - **NOT STARTED**
 
 - [ ] Move queue recalculation into the same transaction and service lock as payment, start, completion, cancellation, and removal mutations.
 - [ ] Add database protection for positive and unique active queue positions where practical.
@@ -52,7 +62,7 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [ ] Add durable administrator notification when a completion escalation is created.
 - [ ] Test the 72-hour initial threshold, duplicate behavior, `KEEP_AWAITING`, and second 72-hour threshold.
 
-### Phase 3 â€” privacy, verification, and deletion â€” **NOT STARTED**
+### Phase 3 - privacy, verification, and deletion - **NOT STARTED**
 
 - [ ] Require verified email before residency-document upload and submission.
 - [ ] Add a versioned privacy notice and required acknowledgement checkbox.
@@ -65,7 +75,7 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [ ] Replace the frontend's simulated account-deletion alert with the real workflow.
 - [ ] Correct the deletion UI so it does not promise removal of legally retained transaction/audit records.
 
-### Phase 4 â€” safety, moderation, and administrator safeguards â€” **NOT STARTED**
+### Phase 4 - safety, moderation, and administrator safeguards - **NOT STARTED**
 
 - [ ] Add a general booking-participant safety-report endpoint.
 - [ ] Allow either participant to report the other from documented eligible booking states.
@@ -79,7 +89,7 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [ ] Add a paginated administrator audit-log API and dashboard view.
 - [ ] Paginate escalated cancellations, announcements, reconciliation results, and other remaining unbounded administrator lists.
 
-### Phase 5 â€” listing, review, trust, and AI correctness â€” **NOT STARTED**
+### Phase 5 - listing, review, trust, and AI correctness - **NOT STARTED**
 
 - [ ] Return an approved listing to `PENDING_REVIEW` after material description, media, proof, title, or category edits.
 - [ ] Enforce the three-listing maximum transactionally under concurrent creation.
@@ -100,7 +110,7 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [ ] Add defense seed data with five valid completed bookings and eligible written reviews.
 - [ ] Replace hardcoded named landing testimonials with real seed data or clearly labelled demonstration content.
 
-### Phase 6 â€” PayMongo Test Mode and external integration â€” **NOT STARTED**
+### Phase 6 - PayMongo Test Mode and external integration - **NOT STARTED**
 
 - [ ] Configure `PAYMONGO_WEBHOOK_SECRET` without committing it.
 - [ ] Configure a public HTTPS Test Mode webhook endpoint and required event subscriptions.
@@ -114,7 +124,7 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [ ] Retain clear wording that this is an internal Test Mode ledger, not regulated escrow or real provider payout.
 - [ ] Configure and retest Google OAuth with project-owned credentials and authorized origins.
 
-### Phase 7 â€” automated test coverage â€” **NOT STARTED**
+### Phase 7 - automated test coverage - **NOT STARTED**
 
 - [ ] Add backend tests for every Tier 0 unauthorized and duplicate-event requirement.
 - [ ] Test that an unverified email cannot submit verification or perform marketplace mutations.
@@ -130,7 +140,7 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [ ] Add load/concurrency testing for queues, messages, notifications, and payment webhooks.
 - [ ] Add dependency, secret, and static-security checks to CI.
 
-### Phase 8 â€” UI, performance, and code-quality polish â€” **NOT STARTED**
+### Phase 8 - UI, performance, and code-quality polish - **NOT STARTED**
 
 - [ ] Resolve the frontend ESLint baseline: 359 errors and 341 warnings across 81 files at the last audit.
 - [ ] Remove unused variables and replace avoidable explicit `any` types.
@@ -144,10 +154,10 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [ ] Reduce dashboard refresh fan-out and remove redundant transaction derivation/fetching.
 - [ ] Add request-specific rate limits for messages, reviews, reports, payment initiation, and waitlist operations.
 - [ ] Add security headers, request IDs, structured logging, and production-safe error context.
-- [ ] Finish splitting the remaining 400â€“530-line frontend components and hooks by feature responsibility.
+- [ ] Finish splitting the remaining 400-530-line frontend components and hooks by feature responsibility.
 - [ ] Remove or gate unnecessary production console logging.
 
-### Phase 9 â€” documentation and final release gate â€” **NOT STARTED**
+### Phase 9 - documentation and final release gate - **NOT STARTED**
 
 - [ ] Reconcile `SECURITY_REAUDIT.md` with executable evidence and remove overstated claims.
 - [ ] Replace unsupported PASS labels in `SOFTWARE_TEST_DOCUMENT.md` with Passed, Failed, Not Run, or Not Implemented.
