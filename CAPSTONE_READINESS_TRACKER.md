@@ -36,8 +36,8 @@ Work through these phases in order. Do not mark an item complete until the assoc
 - [x] Review and group the existing backend source changes. **DONE — security/payment/queue hardening, controller/service refactor, migrations, and executable tests reviewed as one baseline.**
 - [x] Review and group the existing frontend source changes. **DONE — component/hook refactor, auth/session handling, Admin flows, payment wording, and help content reviewed as one baseline.**
 - [x] Stop tracking generated backend `dist` files and confirm production builds regenerate them correctly. **DONE — `/dist` is ignored, tracked count is zero, and `npm run build` recreated `dist/src/server.js` successfully.**
-- [ ] Commit the intended backend changes on `fix/admin-security-hardening`.
-- [ ] Commit the intended frontend changes on `fix/admin-security-hardening`.
+- [x] Commit the intended backend changes on `fix/admin-security-hardening`. **DONE — baseline commit `dcb0b9d`.**
+- [x] Commit the intended frontend changes on `fix/admin-security-hardening`. **DONE — baseline commit `dc46ef0`.**
 - [ ] Push both branches and verify the remote branch contains the current implementation.
 - [ ] Confirm both working trees are clean after builds, excluding deliberately ignored output.
 
