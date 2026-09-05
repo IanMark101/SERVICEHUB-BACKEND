@@ -21,7 +21,7 @@ export {
   listCategorySuggestions,
   resolveCategorySuggestion
 } from "./admin/marketplace-moderation.controller";
-export { listReports, resolveReport } from "./admin/reports.controller";
+export { listReports, resolveReport, accessReportEvidence } from "./admin/reports.controller";
 export {
   resolveCancellationRequest,
   listEscalatedCancellations

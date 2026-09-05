@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
-import { uploadImageToCloudinary, uploadPrivateVerificationImage } from '../config/cloudinary';
+import { uploadImageToCloudinary, uploadPrivateSafetyEvidence, uploadPrivateVerificationImage } from '../config/cloudinary';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { prisma } from '../lib/prisma';
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -15,6 +16,29 @@ function validateImageDataUrl(image: unknown, maxBytes = MAX_IMAGE_BYTES): strin
 }
 
 export class UploadController {
+  async uploadBookingEvidence(req: Request, res: Response): Promise<void> {
+    try {
+      const validatedImage = validateImageDataUrl(req.body?.image, 5 * 1024 * 1024);
+      const bookingId = typeof req.body?.bookingId === 'string' ? req.body.bookingId : '';
+      if (!validatedImage || !bookingId) {
+        res.status(400).json({ success: false, error: 'A booking ID and JPEG, PNG, or WebP image no larger than 5MB are required.' });
+        return;
+      }
+      const userId = (req as AuthenticatedRequest).user.id;
+      const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { seekerId: true, providerId: true, status: true } });
+      const eligible = booking && [booking.seekerId, booking.providerId].includes(userId) &&
+        ['ACCEPTED', 'ONGOING', 'AWAITING_CONFIRMATION', 'UNDER_REVIEW', 'DISPUTED', 'COMPLETED', 'CANCELED'].includes(booking.status);
+      if (!eligible) {
+        res.status(403).json({ success: false, error: 'Evidence upload is restricted to participants in an eligible booking.' });
+        return;
+      }
+      const storageKey = await uploadPrivateSafetyEvidence(validatedImage, bookingId, userId);
+      res.status(201).json({ success: true, data: { storageKey } });
+    } catch (error: any) {
+      res.status(error?.status || 500).json({ success: false, error: error?.message || 'Safety evidence upload failed.' });
+    }
+  }
+
   async uploadVerification(req: Request, res: Response): Promise<void> {
     try {
       const validatedImage = validateImageDataUrl(req.body?.image, 5 * 1024 * 1024);

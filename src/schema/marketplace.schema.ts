@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VERIFICATION_PRIVACY_NOTICE_VERSION } from "../config/privacy";
 
 const Cuid = z.string().cuid();
 const Money = z.coerce.number().finite().min(50).max(50_000);
@@ -77,6 +78,16 @@ const VerificationProofSchema = z.object({
 
 export const VerificationSubmissionSchema = z.object({
   proofs: z.array(VerificationProofSchema).min(1).max(2),
+  privacyNoticeVersion: z.literal(VERIFICATION_PRIVACY_NOTICE_VERSION),
+  privacyAcknowledged: z.literal(true),
+}).strict();
+
+export const VerificationProofAccessSchema = z.object({
+  action: z.enum(["view", "download"]).default("view"),
+}).strict();
+
+export const AccountDeletionRequestSchema = z.object({
+  confirmation: z.literal("DELETE"),
 }).strict();
 
 const ManagedImageUrl = z.string().url().refine((value) => {
@@ -102,10 +113,20 @@ export const DisputeSchema = z.object({
   evidenceUrl: ManagedImageUrl.optional(),
 }).strict();
 
+export const SafetyReportSchema = z.object({
+  reason: z.enum(["POOR_SERVICE_QUALITY", "INCOMPLETE_SERVICE", "SCAM_OR_FRAUD", "INAPPROPRIATE_BEHAVIOR", "OVERPRICING", "NO_SHOW"]),
+  description: Text(2_000).min(10),
+  evidenceStorageKey: z.string().trim().max(500).optional(),
+}).strict();
+
+export const PrivateEvidenceAccessSchema = z.object({
+  action: z.enum(["view", "download"]).default("view"),
+}).strict();
+
 export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3) }).strict();
 export const CompletionEscalationSchema = z.object({ reason: Text(1_000).min(10) }).strict();
 export const AdminCompletionEscalationResolutionSchema = z.object({
-  action: z.enum(["release_provider_and_complete", "dismiss"]),
+  action: z.enum(["release_provider_and_complete", "keep_awaiting", "dismiss"]),
   resolution: Text(2_000).min(3),
 }).strict();
 export const CancellationResponseSchema = z.object({
@@ -142,7 +163,12 @@ export const SuspendUserSchema = z.object({
 }).strict();
 export const BanUserSchema = z.object({ reason: Text(500).min(3) }).strict();
 export const RestoreUserSchema = z.object({ reason: Text(500).min(3).default("Administrator restored account") }).strict();
-export const PromoteUserSchema = z.object({ reason: Text(500).min(3) }).strict();
+export const PromoteUserSchema = z.object({ reason: Text(500).min(3), currentPassword: z.string().min(8).max(200) }).strict();
+export const ReviewModerationSchema = z.object({
+  action: z.enum(["hide", "restore"]),
+  reason: Text(1_000).min(3),
+}).strict();
+export const FinalizeAccountDeletionSchema = z.object({ reason: Text(1_000).min(3) }).strict();
 export const AiMatchSchema = z.object({ requestId: Cuid }).strict();
 
 export const AnnouncementCreateSchema = z.object({

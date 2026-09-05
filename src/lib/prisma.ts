@@ -24,6 +24,13 @@ if (globalForPrisma.prisma) {
   prismaInstance = new PrismaClient({
     adapter,
     log: env.PRISMA_LOG_QUERIES === "true" ? ["query", "error", "warn"] : ["error", "warn"],
+    // Queue lifecycle transactions may legitimately wait on a per-service
+    // advisory lock. The five-second Prisma default is too short for a remote
+    // database during concurrent payment webhooks.
+    transactionOptions: {
+      maxWait: 10_000,
+      timeout: 30_000,
+    },
   });
 
   if (env.NODE_ENV !== "production") {

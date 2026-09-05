@@ -23,8 +23,11 @@ export async function resolveCancellationRequest(req: Request, res: Response, ne
 
 export async function listEscalatedCancellations(req: Request, res: Response, next: NextFunction) {
   try {
-    const items = await prisma.cancellationRequest.findMany({
-      where: { status: "ESCALATED" },
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+    const where = { status: "ESCALATED" };
+    const [items, total] = await Promise.all([prisma.cancellationRequest.findMany({
+      where,
       include: {
         booking: {
           include: {
@@ -35,8 +38,10 @@ export async function listEscalatedCancellations(req: Request, res: Response, ne
         },
       },
       orderBy: { createdAt: "desc" },
-    });
-    res.json({ success: true, data: items });
+      skip: (page - 1) * limit,
+      take: limit,
+    }), prisma.cancellationRequest.count({ where })]);
+    res.json({ success: true, data: items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (err) {
     next(err);
   }

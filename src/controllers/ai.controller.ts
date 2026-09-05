@@ -10,7 +10,7 @@ export async function getProviderSummary(req: Request, res: Response, next: Next
     const result = await summarizeProviderReviews(
       providerId as string,
       serviceId as string | undefined,
-      fast === "1",
+      true,
     );
     res.json({ success: true, data: result });
   } catch (err) {

@@ -70,7 +70,8 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
             where: { completedAt: { gte: leaderboardWeekStart, lt: leaderboardWeekEnd } },
             select: {
               reviews: {
-                select: { rating: true },
+                where: { visibility: "VISIBLE" },
+                select: { rating: true, targetId: true },
               },
             },
           },
@@ -131,7 +132,7 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
     // Process top providers & aggregate ratings
     const leaderboard = topProvidersRaw.map((p, idx) => {
       const allRatings = p.completedAsProvider.flatMap((cs) =>
-        cs.reviews.map((r) => r.rating)
+        cs.reviews.filter((review) => review.targetId === p.id).map((review) => review.rating)
       );
       const avgRating =
         allRatings.length > 0

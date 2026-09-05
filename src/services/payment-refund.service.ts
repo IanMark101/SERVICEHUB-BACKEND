@@ -1,5 +1,11 @@
 import { prisma } from "../lib/prisma";
 import { createRefund, getPaymentIntent } from "./paymongo.service";
+import {
+  emitWaitlistNotification,
+  lockServiceQueue,
+  notifyWaitlistInTransaction,
+  recalculateQueueInTransaction,
+} from "./queue.service";
 
 type RefundResult = {
   refundId: string;
@@ -103,7 +109,8 @@ export async function refundBookingPayment(
     throw error;
   }
 
-  await prisma.$transaction(async (tx) => {
+  const waitlistNotification = await prisma.$transaction(async (tx) => {
+    await lockServiceQueue(tx, booking.queue!.serviceId);
     await tx.paymentRefund.update({
       where: { bookingId },
       data: {
@@ -138,7 +145,10 @@ export async function refundBookingPayment(
         },
       });
     }
+    await recalculateQueueInTransaction(tx, booking.queue!.serviceId);
+    return notifyWaitlistInTransaction(tx, booking.queue!.serviceId);
   });
+  emitWaitlistNotification(waitlistNotification);
 
   return {
     refundId: gatewayRefund.id,

@@ -1,9 +1,9 @@
 import { prisma } from "../lib/prisma";
-import { recalculateQueue, notifyWaitlist } from "./queue.service";
 import { disconnectUserSockets, safeEmit, safeBroadcast } from "../lib/socket";
 import { ReportStatus } from "@prisma/client";
 import { refundBookingPayment } from "./payment-refund.service";
 import { settleCompletedBooking } from "./bookings/completion.service";
+import { applyTrustEventInTransaction } from "./trust.service";
 
 export type ReportAction = "warn" | "trust_deduct" | "suspend" | "ban" | "approve_refund" | "release_provider_and_complete" | "dismiss";
 
@@ -37,8 +37,11 @@ export async function listAdminReports(page = 1, limit = 10) {
     prisma.report.count({ where }),
   ]);
 
-  const items = reports.map((report) => ({
-    ...report,
+  const items = reports.map((report) => {
+    const { evidenceStorageKey, ...safeReport } = report;
+    return {
+    ...safeReport,
+    hasPrivateEvidence: Boolean(evidenceStorageKey),
     booking: {
       ...report.booking,
       title:
@@ -56,7 +59,7 @@ export async function listAdminReports(page = 1, limit = 10) {
       messages: report.booking.messages.map((message) => ({ ...message, text: message.content })),
       escalatedCancellation: report.booking.cancellationRequests[0] || null,
     },
-  }));
+  }});
   return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 }
 
@@ -105,21 +108,12 @@ export async function resolveAdminReport(
     }
 
     if (action === "trust_deduct") {
-      const rows = await tx.$queryRaw<Array<{ trustScore: number }>>`
-        SELECT "trustScore" FROM "users" WHERE "id" = ${current.reportedUserId} FOR UPDATE
-      `;
-      const scoreBefore = rows[0].trustScore;
-      const scoreAfter = Math.max(0, scoreBefore - 10);
-      await tx.user.update({ where: { id: current.reportedUserId }, data: { trustScore: scoreAfter } });
-      await tx.trustScoreEvent.create({
-        data: {
-          userId: current.reportedUserId,
-          delta: scoreAfter - scoreBefore,
-          reason: "Valid report confirmed by administrator",
-          scoreBefore,
-          scoreAfter,
-          actorAdminId: adminId,
-        },
+      await applyTrustEventInTransaction(tx, {
+        userId: current.reportedUserId,
+        delta: -10,
+        reason: "Valid report confirmed by administrator",
+        actorAdminId: adminId,
+        eventKey: `report:${current.id}:trust-penalty`,
       });
     } else if (action === "suspend" || action === "ban") {
       const unstartedProviderBookings = await tx.booking.count({
@@ -276,8 +270,6 @@ async function resolveRefundReport(reportId: string, adminId: string, adminNotes
     });
   });
 
-  await recalculateQueue(report.booking.queue.serviceId);
-  await notifyWaitlist(report.booking.queue.serviceId);
   safeEmit(`user:${report.reporterId}`, "notification", { title: "Refund Approved" });
   safeEmit(`user:${report.reportedUserId}`, "notification", { title: "Booking Refunded" });
   safeBroadcast("ADMIN_MODERATION_CHANGED", { reportId, action: "approve_refund" });

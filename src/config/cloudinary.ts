@@ -98,14 +98,30 @@ export async function uploadPrivateVerificationImage(fileData: string, userId: s
   return `${result.public_id}.${result.format || 'jpg'}`;
 }
 
-export function getPrivateVerificationUrl(storageKey: string): string {
+export async function uploadPrivateSafetyEvidence(fileData: string, bookingId: string, userId: string): Promise<string> {
+  if (!isConfigured) {
+    const error = new Error('Safety evidence uploads are unavailable because Cloudinary is not configured.') as any;
+    error.status = 503;
+    throw error;
+  }
+  const result = await cloudinary.uploader.upload(fileData, {
+    folder: `servicehub/safety/${bookingId}/${userId}`,
+    resource_type: 'image',
+    type: 'authenticated',
+    format: 'jpg',
+    transformation: [{ width: 1800, height: 1800, crop: 'limit', quality: 'auto:good', fetch_format: 'auto' }],
+  });
+  return `${result.public_id}.${result.format || 'jpg'}`;
+}
+
+export function getPrivateVerificationUrl(storageKey: string, attachment = false): string {
   const parsed = /^(.*)\.(jpe?g|png|webp)$/i.exec(storageKey);
   if (parsed) {
     return cloudinary.utils.private_download_url(parsed[1], parsed[2], {
       resource_type: 'image',
       type: 'authenticated',
       expires_at: Math.floor(Date.now() / 1000) + 5 * 60,
-      attachment: false,
+      attachment,
     });
   }
   // Backward-compatible access for proofs uploaded before format metadata was
@@ -114,6 +130,7 @@ export function getPrivateVerificationUrl(storageKey: string): string {
     secure: true,
     type: 'authenticated',
     sign_url: true,
+    flags: attachment ? 'attachment' : undefined,
   });
 }
 

@@ -1,5 +1,11 @@
 import { prisma } from "../lib/prisma";
-import { recalculateQueue, notifyWaitlist } from "./queue.service";
+import {
+  emitWaitlistNotification,
+  lockServiceQueue,
+  notifyWaitlistInTransaction,
+  recalculateQueueInTransaction,
+  type WaitlistNotification,
+} from "./queue.service";
 import { safeEmit } from "../lib/socket";
 import { sendMessage } from "./messages.service";
 import { refundBookingPayment } from "./payment-refund.service";
@@ -25,44 +31,47 @@ export async function performImmediateCancel(bookingId: string, actorId?: string
   // Determine the correct refund status:
   // - If payment was held (online), issue a full refund → REFUNDED
   // - Otherwise keep the existing status (UNPAID for cash, etc.)
-  const newPaymentStatus = hasHeldOnlinePayment ? "REFUNDED" : booking.paymentStatus;
-
-  // Update Booking status to CANCELED
-  if (!hasHeldOnlinePayment) {
-    await prisma.booking.update({
+  let waitlistNotification: WaitlistNotification | null = null;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking-cancel:${bookingId}`}))`;
+    const current = await tx.booking.findUnique({
       where: { id: bookingId },
-      data: { status: "CANCELED", paymentStatus: newPaymentStatus },
+      include: { queue: true },
     });
-  }
+    if (!current) return;
 
-  if (booking.directRequestId) {
-    await prisma.directRequest.update({
-      where: { id: booking.directRequestId },
-      data: { status: "DECLINED" }
-    });
-  }
-
-  if (booking.offer?.requestId) {
-    await prisma.serviceRequest.update({
-      where: { id: booking.offer.requestId },
-      data: { status: "CANCELED" },
-    });
-  }
-
-  await sendMessage(bookingId, booking.seekerId, "Booking cancelled.", undefined, true);
-
-  if (booking.queue) {
-    if (!hasHeldOnlinePayment) {
-      await prisma.queue.update({
-        where: { id: booking.queue.id },
-        data: { status: "CANCELLED", paymentStatus: booking.queue.paymentStatus },
+    if (!hasHeldOnlinePayment && current.status !== "CANCELED") {
+      if (current.queue) await lockServiceQueue(tx, current.queue.serviceId);
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: "CANCELED", paymentStatus: current.paymentStatus },
       });
+      if (current.queue) {
+        await tx.queue.update({
+          where: { id: current.queue.id },
+          data: { status: "CANCELLED", paymentStatus: current.queue.paymentStatus },
+        });
+        await recalculateQueueInTransaction(tx, current.queue.serviceId);
+        waitlistNotification = await notifyWaitlistInTransaction(tx, current.queue.serviceId);
+      }
     }
 
-    // Recalculate queue and notify waitlist
-    await recalculateQueue(booking.queue.serviceId);
-    await notifyWaitlist(booking.queue.serviceId);
-  }
+    if (booking.directRequestId) {
+      await tx.directRequest.updateMany({
+        where: { id: booking.directRequestId },
+        data: { status: "DECLINED" },
+      });
+    }
+    if (booking.offer?.requestId) {
+      await tx.serviceRequest.updateMany({
+        where: { id: booking.offer.requestId },
+        data: { status: "CANCELED" },
+      });
+    }
+  });
+  emitWaitlistNotification(waitlistNotification);
+
+  await sendMessage(bookingId, booking.seekerId, "Booking cancelled.", undefined, true);
 
   // Notify provider
   await prisma.notification.create({

@@ -36,12 +36,6 @@ export async function submitOffer(providerId: string, params: {
     err.status = 400;
     throw err;
   }
-  if (service.priceType !== "FIXED") {
-    const err = new Error("Flow B payment currently requires a fixed-price provider listing") as any;
-    err.status = 400;
-    throw err;
-  }
-
   // Prevent duplicate offer from same provider
   const existing = await prisma.offer.findFirst({
     where: { requestId, providerId, status: { in: ["PENDING", "PENDING_PAYMENT"] } },

@@ -9,7 +9,7 @@ import {
   createPaymentMethod,
   createRefund,
 } from "./paymongo.service";
-import { recalculateQueue } from "./queue.service";
+import { recalculateQueueInTransaction } from "./queue.service";
 
 const ATTEMPT_TTL_MS = 15 * 60 * 1000;
 type OnlineMethod = "gcash" | "paymaya" | "card";
@@ -45,6 +45,9 @@ export async function initiateOnlinePayment(params: {
   offerId?: string;
   paymentMethod: OnlineMethod;
 }) {
+  if (params.paymentMethod === "card") {
+    throw httpError("Card checkout is not available yet. Choose an accepted e-wallet or on-site cash.", 409, "CARD_CHECKOUT_UNAVAILABLE");
+  }
   if (!env.PAYMONGO_PUBLIC_KEY || !env.PAYMONGO_SECRET_KEY || !env.PAYMONGO_WEBHOOK_SECRET) {
     throw httpError("Online payment is unavailable until PayMongo Test Mode and its webhook are fully configured", 503, "PAYMENT_NOT_CONFIGURED");
   }
@@ -390,6 +393,11 @@ export async function finalizeSuccessfulPayment(params: {
         bookingId: booking.id,
       },
     });
+    // A successful booking consumes any stale waitlist request for this seeker.
+    await tx.queueNotify.deleteMany({
+      where: { serviceId: fresh.serviceId, seekerId: fresh.seekerId },
+    });
+    await recalculateQueueInTransaction(tx, fresh.serviceId);
     await tx.paymentAttempt.update({ where: { id: fresh.id }, data: { status: "SUCCEEDED", providerPaymentId: params.paymentId || null } });
 
     if (fresh.offerId) {

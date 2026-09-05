@@ -4,6 +4,8 @@ import { prisma } from "../../lib/prisma";
 import { applyTrustEvent } from "../../services/trust.service";
 import { disconnectUserSockets } from "../../lib/socket";
 import { BanUserSchema, PromoteUserSchema, RestoreUserSchema, SuspendUserSchema, TrustAdjustmentSchema } from "../../schema/marketplace.schema";
+import bcrypt from "bcryptjs";
+import { getUserActiveCaseCounts } from "../../services/data-retention.service";
 
 async function assertCanModerateUser(adminId: string, targetId: string, allowAdminRestore = false) {
   if (adminId === targetId) {
@@ -204,9 +206,13 @@ export async function promoteUserToAdmin(req: Request, res: Response, next: Next
   try {
     const actorId = (req as AuthenticatedRequest).user.id;
     const targetId = req.params.id as string;
-    const { reason } = PromoteUserSchema.parse(req.body);
+    const { reason, currentPassword } = PromoteUserSchema.parse(req.body);
     if (actorId === targetId) {
       return res.status(409).json({ success: false, error: "You are already an administrator" });
+    }
+    const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { passwordHash: true, role: true } });
+    if (!actor || actor.role !== "admin" || !(await bcrypt.compare(currentPassword, actor.passwordHash))) {
+      return res.status(403).json({ success: false, error: "Current administrator password is incorrect" });
     }
     await prisma.$transaction(async (tx) => {
       const target = await tx.user.findUnique({ where: { id: targetId } });
@@ -223,6 +229,13 @@ export async function promoteUserToAdmin(req: Request, res: Response, next: Next
       if (target.role === "admin") {
         const error = new Error("User is already an administrator") as Error & { status?: number };
         error.status = 409;
+        throw error;
+      }
+      const blockers = await getUserActiveCaseCounts(tx, targetId);
+      if (Object.values(blockers).some((count) => count > 0)) {
+        const error = new Error("Resolve the target user's active bookings, held payments, and unresolved cases before promotion") as Error & { status?: number; code?: string };
+        error.status = 409;
+        error.code = "ADMIN_PROMOTION_BLOCKED";
         throw error;
       }
       await tx.user.update({ where: { id: targetId }, data: { role: "admin" } });

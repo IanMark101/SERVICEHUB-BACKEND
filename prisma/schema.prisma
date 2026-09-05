@@ -142,6 +142,18 @@ enum AccountModerationStatus {
   BANNED
 }
 
+enum AccountDeletionStatus {
+  PENDING
+  BLOCKED
+  CANCELLED
+  COMPLETED
+}
+
+enum ReviewVisibility {
+  VISIBLE
+  HIDDEN
+}
+
 enum BookingStatus {
   PENDING_APPROVAL
   WAITING
@@ -183,6 +195,7 @@ model User {
   postingSuspendedAt   DateTime?
   postingSuspendReason String?
   emailVerified        Boolean                 @default(false)
+  deactivatedAt        DateTime?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
 
@@ -249,6 +262,7 @@ model User {
   cancellationsResolved CancellationRequest[] @relation("CancellationAdmin")
   cancellationResponses CancellationRequest[] @relation("CancellationResponder")
   refundsRequested      PaymentRefund[]       @relation("RefundAdmin")
+  accountDeletionRequest AccountDeletionRequest?
 
   @@map("users")
 }
@@ -292,15 +306,20 @@ model PasswordResetToken {
 // ─────────────────────────────────────────────
 
 model ServiceVerification {
-  id          String             @id @default(cuid())
-  userId      String
-  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status      VerificationStatus @default(PENDING_REVIEW)
-  submittedAt DateTime           @default(now())
-  reviewedAt  DateTime?
-  adminId     String?
-  admin       User?              @relation("AdminReviewer", fields: [adminId], references: [id])
-  adminNotes  String?
+  id                    String             @id @default(cuid())
+  userId                String
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status                VerificationStatus @default(PENDING_REVIEW)
+  submittedAt           DateTime           @default(now())
+  reviewedAt            DateTime?
+  adminId               String?
+  admin                 User?              @relation("AdminReviewer", fields: [adminId], references: [id])
+  adminNotes             String?
+  privacyNoticeVersion  String
+  privacyAcknowledgedAt DateTime
+  privacyAcknowledgedBy String
+  retentionUntil        DateTime
+  legalHold             Boolean            @default(false)
 
   proofs VerificationProof[]
 
@@ -363,8 +382,9 @@ model Service {
   categoryId            String
   category              Category      @relation(fields: [categoryId], references: [id])
   title                 String
+  titleNormalized       String
   description           String
-  price                 Decimal       @db.Decimal(10, 2)
+  price                 Decimal?      @db.Decimal(10, 2)
   priceType             PriceType     @default(FIXED)
   // serviceType classifies the listing. ONE_TIME = single engagement (plumbing, repairs).
   // SESSION_BASED = repeatable sessions against the same listing (tutoring, fitness coaching).
@@ -372,7 +392,7 @@ model Service {
   serviceType           ServiceType   @default(ONE_TIME)
   estimatedDurationMins Int
   queueLimit            Int           @default(3)
-  // payment_methods stored as JSON: { gcash: bool, maya: bool, cash: bool }
+  // payment_methods stored as JSON: { gcash: bool, maya: bool, card: bool, cash: bool }
   paymentMethods        Json
   status                ServiceStatus @default(PENDING_REVIEW)
   isAvailable           Boolean       @default(false)
@@ -389,7 +409,7 @@ model Service {
   queueNotify    QueueNotify[]
   bookings       Booking[]
 
-  @@unique([providerId, title])
+  @@index([providerId, status])
   @@map("services")
 }
 
@@ -493,6 +513,9 @@ model Queue {
   bookingId        String?           @unique
   booking          Booking?          @relation(fields: [bookingId], references: [id])
 
+  // Partial uniqueness and positive-position checks are enforced by the
+  // queue_concurrency_hardening SQL migration because Prisma cannot express them.
+  @@index([serviceId, status, position])
   @@map("queue")
 }
 
@@ -552,6 +575,9 @@ model Booking {
   cancellationRequests CancellationRequest[]
   refund               PaymentRefund?
 
+  // The database migration also enforces one ONGOING booking per provider.
+  @@index([providerId, status])
+  @@index([serviceId, status])
   @@map("bookings")
 }
 
@@ -600,10 +626,16 @@ model Review {
   text               String?
   tags               Json? // string array e.g. ["On Time", "Skilled"]
   aiSummaryUsed      Boolean          @default(false)
+  visibility         ReviewVisibility @default(VISIBLE)
+  moderationReason   String?
+  moderatedById      String?
+  moderatedAt        DateTime?
+  contentVersion     Int              @default(1)
   createdAt          DateTime         @default(now())
   editableUntil      DateTime // 24 hours after createdAt
 
   @@unique([completedServiceId, authorId])
+  @@index([visibility, createdAt])
   @@map("reviews")
 }
 
@@ -622,6 +654,7 @@ model Report {
   reason         ReportReason
   description    String
   evidenceUrl    String?
+  evidenceStorageKey String?
   reportType     String       @default("SAFETY")
   status         ReportStatus @default(PENDING)
   adminId        String?
@@ -740,6 +773,8 @@ model AiReviewSummary {
   providerId  String   @unique
   summary     String
   reviewCount Int // how many reviews were in the batch
+  contentVersion String
+  source      String   @default("computed")
   generatedAt DateTime @default(now())
 
   @@map("ai_review_summaries")
@@ -783,6 +818,20 @@ model AdminAuditLog {
   @@index([targetUserId, createdAt])
   @@index([resourceType, resourceId])
   @@map("admin_audit_logs")
+}
+
+model AccountDeletionRequest {
+  id          String                @id @default(cuid())
+  userId      String                @unique
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status      AccountDeletionStatus @default(PENDING)
+  blockers    Json?
+  requestedAt DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  completedAt DateTime?
+
+  @@index([status, requestedAt])
+  @@map("account_deletion_requests")
 }
 
 model PaymentRefund {

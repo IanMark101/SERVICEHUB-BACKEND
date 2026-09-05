@@ -1,7 +1,7 @@
 import { prisma } from "../../lib/prisma";
 import { safeEmit } from "../../lib/socket";
 import { sendMessage } from "../messages.service";
-import { notifyWaitlist, recalculateQueue } from "../queue.service";
+import { lockServiceQueue, recalculateQueueInTransaction } from "../queue.service";
 
 export async function providerStartJob(id: string, providerId: string) {
   const result = await prisma.$transaction(async (tx) => {
@@ -63,7 +63,7 @@ export async function providerStartJob(id: string, providerId: string) {
     }
 
     if (queueEntry) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`service:${queueEntry.serviceId}`}))`;
+      await lockServiceQueue(tx, queueEntry.serviceId);
       const firstWaiting = await tx.queue.findFirst({
         where: { serviceId: queueEntry.serviceId, status: "WAITING" },
         orderBy: { position: "asc" },
@@ -87,16 +87,19 @@ export async function providerStartJob(id: string, providerId: string) {
 
     const updatedBooking = await tx.booking.update({
       where: { id: booking.id },
-      data: { status: "ONGOING", started: true },
+      data: {
+        status: "ONGOING",
+        started: true,
+        ...(queueEntry ? { queuePosition: 1 } : {}),
+      },
     });
+    if (queueEntry) {
+      await recalculateQueueInTransaction(tx, queueEntry.serviceId);
+    }
     return { booking: updatedBooking, queueEntry };
   });
 
-  const { booking, queueEntry } = result;
-  if (queueEntry) {
-    await recalculateQueue(queueEntry.serviceId);
-    await notifyWaitlist(queueEntry.serviceId);
-  }
+  const { booking } = result;
 
   await prisma.notification.create({
     data: {

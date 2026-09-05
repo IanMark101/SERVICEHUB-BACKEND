@@ -1,106 +1,107 @@
 import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
-import { deletePrivateVerificationImage, getPrivateVerificationUrl } from "../config/cloudinary";
+import { getPrivateVerificationUrl } from "../config/cloudinary";
+import { applyTrustEventInTransaction } from "./trust.service";
+import {
+  VERIFICATION_DOCUMENT_RETENTION_DAYS,
+  VERIFICATION_PRIVACY_NOTICE,
+  VERIFICATION_PRIVACY_NOTICE_VERSION,
+  verificationRetentionDeadline,
+} from "../config/privacy";
+
+type VerificationProofInput = { storageKey: string; documentType: string };
+
+function httpError(message: string, status: number, code?: string) {
+  const error = new Error(message) as Error & { status?: number; code?: string };
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
+function redactVerification<T extends { proofs: Array<Record<string, unknown>> }>(verification: T) {
+  return {
+    ...verification,
+    proofs: verification.proofs.map(({ storageKey: _storageKey, fileUrl: _fileUrl, ...proof }) => proof),
+  };
+}
+
+export function getVerificationPrivacyNotice() {
+  return {
+    version: VERIFICATION_PRIVACY_NOTICE_VERSION,
+    notice: VERIFICATION_PRIVACY_NOTICE,
+    minimumRetentionDays: VERIFICATION_DOCUMENT_RETENTION_DAYS,
+  };
+}
 
 export async function submitVerification(
   userId: string,
-  proofs: { storageKey: string; documentType: string }[],
+  proofs: VerificationProofInput[],
+  privacyNoticeVersion: string,
+  privacyAcknowledged: boolean,
 ) {
-  if (!proofs.length) {
-    const error = new Error("At least one document is required") as Error & { status?: number };
-    error.status = 400;
-    throw error;
+  if (!privacyAcknowledged || privacyNoticeVersion !== VERIFICATION_PRIVACY_NOTICE_VERSION) {
+    throw httpError("You must acknowledge the current verification privacy notice", 400, "PRIVACY_NOTICE_REQUIRED");
   }
+  if (!proofs.length) throw httpError("At least one document is required", 400);
   if (proofs.some((proof) => !proof.storageKey.startsWith(`servicehub/verification/${userId}/`))) {
-    const error = new Error("Verification document does not belong to this user") as Error & { status?: number };
-    error.status = 403;
-    throw error;
+    throw httpError("Verification document does not belong to this user", 403);
   }
 
   const result = await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({
       where: { id: userId },
-      select: { verificationStatus: true, name: true, email: true },
+      select: { verificationStatus: true, emailVerified: true, name: true, email: true },
     });
-    if (!user) {
-      const error = new Error("User not found") as Error & { status?: number };
-      error.status = 404;
-      throw error;
-    }
-    if (user.verificationStatus === "APPROVED") {
-      const error = new Error("Your account is already verified") as Error & { status?: number };
-      error.status = 409;
-      throw error;
-    }
+    if (!user) throw httpError("User not found", 404);
+    if (!user.emailVerified) throw httpError("Verify your email before submitting residency documents", 403, "EMAIL_NOT_VERIFIED");
+    if (user.verificationStatus === "APPROVED") throw httpError("Your account is already verified", 409);
 
-    const existing = await tx.serviceVerification.findFirst({
-      where: { userId },
+    const pending = await tx.serviceVerification.findFirst({
+      where: { userId, status: "PENDING_REVIEW" },
       orderBy: { submittedAt: "desc" },
-      include: { proofs: { select: { storageKey: true } } },
+      include: { proofs: true },
     });
-    const verification = existing
-      ? await tx.serviceVerification.update({
-          where: { id: existing.id },
-          data: {
-            status: "PENDING_REVIEW",
-            submittedAt: new Date(),
-            reviewedAt: null,
-            adminId: null,
-            adminNotes: null,
-            proofs: {
-              deleteMany: {},
-              create: proofs.map((proof) => ({
-                storageKey: proof.storageKey,
-                documentType: proof.documentType,
-              })),
-            },
-          },
-          include: { proofs: true },
-        })
-      : await tx.serviceVerification.create({
-          data: {
-            userId,
-            status: "PENDING_REVIEW",
-            proofs: {
-              create: proofs.map((proof) => ({
-                storageKey: proof.storageKey,
-                documentType: proof.documentType,
-              })),
-            },
-          },
-          include: { proofs: true },
-        });
+    if (pending) return { verification: pending, admins: [] as { id: string }[], created: false };
 
+    const acknowledgedAt = new Date();
+    const verification = await tx.serviceVerification.create({
+      data: {
+        userId,
+        status: "PENDING_REVIEW",
+        privacyNoticeVersion,
+        privacyAcknowledgedAt: acknowledgedAt,
+        privacyAcknowledgedBy: userId,
+        retentionUntil: verificationRetentionDeadline(acknowledgedAt),
+        proofs: { create: proofs },
+      },
+      include: { proofs: true },
+    });
     await tx.user.update({ where: { id: userId }, data: { verificationStatus: "PENDING_REVIEW" } });
     const admins = await tx.user.findMany({
-      where: { role: "admin", isActive: true },
+      where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" },
       select: { id: true },
     });
-    if (admins.length) {
+    if (admins.length > 0) {
       await tx.notification.createMany({
         data: admins.map((admin) => ({
           userId: admin.id,
           title: "New Verification Submission",
           body: `${user.name} (${user.email}) submitted verification documents for review.`,
-          link: "/admin/verifications",
+          link: `/admin/verifications?verification=${verification.id}`,
         })),
       });
     }
-    return {
-      verification,
-      admins,
-      replacedStorageKeys: existing?.proofs.map((proof) => proof.storageKey).filter((key): key is string => Boolean(key)) || [],
-    };
+    return { verification, admins, created: true };
   });
 
-  await Promise.allSettled(result.replacedStorageKeys.map(deletePrivateVerificationImage));
-
-  result.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", {
-    title: "New Verification Submission",
-    link: "/admin/verifications",
-  }));
-  safeEmit("admin", "verification_submitted", { userId, verificationId: result.verification.id });
-  return result.verification;
+  if (result.created) {
+    result.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", {
+      title: "New Verification Submission",
+      link: `/admin/verifications?verification=${result.verification.id}`,
+    }));
+    safeEmit("admin", "verification_submitted", { userId, verificationId: result.verification.id });
+  }
+  return redactVerification(result.verification);
 }
 
 export async function getVerificationStatus(userId: string) {
@@ -109,14 +110,7 @@ export async function getVerificationStatus(userId: string) {
     orderBy: { submittedAt: "desc" },
     include: { proofs: true },
   });
-  if (!verification) return null;
-  return {
-    ...verification,
-    proofs: verification.proofs.map((proof) => ({
-      ...proof,
-      fileUrl: proof.storageKey ? getPrivateVerificationUrl(proof.storageKey) : proof.fileUrl,
-    })),
-  };
+  return verification ? redactVerification(verification) : null;
 }
 
 export async function listPendingVerifications(page = 1, limit = 20) {
@@ -126,9 +120,7 @@ export async function listPendingVerifications(page = 1, limit = 20) {
     prisma.serviceVerification.findMany({
       where,
       include: {
-        user: {
-          select: { id: true, name: true, email: true, trustScore: true, verificationStatus: true },
-        },
+        user: { select: { id: true, name: true, email: true, trustScore: true, verificationStatus: true } },
         proofs: true,
       },
       orderBy: { submittedAt: "asc" },
@@ -138,15 +130,35 @@ export async function listPendingVerifications(page = 1, limit = 20) {
     prisma.serviceVerification.count({ where }),
   ]);
   return {
-    items: items.map((item) => ({
-      ...item,
-      proofs: item.proofs.map((proof) => ({
-        ...proof,
-        fileUrl: proof.storageKey ? getPrivateVerificationUrl(proof.storageKey) : proof.fileUrl,
-      })),
-    })),
+    items: items.map(redactVerification),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
+}
+
+export async function accessVerificationProof(
+  verificationId: string,
+  proofId: string,
+  adminId: string,
+  action: "view" | "download",
+) {
+  const proof = await prisma.verificationProof.findFirst({
+    where: { id: proofId, verificationId },
+    include: { verification: { select: { userId: true } } },
+  });
+  if (!proof?.storageKey) throw httpError("Verification proof not found", 404);
+
+  await prisma.adminAuditLog.create({
+    data: {
+      actorId: adminId,
+      targetUserId: proof.verification.userId,
+      action: action === "download" ? "VERIFICATION_DOCUMENT_DOWNLOADED" : "VERIFICATION_DOCUMENT_VIEWED",
+      resourceType: "VerificationProof",
+      resourceId: proof.id,
+      reason: `Administrator ${action}ed a private verification document`,
+      metadata: { verificationId, documentType: proof.documentType },
+    },
+  });
+  return { url: getPrivateVerificationUrl(proof.storageKey, action === "download"), expiresInSeconds: 300, documentType: proof.documentType };
 }
 
 export async function reviewVerification(
@@ -157,44 +169,23 @@ export async function reviewVerification(
 ) {
   const newStatus = approve ? "APPROVED" : "REJECTED";
   const verification = await prisma.$transaction(async (tx) => {
-    const current = await tx.serviceVerification.findUnique({
-      where: { id: verificationId },
-      include: { user: true },
-    });
-    if (!current) {
-      const error = new Error("Verification not found") as Error & { status?: number };
-      error.status = 404;
-      throw error;
-    }
-
+    const current = await tx.serviceVerification.findUnique({ where: { id: verificationId }, include: { user: true } });
+    if (!current) throw httpError("Verification not found", 404);
+    const reviewedAt = new Date();
     const claimed = await tx.serviceVerification.updateMany({
       where: { id: verificationId, status: "PENDING_REVIEW" },
-      data: { status: newStatus, adminId, adminNotes: adminNotes || null, reviewedAt: new Date() },
+      data: { status: newStatus, adminId, adminNotes: adminNotes || null, reviewedAt, retentionUntil: verificationRetentionDeadline(reviewedAt) },
     });
-    if (claimed.count !== 1) {
-      const error = new Error("Verification has already been reviewed") as Error & { status?: number };
-      error.status = 409;
-      throw error;
-    }
-
+    if (claimed.count !== 1) throw httpError("Verification has already been reviewed", 409);
     await tx.user.update({ where: { id: current.userId }, data: { verificationStatus: newStatus } });
 
     if (approve) {
-      const rows = await tx.$queryRaw<Array<{ trustScore: number }>>`
-        SELECT "trustScore" FROM "users" WHERE "id" = ${current.userId} FOR UPDATE
-      `;
-      const scoreBefore = rows[0].trustScore;
-      const scoreAfter = Math.min(100, scoreBefore + 5);
-      await tx.user.update({ where: { id: current.userId }, data: { trustScore: scoreAfter } });
-      await tx.trustScoreEvent.create({
-        data: {
-          userId: current.userId,
-          delta: scoreAfter - scoreBefore,
-          reason: "Residency & Identity Verification Approved by Cordova Admin",
-          scoreBefore,
-          scoreAfter,
-          actorAdminId: adminId,
-        },
+      await applyTrustEventInTransaction(tx, {
+        userId: current.userId,
+        delta: 5,
+        reason: "Residency & Identity Verification Approved by Cordova Admin",
+        actorAdminId: adminId,
+        eventKey: `verification-approval:${verificationId}`,
       });
     }
 
@@ -202,9 +193,7 @@ export async function reviewVerification(
       data: {
         userId: current.userId,
         title: approve ? "Verification Approved" : "Verification Rejected",
-        body: approve
-          ? 'You are now a Verified Resident of Cordova. Your "Verified" badge is active.'
-          : `Your verification was not approved. Reason: ${adminNotes}`,
+        body: approve ? "You are now a verified Cordova resident." : `Your verification was not approved. Reason: ${adminNotes}`,
         link: `/seeker/user-profile?id=${current.userId}`,
       },
     });
@@ -221,8 +210,6 @@ export async function reviewVerification(
     return current;
   });
 
-  safeEmit(`user:${verification.userId}`, "notification", {
-    title: approve ? "Verification Approved" : "Verification Rejected",
-  });
+  safeEmit(`user:${verification.userId}`, "notification", { title: approve ? "Verification Approved" : "Verification Rejected" });
   return { status: newStatus };
 }

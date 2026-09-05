@@ -45,6 +45,12 @@ export async function createDirectRequest(params: {
     err.status = 400;
     throw err;
   }
+  if (service.price === null) {
+    const err = new Error("This fixed-price listing is missing a valid price") as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
+  const fixedPrice = service.price;
   if (service.serviceType !== "ONE_TIME") {
     const err = new Error("Session booking is not available until conflict-safe scheduling is enabled") as any;
     err.status = 409;
@@ -98,7 +104,7 @@ export async function createDirectRequest(params: {
         providerId,
         serviceId,
         selectedPaymentMethod: "cash",
-        agreedPrice: service.price,
+        agreedPrice: fixedPrice,
         schedule,
         message,
         status: "PENDING_APPROVAL",
@@ -113,7 +119,7 @@ export async function createDirectRequest(params: {
         directRequestId: directRequest.id,
         originType: "DIRECT_LISTING",
         paymentMethod: "On-site Cash",
-        agreedAmount: service.price,
+        agreedAmount: fixedPrice,
         paymentStatus: "UNPAID",
         status: "PENDING_APPROVAL",
         started: false,

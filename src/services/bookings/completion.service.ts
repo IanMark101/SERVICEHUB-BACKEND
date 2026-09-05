@@ -1,9 +1,16 @@
 import type { BookingStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
+import { applyTrustEventInTransaction } from "../trust.service";
 import { safeEmit } from "../../lib/socket";
 import { assertDistinctAccounts } from "../../utils/security";
 import { sendMessage } from "../messages.service";
-import { notifyWaitlist, recalculateQueue } from "../queue.service";
+import {
+  emitWaitlistNotification,
+  lockServiceQueue,
+  notifyWaitlistInTransaction,
+  recalculateQueueInTransaction,
+  type WaitlistNotification,
+} from "../queue.service";
 
 function httpError(message: string, status: number, code?: string) {
   const error = new Error(message) as Error & { status?: number; code?: string };
@@ -23,23 +30,26 @@ export async function markJobComplete(id: string, providerId: string) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`completion:${booking.id}`}))`;
     const fresh = await tx.booking.findUnique({ where: { id: booking.id }, include: { queue: true } });
     if (!fresh || fresh.providerId !== providerId) throw httpError("Access denied", 403);
-    if (fresh.status === "AWAITING_CONFIRMATION") return { booking: fresh, queue: fresh.queue, changed: false };
+    if (fresh.status === "AWAITING_CONFIRMATION") {
+      return { booking: fresh, queue: fresh.queue, changed: false, waitlistNotification: null };
+    }
     if (fresh.status !== "ONGOING") throw httpError("Only an ongoing job can be marked complete", 409);
 
     const updated = await tx.booking.update({
       where: { id: fresh.id },
       data: { status: "AWAITING_CONFIRMATION" },
     });
+    let waitlistNotification: WaitlistNotification | null = null;
     if (fresh.queue) {
+      await lockServiceQueue(tx, fresh.queue.serviceId);
       await tx.queue.update({ where: { id: fresh.queue.id }, data: { status: "DONE" } });
+      await recalculateQueueInTransaction(tx, fresh.queue.serviceId);
+      waitlistNotification = await notifyWaitlistInTransaction(tx, fresh.queue.serviceId);
     }
-    return { booking: updated, queue: fresh.queue, changed: true };
+    return { booking: updated, queue: fresh.queue, changed: true, waitlistNotification };
   });
 
-  if (result.queue) {
-    await recalculateQueue(result.queue.serviceId);
-    await notifyWaitlist(result.queue.serviceId);
-  }
+  emitWaitlistNotification(result.waitlistNotification ?? null);
   if (result.changed) {
     await prisma.notification.create({
       data: {
@@ -93,7 +103,9 @@ export async function settleCompletedBooking(
       data: { status: "COMPLETED", paymentStatus: settlementStatus, statusBeforeDispute: null },
     });
     if (booking.queue) {
+      await lockServiceQueue(tx, booking.queue.serviceId);
       await tx.queue.update({ where: { id: booking.queue.id }, data: { status: "DONE", paymentStatus: settlementStatus } });
+      await recalculateQueueInTransaction(tx, booking.queue.serviceId);
     }
     if (booking.offer?.requestId) {
       await tx.serviceRequest.update({ where: { id: booking.offer.requestId }, data: { status: "CLOSED" } });
@@ -114,19 +126,15 @@ export async function settleCompletedBooking(
       });
     }
 
-    const eventKey = `booking-completion:${booking.id}:provider`;
-    const existingTrust = await tx.trustScoreEvent.findUnique({ where: { eventKey } });
-    if (!existingTrust && booking.providerId !== booking.seekerId) {
-      const provider = await tx.user.findUnique({ where: { id: booking.providerId }, select: { trustScore: true } });
-      if (provider) {
-        const nextScore = Math.min(100, provider.trustScore + 3);
-        await tx.user.update({ where: { id: booking.providerId }, data: { trustScore: nextScore } });
-        await tx.trustScoreEvent.create({
-          data: { userId: booking.providerId, delta: nextScore - provider.trustScore, reason: "Service completed successfully", scoreBefore: provider.trustScore, scoreAfter: nextScore, eventKey },
-        });
-      }
+    if (booking.providerId !== booking.seekerId) {
+      await applyTrustEventInTransaction(tx, {
+        userId: booking.providerId,
+        delta: 3,
+        reason: "Service completed successfully",
+        eventKey: `booking-completion:${booking.id}:provider`,
+      });
     }
-    return { completed, booking: updatedBooking, changed: true, isCash, queueServiceId: booking.queue?.serviceId };
+    return { completed, booking: updatedBooking, changed: true, isCash };
   });
 
   if (result.changed) {
@@ -158,14 +166,6 @@ export async function settleCompletedBooking(
     }
     safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "completed" });
     safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "completed" });
-    if (result.queueServiceId) {
-      try {
-        await recalculateQueue(result.queueServiceId);
-        await notifyWaitlist(result.queueServiceId);
-      } catch (error) {
-        console.error("Post-settlement queue refresh failed", error);
-      }
-    }
   }
   return result.completed;
 }

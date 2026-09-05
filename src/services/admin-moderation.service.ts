@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { safeEmit, safeBroadcast } from "../lib/socket";
+import { applyTrustEventInTransaction } from "./trust.service";
 
 export async function reviewServiceListing(
   serviceId: string,
@@ -8,6 +9,8 @@ export async function reviewServiceListing(
   adminNotes?: string,
 ) {
   const result = await prisma.$transaction(async (tx) => {
+    const owner = await tx.service.findUnique({ where: { id: serviceId }, select: { providerId: true } });
+    if (owner) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-listings:${owner.providerId}`}))`;
     const service = await tx.service.findUnique({
       where: { id: serviceId },
       include: { provider: true },
@@ -67,21 +70,12 @@ export async function reviewServiceListing(
       notificationBody = `Your service "${service.title}" was not approved. Reason: ${adminNotes}`;
 
       if (rejectionCount === 2) {
-        const rows = await tx.$queryRaw<Array<{ trustScore: number }>>`
-          SELECT "trustScore" FROM "users" WHERE "id" = ${service.providerId} FOR UPDATE
-        `;
-        const scoreBefore = rows[0].trustScore;
-        const scoreAfter = Math.max(0, scoreBefore - 5);
-        await tx.user.update({ where: { id: service.providerId }, data: { trustScore: scoreAfter } });
-        await tx.trustScoreEvent.create({
-          data: {
-            userId: service.providerId,
-            delta: scoreAfter - scoreBefore,
-            reason: "Second repeated service listing rejection",
-            scoreBefore,
-            scoreAfter,
-            actorAdminId: adminId,
-          },
+        await applyTrustEventInTransaction(tx, {
+          userId: service.providerId,
+          delta: -5,
+          reason: "Second repeated service listing rejection",
+          actorAdminId: adminId,
+          eventKey: `listing-rejection:${service.id}:2`,
         });
         notificationBody += " Your trust score was reduced by 5 points.";
       }

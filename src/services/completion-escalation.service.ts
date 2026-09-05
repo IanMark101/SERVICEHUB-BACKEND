@@ -3,7 +3,7 @@ import { safeBroadcast, safeEmit } from "../lib/socket";
 import { settleCompletedBooking } from "./bookings/completion.service";
 
 const WAIT_MS = 72 * 60 * 60 * 1000;
-const RETRY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const RETRY_COOLDOWN_MS = WAIT_MS;
 
 function httpError(message: string, status: number, code?: string) {
   const error = new Error(message) as Error & { status?: number; code?: string };
@@ -13,7 +13,7 @@ function httpError(message: string, status: number, code?: string) {
 }
 
 export async function createCompletionEscalation(bookingId: string, providerId: string, reason: string) {
-  const escalation = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`completion-escalation:${bookingId}`}))`;
     const booking = await tx.booking.findUnique({ where: { id: bookingId } });
     if (!booking || booking.providerId !== providerId) throw httpError("Booking not found or access denied", 404);
@@ -21,15 +21,33 @@ export async function createCompletionEscalation(bookingId: string, providerId: 
     if (booking.updatedAt.getTime() + WAIT_MS > Date.now()) throw httpError("Completion can be escalated after 72 hours without a seeker response", 409, "ESCALATION_WAIT_PERIOD");
 
     const previous = await tx.completionEscalation.findFirst({ where: { bookingId }, orderBy: { createdAt: "desc" } });
-    if (previous?.status === "PENDING") throw httpError("A completion escalation is already pending", 409, "DUPLICATE_ESCALATION");
+    if (previous && ["PENDING", "UNDER_REVIEW"].includes(previous.status)) {
+      return { escalation: previous, created: false };
+    }
     if (previous?.resolvedAt && previous.resolvedAt.getTime() + RETRY_COOLDOWN_MS > Date.now()) {
-      throw httpError("Wait 24 hours before submitting another completion escalation", 409, "ESCALATION_COOLDOWN");
+      throw httpError("Wait 72 hours before submitting another completion escalation", 409, "ESCALATION_COOLDOWN");
     }
     const created = await tx.completionEscalation.create({ data: { bookingId, requestedBy: providerId, reason } });
-    return { created, seekerId: booking.seekerId };
+    const admins = await tx.user.findMany({
+      where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" },
+      select: { id: true },
+    });
+    if (admins.length > 0) {
+      await tx.notification.createMany({
+        data: admins.map((admin) => ({
+          userId: admin.id,
+          title: "Completion escalation requires review",
+          body: "A provider requested administrator review after the 72-hour seeker response window.",
+          link: `/admin/reports?booking=${bookingId}`,
+        })),
+      });
+    }
+    return { escalation: created, created: true };
   });
-  safeEmit("admin", "ADMIN_MODERATION_CHANGED", { type: "completion_escalation", bookingId });
-  return escalation.created;
+  if (result.created) {
+    safeEmit("admin", "ADMIN_MODERATION_CHANGED", { type: "completion_escalation", bookingId });
+  }
+  return result.escalation;
 }
 
 export async function listCompletionEscalations(page = 1, limit = 20) {
@@ -49,7 +67,7 @@ export async function listCompletionEscalations(page = 1, limit = 20) {
 export async function resolveCompletionEscalation(params: {
   escalationId: string;
   adminId: string;
-  action: "release_provider_and_complete" | "dismiss";
+  action: "release_provider_and_complete" | "keep_awaiting" | "dismiss";
   resolution: string;
 }) {
   const escalation = await prisma.completionEscalation.findUnique({ where: { id: params.escalationId } });
@@ -76,7 +94,7 @@ export async function resolveCompletionEscalation(params: {
   const claimed = await prisma.$transaction(async (tx) => {
     const update = await tx.completionEscalation.updateMany({
       where: { id: escalation.id, status: "UNDER_REVIEW", adminId: params.adminId },
-      data: { status: params.action === "dismiss" ? "DISMISSED" : "RESOLVED", adminId: params.adminId, resolution: params.resolution, resolvedAt: new Date() },
+      data: { status: params.action === "release_provider_and_complete" ? "RESOLVED" : "DISMISSED", adminId: params.adminId, resolution: params.resolution, resolvedAt: new Date() },
     });
     if (update.count !== 1) throw httpError("Completion escalation has already been resolved", 409);
     await tx.adminAuditLog.create({

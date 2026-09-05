@@ -1,10 +1,5 @@
 import { prisma } from "../../lib/prisma";
-import { recalculateQueue, notifyWaitlist } from "../queue.service";
-import { applyCancellationTrust, applyServiceCompletionTrust } from "../trust.service";
 import { safeEmit } from "../../lib/socket";
-import { assertDistinctAccounts } from "../../utils/security";
-import { sendMessage } from "../messages.service";
-import { refundBookingPayment } from "../payment-refund.service";
 // ── Hide / Dismiss Booking from User View ─────────────────────────────────────
 
 export async function hideBookingService(bookingId: string, userId: string) {

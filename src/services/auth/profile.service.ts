@@ -35,18 +35,19 @@ export async function getUserPublicProfile(userId: string) {
   });
 
   const reviews = await prisma.review.findMany({
-    where: { targetId: userId },
+    where: { targetId: userId, visibility: "VISIBLE" },
     include: {
       author: {
         select: { id: true, name: true, avatarUrl: true },
       },
+      completedService: { select: { seekerId: true, providerId: true } },
     },
     orderBy: { createdAt: 'desc' },
     take: 10,
   });
 
   const avgRatingResult = await prisma.review.aggregate({
-    where: { targetId: userId },
+    where: { targetId: userId, visibility: "VISIBLE", completedService: { providerId: userId } },
     _avg: { rating: true },
   });
 
@@ -61,6 +62,7 @@ export async function getUserPublicProfile(userId: string) {
       rating: r.rating,
       comment: r.text || '',
       createdAt: r.createdAt,
+      reviewContext: r.completedService.providerId === userId ? "PROVIDER" : "SEEKER",
     })),
   };
 }

@@ -9,6 +9,7 @@ import {
   TrustAdjustmentSchema,
   VerificationSubmissionSchema,
 } from "./marketplace.schema";
+import { VERIFICATION_PRIVACY_NOTICE_VERSION } from "../config/privacy";
 
 test("moderation rejection requires a clear reason", () => {
   assert.equal(BooleanDecisionSchema.safeParse({ approve: false }).success, false);
@@ -35,9 +36,11 @@ test("temporary suspensions are bounded", () => {
 });
 
 test("verification accepts only private managed proof references and approved document types", () => {
-  assert.equal(VerificationSubmissionSchema.safeParse({ proofs: [{ documentType: "GOVERNMENT_ID", storageKey: "https://example.com/id.jpg" }] }).success, false);
-  assert.equal(VerificationSubmissionSchema.safeParse({ proofs: [{ documentType: "SKILL_CERTIFICATE", storageKey: "servicehub/verification/user123/id.jpg" }] }).success, false);
-  assert.equal(VerificationSubmissionSchema.safeParse({ proofs: [{ documentType: "BARANGAY_ID", storageKey: "servicehub/verification/user123/id.jpg" }] }).success, true);
+  const consent = { privacyNoticeVersion: VERIFICATION_PRIVACY_NOTICE_VERSION, privacyAcknowledged: true };
+  assert.equal(VerificationSubmissionSchema.safeParse({ ...consent, proofs: [{ documentType: "GOVERNMENT_ID", storageKey: "https://example.com/id.jpg" }] }).success, false);
+  assert.equal(VerificationSubmissionSchema.safeParse({ ...consent, proofs: [{ documentType: "SKILL_CERTIFICATE", storageKey: "servicehub/verification/user123/id.jpg" }] }).success, false);
+  assert.equal(VerificationSubmissionSchema.safeParse({ ...consent, proofs: [{ documentType: "BARANGAY_ID", storageKey: "servicehub/verification/user123/id.jpg" }] }).success, true);
+  assert.equal(VerificationSubmissionSchema.safeParse({ proofs: [{ documentType: "BARANGAY_ID", storageKey: "servicehub/verification/user123/id.jpg" }] }).success, false);
 });
 
 test("a standard user receives 403 from the administrator role guard", () => {

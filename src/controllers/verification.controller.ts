@@ -5,8 +5,10 @@ import {
   getVerificationStatus,
   listPendingVerifications,
   reviewVerification,
+  accessVerificationProof,
+  getVerificationPrivacyNotice,
 } from "../services/verification.service";
-import { VerificationSubmissionSchema } from "../schema/marketplace.schema";
+import { VerificationProofAccessSchema, VerificationSubmissionSchema } from "../schema/marketplace.schema";
 import { BooleanDecisionSchema } from "../schema/marketplace.schema";
 
 // ── POST /verifications/submit ────────────────────────────────────────────────
@@ -14,9 +16,9 @@ import { BooleanDecisionSchema } from "../schema/marketplace.schema";
 export async function submit(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { proofs } = VerificationSubmissionSchema.parse(req.body);
+    const { proofs, privacyNoticeVersion, privacyAcknowledged } = VerificationSubmissionSchema.parse(req.body);
 
-    const verification = await submitVerification(user.id, proofs);
+    const verification = await submitVerification(user.id, proofs, privacyNoticeVersion, privacyAcknowledged);
     res.status(201).json({ success: true, data: verification });
   } catch (err: any) {
     if (err.name === "ZodError") {
@@ -24,6 +26,10 @@ export async function submit(req: Request, res: Response, next: NextFunction) {
     }
     next(err);
   }
+}
+
+export async function privacyNotice(_req: Request, res: Response) {
+  res.json({ success: true, data: getVerificationPrivacyNotice() });
 }
 
 // ── GET /verifications/status ──────────────────────────────────────────────────
@@ -63,5 +69,21 @@ export async function adminReview(req: Request, res: Response, next: NextFunctio
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
+  }
+}
+
+export async function adminAccessProof(req: Request, res: Response, next: NextFunction) {
+  try {
+    const admin = (req as AuthenticatedRequest).user;
+    const { action } = VerificationProofAccessSchema.parse(req.query);
+    const result = await accessVerificationProof(
+      req.params.id as string,
+      req.params.proofId as string,
+      admin.id,
+      action,
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
   }
 }

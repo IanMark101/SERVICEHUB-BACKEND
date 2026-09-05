@@ -4,14 +4,15 @@ import { prisma } from "../../lib/prisma";
 import { safeBroadcast } from "../../lib/socket";
 import { AnnouncementCreateSchema, AnnouncementUpdateSchema } from "../../schema/marketplace.schema";
 
-export async function listAnnouncements(_req: Request, res: Response, next: NextFunction) {
+export async function listAnnouncements(req: Request, res: Response, next: NextFunction) {
   try {
-    const announcements = await prisma.announcement.findMany({
-      include: { author: { select: { id: true, name: true } } },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
-    res.json({ success: true, data: announcements });
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+    const [announcements, total] = await Promise.all([
+      prisma.announcement.findMany({ include: { author: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+      prisma.announcement.count(),
+    ]);
+    res.json({ success: true, data: announcements, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (err) {
     next(err);
   }

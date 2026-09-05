@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { uploadController } from '../controllers/upload.controller';
-import { requireAuth, requireMarketplaceUser } from '../middlewares/auth.middleware';
+import { requireAuth, requireEmailVerified, requireMarketplaceUser } from '../middlewares/auth.middleware';
 import { uploadLimiter } from '../middlewares/rateLimiter.middleware';
 
 const router = Router();
@@ -11,6 +11,7 @@ const router = Router();
 router.use(requireAuth, requireMarketplaceUser);
 router.post('/avatar', uploadLimiter, (req, res) => uploadController.uploadAvatar(req, res));
 router.post('/image', uploadLimiter, (req, res) => uploadController.uploadImage(req, res));
-router.post('/verification', uploadLimiter, (req, res) => uploadController.uploadVerification(req, res));
+router.post('/verification', requireEmailVerified, uploadLimiter, (req, res) => uploadController.uploadVerification(req, res));
+router.post('/booking-evidence', requireEmailVerified, uploadLimiter, (req, res) => uploadController.uploadBookingEvidence(req, res));
 
 export default router;

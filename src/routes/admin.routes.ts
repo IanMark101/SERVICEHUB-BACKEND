@@ -15,6 +15,7 @@ import {
   resolveCategorySuggestion,
   listReports,
   resolveReport,
+  accessReportEvidence,
   resolveCancellationRequest,
   listEscalatedCancellations,
   listAnnouncements,
@@ -24,12 +25,16 @@ import {
 import {
   adminList as listPendingVerifications,
   adminReview as reviewVerification,
+  adminAccessProof,
 } from "../controllers/verification.controller";
 import { adminViewMessages } from "../controllers/messages.controller";
 import { adminMutationLimiter } from "../middlewares/rateLimiter.middleware";
 import { listAdminCompletionEscalations, resolveAdminCompletionEscalation } from "../controllers/admin/completion-escalations.controller";
 import { listPaymentReconciliation, retryPaymentReconciliation } from "../controllers/admin/payments.controller";
 import { adminCancelUnstartedBooking, listAdminBookings, listAdminPaymentAttempts } from "../controllers/admin/booking-operations.controller";
+import { listAdminReviews, moderateReview } from "../controllers/admin/reviews.controller";
+import { finalizeAccountDeletion, listAccountDeletionRequests } from "../controllers/admin/account-deletions.controller";
+import { listAdminAuditLogs } from "../controllers/admin/audit-log.controller";
 
 const router = Router();
 
@@ -44,6 +49,7 @@ router.use((req, res, next) => {
 
 // Overview stats
 router.get("/overview", getOverview);
+router.get("/audit-logs", listAdminAuditLogs);
 
 // Community Hub: official administration announcements
 router.get("/announcements", listAnnouncements);
@@ -58,9 +64,12 @@ router.patch("/users/:id/ban", banUser);
 router.patch("/users/:id/restore", restoreUser);
 router.patch("/users/:id/posting-restore", restorePostingPrivilege);
 router.patch("/users/:id/promote", promoteUserToAdmin);
+router.get("/account-deletions", listAccountDeletionRequests);
+router.post("/account-deletions/:userId/finalize", finalizeAccountDeletion);
 
 // Verification Queue
 router.get("/verifications", listPendingVerifications);
+router.get("/verifications/:id/proofs/:proofId/access", adminAccessProof);
 router.patch("/verifications/:id", reviewVerification);
 
 // Service Listing Review
@@ -73,7 +82,10 @@ router.patch("/categories/suggestions/:id", resolveCategorySuggestion);
 
 // Reports / Moderation
 router.get("/reports", listReports);
+router.get("/reports/:id/evidence/access", accessReportEvidence);
 router.patch("/reports/:id/resolve", resolveReport);
+router.get("/reviews", listAdminReviews);
+router.patch("/reviews/:id/moderation", moderateReview);
 router.get("/completion-escalations", listAdminCompletionEscalations);
 router.patch("/completion-escalations/:id/resolve", resolveAdminCompletionEscalation);
 router.get("/payments/reconciliation", listPaymentReconciliation);
