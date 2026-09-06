@@ -189,10 +189,11 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   }) as typeof fetch;
   try {
     const cancellationRace = await Promise.allSettled([
-      requestCancellation(second.booking!.id, seekers[1].id, "Concurrent cancellation test."),
+      requestCancellation(second.booking!.id, second.booking!.seekerId, "Concurrent cancellation test."),
       recalculateQueue(service.id),
     ]);
-    assert.equal(cancellationRace.some((result) => result.status === "fulfilled"), true);
+    if (cancellationRace[0].status === "rejected") throw cancellationRace[0].reason;
+    if (cancellationRace[1].status === "rejected") throw cancellationRace[1].reason;
   } finally {
     globalThis.fetch = originalFetch;
   }
