@@ -17,7 +17,7 @@ export async function listPendingServices(req: Request, res: Response, next: Nex
   }
 }
 
-const ADMIN_SERVICE_STATUSES = ["PENDING_REVIEW", "ACTIVE", "INACTIVE", "SUSPENDED", "REJECTED"] as const;
+const ADMIN_SERVICE_STATUSES = ["LIVE", "PENDING_REVIEW", "ACTIVE", "INACTIVE", "SUSPENDED", "REJECTED"] as const;
 
 export async function listServices(req: Request, res: Response, next: NextFunction) {
   try {

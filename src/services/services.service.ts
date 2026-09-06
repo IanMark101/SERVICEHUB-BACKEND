@@ -429,8 +429,10 @@ export async function listPendingServices(page = 1, limit = 20) {
   return listAdminServices(page, limit, "PENDING_REVIEW");
 }
 
-export async function listAdminServices(page = 1, limit = 20, status?: ServiceStatus) {
-  const where: Prisma.ServiceWhereInput = status
+export async function listAdminServices(page = 1, limit = 20, status?: ServiceStatus | "LIVE") {
+  const where: Prisma.ServiceWhereInput = status === "LIVE"
+    ? PUBLIC_SERVICE_WHERE
+    : status
     ? { status }
     : { status: { not: "DELETED" } };
   const [items, total] = await Promise.all([
