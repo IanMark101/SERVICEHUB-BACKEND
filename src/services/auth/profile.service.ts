@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma";
 import { SALT_ROUNDS, toPublicUser } from "./authentication.service";
+import { safeEmit } from "../../lib/socket";
 
 // ── Public & Edit Profile Services ───────────────────────────────────────────
 
@@ -175,6 +176,7 @@ export async function updateUserProfile(
           link: updatedUser.role === "provider" ? "/provider/account-settings" : "/seeker/account-settings",
         },
       });
+      safeEmit(`user:${userId}`, "notification", { title: "Security Alert: Mobile Number Updated" });
     } catch (notifErr) {
       console.warn("Failed to create phone change security notification:", notifErr);
     }

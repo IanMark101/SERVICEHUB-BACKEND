@@ -18,6 +18,10 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     name: `Listing Test ${suffix}`, email: `${suffix}@example.test`, passwordHash: "test-only-unusable-hash",
     phone: "test-only", location: "Cordova", emailVerified: true, verificationStatus: "APPROVED",
   } });
+  const admin = await prisma.user.create({ data: {
+    name: `Listing Admin ${suffix}`, email: `admin-${suffix}@example.test`, passwordHash: "test-only-unusable-hash",
+    phone: "test-only", location: "Cordova", role: "admin", emailVerified: true,
+  } });
   const category = await prisma.category.create({ data: { name: `Listing Test ${suffix}` } });
   const seeker = await prisma.user.create({ data: { name: `Seeker Test ${suffix}`, email: `seeker-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only', location: 'Cordova' } });
   t.after(async () => {
@@ -26,10 +30,11 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     await prisma.completedService.deleteMany({ where: { OR: [{ providerId: provider.id }, { seekerId: provider.id }] } });
     await prisma.booking.deleteMany({ where: { OR: [{ providerId: provider.id }, { seekerId: provider.id }] } });
     await prisma.serviceRequest.deleteMany({ where: { seekerId: seeker.id } });
-    await prisma.notification.deleteMany({ where: { OR: [{ userId: provider.id }, { body: { contains: suffix } }] } });
+    await prisma.notification.deleteMany({ where: { OR: [{ userId: { in: [provider.id, admin.id] } }, { body: { contains: suffix } }] } });
     await prisma.service.deleteMany({ where: { providerId: provider.id } });
     await prisma.user.delete({ where: { id: provider.id } });
     await prisma.user.delete({ where: { id: seeker.id } });
+    await prisma.user.delete({ where: { id: admin.id } });
     await prisma.category.delete({ where: { id: category.id } });
     await prisma.$disconnect();
   });
@@ -47,6 +52,8 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
   const edited = await updateService(listing.id, provider.id, { description: "This changed description must be moderated before it becomes public." });
   assert.equal(edited.status, "PENDING_REVIEW");
   assert.equal(edited.isAvailable, false);
+  assert.equal(await prisma.notification.count({ where: { userId: provider.id, title: "Listing Changes Submitted" } }), 1);
+  assert.equal(await prisma.notification.count({ where: { userId: admin.id, title: "Service Listing Changes Pending Review" } }), 1);
   const custom = await updateService(listing.id, provider.id, { priceType: "CUSTOM" });
   assert.equal(custom.price, null);
   await assert.rejects(updateService(listing.id, provider.id, { priceType: "FIXED" }));

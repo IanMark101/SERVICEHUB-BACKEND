@@ -9,6 +9,7 @@ import {
   restoreUser,
   restorePostingPrivilege,
   promoteUserToAdmin,
+  listServices,
   listPendingServices,
   reviewService,
   listCategorySuggestions,
@@ -73,6 +74,7 @@ router.get("/verifications/:id/proofs/:proofId/access", adminAccessProof);
 router.patch("/verifications/:id", reviewVerification);
 
 // Service Listing Review
+router.get("/services", listServices);
 router.get("/services/pending", listPendingServices);
 router.patch("/services/:id/review", reviewService);
 

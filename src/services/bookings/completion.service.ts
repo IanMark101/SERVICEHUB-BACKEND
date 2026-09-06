@@ -59,6 +59,7 @@ export async function markJobComplete(id: string, providerId: string) {
         link: `/seeker/seeker-activity?tab=action_required&booking=${result.booking.id}`,
       },
     });
+    safeEmit(`user:${result.booking.seekerId}`, "notification", { title: "Service marked complete" });
     safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "awaiting_confirmation" });
     safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "awaiting_confirmation" });
   }
@@ -159,6 +160,7 @@ export async function settleCompletedBooking(
           link: `/provider/provider-activity?tab=all&booking=${result.booking.id}`,
         },
       });
+      safeEmit(`user:${result.booking.providerId}`, "notification", { title: "Completion confirmed" });
     } catch (error) {
       // The booking settlement is already committed. A best-effort chat or
       // notification failure must not make the client retry financial state.
@@ -219,6 +221,7 @@ export async function disputeJobService(
     await prisma.notification.create({
       data: { userId: booking.providerId, title: "Completion disputed", body: "The seeker opened a completion dispute for administrator review.", link: `/provider/provider-activity?tab=disputed&booking=${bookingId}` },
     });
+    safeEmit(`user:${booking.providerId}`, "notification", { title: "Completion disputed" });
     safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId, type: "disputed" });
     safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId, type: "disputed" });
   }

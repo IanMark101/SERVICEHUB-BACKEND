@@ -48,7 +48,7 @@ export async function reviewServiceListing(
         error.status = 409;
         throw error;
       }
-      notificationBody = `Your service "${service.title}" is now live and visible to seekers.`;
+      notificationBody = `Your service "${service.title}" is now live and visible to seekers. Administrator note: ${adminNotes}`;
     } else {
       const rejectionCount = service.rejectionCount + 1;
       const claimed = await tx.service.updateMany({

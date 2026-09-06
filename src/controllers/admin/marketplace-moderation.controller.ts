@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { prisma } from "../../lib/prisma";
-import { listPendingServices as adminListPendingServices } from "../../services/services.service";
+import { listAdminServices, listPendingServices as adminListPendingServices } from "../../services/services.service";
 import { reviewServiceListing, resolveCategory } from "../../services/admin-moderation.service";
 import { safeEmit } from "../../lib/socket";
 import { BooleanDecisionSchema } from "../../schema/marketplace.schema";
@@ -17,10 +17,34 @@ export async function listPendingServices(req: Request, res: Response, next: Nex
   }
 }
 
+const ADMIN_SERVICE_STATUSES = ["PENDING_REVIEW", "ACTIVE", "INACTIVE", "SUSPENDED", "REJECTED"] as const;
+
+export async function listServices(req: Request, res: Response, next: NextFunction) {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+    const requestedStatus = typeof req.query.status === "string" ? req.query.status.toUpperCase() : undefined;
+    if (requestedStatus && !ADMIN_SERVICE_STATUSES.includes(requestedStatus as typeof ADMIN_SERVICE_STATUSES[number])) {
+      return res.status(400).json({ success: false, error: "Invalid service status filter" });
+    }
+    const result = await listAdminServices(
+      page,
+      limit,
+      requestedStatus as typeof ADMIN_SERVICE_STATUSES[number] | undefined,
+    );
+    res.json({ success: true, data: result.items, pagination: result.pagination });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── PATCH /admin/services/:id/review ──────────────────────────────────────────
 export async function reviewService(req: Request, res: Response, next: NextFunction) {
   try {
     const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
+    if (!adminNotes || adminNotes.trim().length < 3) {
+      return res.status(400).json({ success: false, error: "An administrator message of at least 3 characters is required for every listing decision" });
+    }
     const result = await reviewServiceListing(req.params.id as string, (req as AuthenticatedRequest).user.id, approve, adminNotes);
     res.json({ success: true, data: result });
   } catch (err) {

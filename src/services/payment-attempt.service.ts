@@ -417,6 +417,7 @@ export async function finalizeSuccessfulPayment(params: {
         link: `/provider/provider-activity?tab=waiting&booking=${result.booking.id}`,
       },
     });
+    safeEmit(`user:${result.booking.providerId}`, "notification", { title: "New paid booking" });
     safeEmit(`service:${result.booking.serviceId}`, "queue_update", { serviceId: result.booking.serviceId });
     safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });
     safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });

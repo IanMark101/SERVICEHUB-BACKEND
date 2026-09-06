@@ -51,7 +51,7 @@ export async function listAdminPaymentAttempts(req: Request, res: Response, next
     const { page, limit, skip } = pageParams(req);
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const where = status ? { status: status as never } : {};
-    const [items, total] = await Promise.all([
+    const [attempts, total] = await Promise.all([
       prisma.paymentAttempt.findMany({
         where,
         orderBy: { updatedAt: "desc" },
@@ -73,11 +73,21 @@ export async function listAdminPaymentAttempts(req: Request, res: Response, next
           expiresAt: true,
           createdAt: true,
           updatedAt: true,
-          booking: { select: { id: true, status: true, paymentStatus: true } },
         },
       }),
       prisma.paymentAttempt.count({ where }),
     ]);
+    const bookings = attempts.length > 0
+      ? await prisma.booking.findMany({
+          where: { paymentAttemptId: { in: attempts.map((attempt) => attempt.id) } },
+          select: { id: true, paymentAttemptId: true, status: true, paymentStatus: true },
+        })
+      : [];
+    const bookingByAttemptId = new Map(bookings.map((booking) => [booking.paymentAttemptId, booking]));
+    const items = attempts.map((attempt) => ({
+      ...attempt,
+      booking: bookingByAttemptId.get(attempt.id) || null,
+    }));
     res.json({ success: true, data: items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (error) {
     next(error);

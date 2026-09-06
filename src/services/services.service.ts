@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, ServiceStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
 import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.schema";
@@ -233,7 +233,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
       });
       const admins = await tx.user.findMany({ where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" }, select: { id: true } });
       if (admins.length) {
-        await tx.notification.createMany({ data: admins.map((admin) => ({ userId: admin.id, title: "New Service Listing Pending Review", body: `${service.provider.name} submitted a new listing: "${input.title}".`, link: "/admin/services" })) });
+        await tx.notification.createMany({ data: admins.map((admin) => ({ userId: admin.id, title: "New Service Listing Pending Review", body: `${service.provider.name} submitted a new listing: "${input.title}".`, link: "/admin/services?status=PENDING_REVIEW" })) });
       }
       return { service, admins };
     });
@@ -242,7 +242,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
   }
 
   safeEmit(`user:${providerId}`, "notification", { title: "Listing Submitted for Review" });
-  created.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", { title: "New Service Listing Pending Review", link: "/admin/services" }));
+  created.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", { title: "New Service Listing Pending Review", link: "/admin/services?status=PENDING_REVIEW" }));
   safeEmit("admin", "SERVICE_LISTING_SUBMITTED", { serviceId: created.service.id });
   return created.service;
 }
@@ -250,7 +250,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
 
 export async function updateService(serviceId: string, providerId: string, input: UpdateServiceInput) {
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-listings:${providerId}`}))`;
       const service = await tx.service.findFirst({ where: { id: serviceId, providerId, status: { not: "DELETED" } } });
       if (!service) {
@@ -294,7 +294,7 @@ export async function updateService(serviceId: string, providerId: string, input
         }
       }
 
-      return tx.service.update({
+      const updated = await tx.service.update({
         where: { id: serviceId },
         data: {
           ...input,
@@ -306,7 +306,40 @@ export async function updateService(serviceId: string, providerId: string, input
         },
         include: { category: true },
       });
+
+      if (!materialChanged) return { service: updated, adminIds: [] as string[], submittedForReview: false };
+
+      await tx.notification.create({
+        data: {
+          userId: providerId,
+          title: "Listing Changes Submitted",
+          body: `Your changes to "${nextTitle}" were submitted for administrator review. The listing is unavailable until a decision is recorded.`,
+          link: `/provider/service-manager?id=${serviceId}&status=pending`,
+        },
+      });
+      const admins = await tx.user.findMany({
+        where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" },
+        select: { id: true },
+      });
+      if (admins.length > 0) {
+        await tx.notification.createMany({
+          data: admins.map((admin) => ({
+            userId: admin.id,
+            title: "Service Listing Changes Pending Review",
+            body: `A provider submitted material changes to "${nextTitle}".`,
+            link: `/admin/services?status=PENDING_REVIEW&id=${serviceId}`,
+          })),
+        });
+      }
+      return { service: updated, adminIds: admins.map((admin) => admin.id), submittedForReview: true };
     });
+
+    if (result.submittedForReview) {
+      safeEmit(`user:${providerId}`, "notification", { title: "Listing Changes Submitted", link: "/provider/service-manager" });
+      result.adminIds.forEach((adminId) => safeEmit(`user:${adminId}`, "notification", { title: "Service Listing Changes Pending Review", link: "/admin/services?status=PENDING_REVIEW" }));
+      safeEmit("admin", "SERVICE_LISTING_SUBMITTED", { serviceId: result.service.id, source: "material_edit" });
+    }
+    return result.service;
   } catch (error) {
     listingConflict(error);
   }
@@ -393,7 +426,13 @@ export async function getMyServices(providerId: string) {
 // ── Admin: List Pending Services ───────────────────────────────────────────────
 
 export async function listPendingServices(page = 1, limit = 20) {
-  const where = { status: "PENDING_REVIEW" as const };
+  return listAdminServices(page, limit, "PENDING_REVIEW");
+}
+
+export async function listAdminServices(page = 1, limit = 20, status?: ServiceStatus) {
+  const where: Prisma.ServiceWhereInput = status
+    ? { status }
+    : { status: { not: "DELETED" } };
   const [items, total] = await Promise.all([
     prisma.service.findMany({
       where,
@@ -403,7 +442,7 @@ export async function listPendingServices(page = 1, limit = 20) {
         },
         category: true,
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: status === "PENDING_REVIEW" ? { updatedAt: "asc" } : { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),

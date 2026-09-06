@@ -240,10 +240,10 @@ Phase 7 progress evidence (September 6, 2026):
 - [x] Implement helpful-review voting on the backend or remove its shared-count presentation. **DONE - the client-only localStorage vote and synthetic shared count were removed; verified-booking attribution remains.**
 - [x] Replace misleading `escrow`, `payout`, `wallet`, and `funds released` labels with Test Mode internal-ledger wording. **DONE - visible workflow, help, profile, phone, and fallback labels now distinguish internal Test Mode records from real payouts or escrow; legacy help-route slugs remain for link compatibility.**
 - [ ] Paginate conversations, notifications, and transactions.
-- [ ] Lazy-load report message histories instead of including every message in report-list responses.
-- [ ] Reduce dashboard refresh fan-out and remove redundant transaction derivation/fetching.
-- [ ] Add request-specific rate limits for messages, reviews, reports, payment initiation, and waitlist operations.
-- [ ] Add security headers, request IDs, structured logging, and production-safe error context.
+- [x] Lazy-load report message histories instead of including every message in report-list responses. **DONE - moderation lists return message counts and fetch booking messages only when an administrator expands a case.**
+- [ ] Reduce dashboard refresh fan-out and remove redundant transaction derivation/fetching. **IN PROGRESS - notification socket events now refresh notifications only, while engagement events coalesce the related operational resources; remaining transaction derivation cleanup is pending.**
+- [x] Add request-specific rate limits for messages, reviews, reports, payment initiation, and waitlist operations. **DONE - authenticated-account/IP limiters cover each listed high-impact mutation family with IPv6-safe fallback keys.**
+- [x] Add security headers, request IDs, structured logging, and production-safe error context. **DONE - API responses carry correlation and baseline security headers, errors use structured logs, and production responses expose a request ID without internal stack details.**
 - [ ] Finish splitting the remaining 400-530-line frontend components and hooks by feature responsibility.
 - [ ] Remove or gate unnecessary production console logging.
 
@@ -268,6 +268,12 @@ Phase 8 progress evidence (September 6, 2026):
 - After this slice, frontend tests pass 13/13, the production build generates all 93 routes, and the full lint inventory is 293 errors/270 warnings.
 - Frontend tests remain 4 files/13 tests passed and the production build remains green with 93 generated routes.
 - Frontend commit `0da9079` is pushed on `fix/admin-security-hardening`.
+- Administrator overview listing totals now use the exact public-marketplace eligibility predicate, and the moderation metric includes unresolved reports, completion escalations, and escalated cancellation requests.
+- The live-listings overview card now opens a database-backed status-filtered service inventory instead of the pending-only queue; administrators can inspect active, inactive, suspended, rejected, pending, or all non-deleted listings.
+- Material listing edits now create durable provider and administrator notifications, emit real-time refresh events, force the listing back to hidden pending review, and require a provider-visible administrator message for either approval or rejection.
+- The reports/payment-attempt panel no longer selects a nonexistent Prisma `PaymentAttempt.booking` relation; related bookings are resolved explicitly by `paymentAttemptId`, preventing the raw 500 shown by the previous admin screen.
+- Notification creation for paid bookings, completion transitions/disputes, security-sensitive phone changes, and completion escalations now emits the matching user-room notification event. Notification-only events no longer trigger the previous broad dashboard request fan-out.
+- Backend source contracts pass 23/23, both production builds pass, and the database-backed listing suite passes including its concurrency cleanup. The suite now also verifies material-edit notifications for both the provider and an active administrator.
 
 ### Phase 9 - documentation and final release gate - **NOT STARTED**
 
@@ -297,13 +303,15 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 - Provider workload forecasting beyond the one-ongoing-job safety guard.
 - Automated multi-account collusion detection.
 
+`SESSION_BASED` listing metadata may be displayed for inspection, but booking controls must remain unavailable. This is intentional—not a UI omission—because Master Prompt Part 17 classifies transactional slot reservation, overlap rejection, future Asia/Manila scheduling, and start-time enforcement as Tier 1 and requires the booking path to stay hidden until all of those rules are implemented end to end.
+
 ## Last executed evidence
 
 | Verification | Last result |
 | --- | --- |
 | Frontend production build | Passed; 93 routes generated |
 | Backend production build | Passed |
-| Backend contract tests | 21/21 passed |
+| Backend contract tests | 23/23 passed |
 | Database-backed booking/payment/queue integration | 1/1 passed |
 | Phase 2 concurrency integration | 1/1 passed after Phase 4 changes |
 | Phase 3 privacy/deletion integration | 1/1 passed after Phase 4 changes |

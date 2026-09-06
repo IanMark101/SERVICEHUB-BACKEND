@@ -42,9 +42,10 @@ export async function createCompletionEscalation(bookingId: string, providerId: 
         })),
       });
     }
-    return { escalation: created, created: true };
+    return { escalation: created, created: true, adminIds: admins.map((admin) => admin.id) };
   });
   if (result.created) {
+    result.adminIds?.forEach((adminId) => safeEmit(`user:${adminId}`, "notification", { title: "Completion escalation requires review" }));
     safeEmit("admin", "ADMIN_MODERATION_CHANGED", { type: "completion_escalation", bookingId });
   }
   return result.escalation;
@@ -100,8 +101,17 @@ export async function resolveCompletionEscalation(params: {
     await tx.adminAuditLog.create({
       data: { actorId: params.adminId, targetUserId: escalation.requestedBy, action: `COMPLETION_ESCALATION_${params.action.toUpperCase()}`, resourceType: "CompletionEscalation", resourceId: escalation.id, reason: params.resolution, metadata: { bookingId: escalation.bookingId } },
     });
+    await tx.notification.create({
+      data: {
+        userId: escalation.requestedBy,
+        title: "Completion escalation reviewed",
+        body: `Administrator decision: ${params.resolution}`,
+        link: `/provider/provider-activity?tab=all&booking=${escalation.bookingId}`,
+      },
+    });
     return update;
   });
+  safeEmit(`user:${escalation.requestedBy}`, "notification", { title: "Completion escalation reviewed" });
   safeBroadcast("ADMIN_MODERATION_CHANGED", { type: "completion_escalation_resolved", bookingId: escalation.bookingId });
   return claimed;
 }

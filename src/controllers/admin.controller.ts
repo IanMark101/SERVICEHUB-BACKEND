@@ -16,6 +16,7 @@ export {
   promoteUserToAdmin
 } from "./admin/users.controller";
 export {
+  listServices,
   listPendingServices,
   reviewService,
   listCategorySuggestions,
