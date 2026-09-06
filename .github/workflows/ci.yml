@@ -33,6 +33,10 @@ jobs:
       NODE_ENV: test
       FRONTEND_URL: http://localhost:3000
       PRISMA_LOG_QUERIES: "false"
+      # URL-signing tests need configuration but never upload or call Cloudinary.
+      CLOUDINARY_CLOUD_NAME: servicehub-ci
+      CLOUDINARY_API_KEY: ${{ github.run_id }}
+      CLOUDINARY_API_SECRET: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
