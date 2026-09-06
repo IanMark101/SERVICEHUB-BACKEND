@@ -18,7 +18,7 @@ Current estimated capstone readiness: **90%**
 | Admin operations | 89% | Safety evidence, review moderation, promotion, deletion, and audit-log workflows are guarded and auditable; broader release testing remains |
 | Messaging, realtime, and notifications | 78% | Functional; pagination, durability, and request fan-out need polish |
 | Reviews, trust, community, and AI | 85% | Provider/seeker review roles, aggregate eligibility, private trust history, transactional trust events, and versioned AI caching are verified |
-| UX and code quality | 81% | Shared workspace roles now have consistent visual identities, Community Hub and Admin surfaces are formalized, native browser dialogs and inactive preference controls are removed, and Test Mode payment wording is accurate; lint, pagination, performance, and large files remain |
+| UX and code quality | 83% | Shared workspace roles now have consistent visual identities, Community Hub and Admin surfaces are formalized, simulated controls are removed, native browser dialogs are replaced, and Test Mode wording is accurate; lint, pagination, performance, and large files remain |
 | Testing and deployment readiness | 84% | Phase 2-7 backend integration, 13 frontend tests, production builds, fresh-schema parity, CI/security workflows, dependency audits, and communication load automation pass; browser E2E and public webhook checks remain |
 
 Additional estimates:
@@ -232,12 +232,12 @@ Phase 7 progress evidence (September 6, 2026):
 
 ### Phase 8 - UI, performance, and code-quality polish - **IN PROGRESS**
 
-- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 294 errors/270 warnings without disabling rules.**
+- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 293 errors/270 warnings without disabling rules.**
 - [ ] Remove unused variables and replace avoidable explicit `any` types.
 - [ ] Resolve React effect/state, dependency, purity, ref, and immutability warnings.
 - [x] Replace remaining `window.prompt` and `alert` interactions with validated application modals. **DONE - simple validation uses branded toasts; cancellation, review moderation, account deactivation, completion escalation, and administrator booking actions use a reusable validated reason dialog. A source scan finds no remaining native prompt/alert calls.**
 - [x] Persist or remove notification and profile-visibility preference toggles. **DONE - the three non-functional session-only switches were removed; the functional persisted appearance theme remains.**
-- [ ] Implement helpful-review voting on the backend or remove its shared-count presentation.
+- [x] Implement helpful-review voting on the backend or remove its shared-count presentation. **DONE - the client-only localStorage vote and synthetic shared count were removed; verified-booking attribution remains.**
 - [x] Replace misleading `escrow`, `payout`, `wallet`, and `funds released` labels with Test Mode internal-ledger wording. **DONE - visible workflow, help, profile, phone, and fallback labels now distinguish internal Test Mode records from real payouts or escrow; legacy help-route slugs remain for link compatibility.**
 - [ ] Paginate conversations, notifications, and transactions.
 - [ ] Lazy-load report message histories instead of including every message in report-list responses.
@@ -264,7 +264,8 @@ Phase 8 progress evidence (September 6, 2026):
 - Category suggestions, service listings, public requests, and unavailable-request checks now use accessible in-app toast feedback instead of native browser alerts in frontend commit `5fba8b8`.
 - A reusable, keyboard-validatable reason dialog now protects booking cancellation, cancellation decline, completion escalation, review moderation, account deactivation, and administrator reconciliation decisions; two unused prompt-based context actions were deleted in frontend commit `a34af03`.
 - Non-functional notification and profile-visibility switches were removed instead of implying unsaved preferences; the persisted light/dark theme remains in frontend commit `b0c0fa7`.
-- After this slice, frontend tests pass 13/13, the production build generates all 93 routes, and the full lint inventory is 294 errors/270 warnings.
+- Simulated localStorage helpful-review votes and shared-looking counters were removed in frontend commit `acf41b3`; the review cards now present only server-backed review information.
+- After this slice, frontend tests pass 13/13, the production build generates all 93 routes, and the full lint inventory is 293 errors/270 warnings.
 - Frontend tests remain 4 files/13 tests passed and the production build remains green with 93 generated routes.
 - Frontend commit `0da9079` is pushed on `fix/admin-security-hardening`.
 
@@ -312,7 +313,7 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | Compiled backend startup and `/health` | Passed in development configuration |
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
-| Frontend lint | In progress: 294 errors, 270 warnings (down from refreshed baseline 368/349) |
+| Frontend lint | In progress: 293 errors, 270 warnings (down from refreshed baseline 368/349) |
 | Frontend automated tests | Passed: 4 files, 13 tests |
 | Browser E2E suite | Not implemented |
 | Fresh-database migration | Passed remotely: 18 migrations applied and exact Prisma schema parity confirmed in Backend CI run `34008349347` |
