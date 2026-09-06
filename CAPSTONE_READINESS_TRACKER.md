@@ -18,7 +18,7 @@ Current estimated capstone readiness: **89%**
 | Admin operations | 89% | Safety evidence, review moderation, promotion, deletion, and audit-log workflows are guarded and auditable; broader release testing remains |
 | Messaging, realtime, and notifications | 78% | Functional; pagination, durability, and request fan-out need polish |
 | Reviews, trust, community, and AI | 85% | Provider/seeker review roles, aggregate eligibility, private trust history, transactional trust events, and versioned AI caching are verified |
-| UX and code quality | 74% | Shared workspace roles now have consistent visual identities, Community Hub and Admin surfaces are formalized, and focused tests pass; lint, remaining placeholders, terminology, and large files remain |
+| UX and code quality | 77% | Shared workspace roles now have consistent visual identities, Community Hub and Admin surfaces are formalized, shared navigation/profile boundaries are cleaner, and Test Mode payment wording is accurate; lint, prompts, preferences, pagination, and large files remain |
 | Testing and deployment readiness | 84% | Phase 2-7 backend integration, 13 frontend tests, production builds, fresh-schema parity, CI/security workflows, dependency audits, and communication load automation pass; browser E2E and public webhook checks remain |
 
 Additional estimates:
@@ -232,13 +232,13 @@ Phase 7 progress evidence (September 6, 2026):
 
 ### Phase 8 - UI, performance, and code-quality polish - **IN PROGRESS**
 
-- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 314 errors/339 warnings without disabling rules.**
+- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 303 errors/273 warnings without disabling rules.**
 - [ ] Remove unused variables and replace avoidable explicit `any` types.
 - [ ] Resolve React effect/state, dependency, purity, ref, and immutability warnings.
 - [ ] Replace remaining `window.prompt` and `alert` interactions with validated application modals.
 - [ ] Persist or remove notification and profile-visibility preference toggles.
 - [ ] Implement helpful-review voting on the backend or remove its shared-count presentation.
-- [ ] Replace misleading `escrow`, `payout`, `wallet`, and `funds released` labels with Test Mode internal-ledger wording.
+- [x] Replace misleading `escrow`, `payout`, `wallet`, and `funds released` labels with Test Mode internal-ledger wording. **DONE - visible workflow, help, profile, phone, and fallback labels now distinguish internal Test Mode records from real payouts or escrow; legacy help-route slugs remain for link compatibility.**
 - [ ] Paginate conversations, notifications, and transactions.
 - [ ] Lazy-load report message histories instead of including every message in report-list responses.
 - [ ] Reduce dashboard refresh fan-out and remove redundant transaction derivation/fetching.
@@ -258,6 +258,10 @@ Phase 8 progress evidence (September 6, 2026):
 - Community data loading no longer triggers a synchronous effect cascade, and provider avatars have fixed image dimensions to prevent layout shift. Community targeted lint passes.
 - Provider navigation and explanatory copy now say `Payment Records` and explicitly distinguish the Test Mode internal ledger from real payouts.
 - Frontend commits `70e9af7` and `106cc21` are pushed; tests remain 13/13 and the production build remains green with 93 routes.
+- Shared Seeker/Provider layouts now use accurate direct-booking, online-queue, onsite-cash, quotation, and messaging descriptions; their duplicate loose typing and dead imports were removed.
+- Global search no longer performs synchronous empty-query state updates, logs expected fallback failures, or renders dimensionless avatars; its role accents now remain consistent across desktop and mobile.
+- The profile container shed stale state/import bindings, and misleading payout/escrow labels were replaced with Test Mode internal-ledger or neutral account-contact wording in frontend commits `8ed00b4` and `c4a86e9`.
+- After this slice, frontend tests pass 13/13, the production build generates all 93 routes, and the full lint inventory is 303 errors/273 warnings.
 - Frontend tests remain 4 files/13 tests passed and the production build remains green with 93 generated routes.
 - Frontend commit `0da9079` is pushed on `fix/admin-security-hardening`.
 
@@ -305,7 +309,7 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | Compiled backend startup and `/health` | Passed in development configuration |
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
-| Frontend lint | In progress: 314 errors, 339 warnings (down from refreshed baseline 368/349) |
+| Frontend lint | In progress: 303 errors, 273 warnings (down from refreshed baseline 368/349) |
 | Frontend automated tests | Passed: 4 files, 13 tests |
 | Browser E2E suite | Not implemented |
 | Fresh-database migration | Passed remotely: 18 migrations applied and exact Prisma schema parity confirmed in Backend CI run `34008349347` |
