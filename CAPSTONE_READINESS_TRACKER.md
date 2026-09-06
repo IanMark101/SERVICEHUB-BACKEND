@@ -232,7 +232,7 @@ Phase 7 progress evidence (September 6, 2026):
 
 ### Phase 8 - UI, performance, and code-quality polish - **IN PROGRESS**
 
-- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; the first verified cleanup reduced it to 321 errors/347 warnings without disabling rules.**
+- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 318 errors/347 warnings without disabling rules.**
 - [ ] Remove unused variables and replace avoidable explicit `any` types.
 - [ ] Resolve React effect/state, dependency, purity, ref, and immutability warnings.
 - [ ] Replace remaining `window.prompt` and `alert` interactions with validated application modals.
@@ -252,6 +252,7 @@ Phase 8 progress evidence (September 6, 2026):
 - Shared authentication, request, service, user-search, Axios refresh-queue, payment, and engagement boundaries now use explicit types instead of `any`; server-side Axios failures no longer assume `window` exists.
 - Landing FAQ/queue copy passes lint and now describes Test Mode RELEASED/frozen states as internal ledger records rather than real payout or escrow behavior.
 - Targeted lint passes across the nine changed files; the full lint inventory improved by 47 errors and two warnings.
+- Email verification now derives its missing-token state without a synchronous effect update, and both verification/reset pages use a typed shared API error parser; targeted lint, tests, and build pass in frontend commit `089cb43`.
 - Frontend tests remain 4 files/13 tests passed and the production build remains green with 93 generated routes.
 - Frontend commit `0da9079` is pushed on `fix/admin-security-hardening`.
 
@@ -299,7 +300,7 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | Compiled backend startup and `/health` | Passed in development configuration |
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
-| Frontend lint | In progress: 321 errors, 347 warnings (down from refreshed baseline 368/349) |
+| Frontend lint | In progress: 318 errors, 347 warnings (down from refreshed baseline 368/349) |
 | Frontend automated tests | Passed: 4 files, 13 tests |
 | Browser E2E suite | Not implemented |
 | Fresh-database migration | Passed remotely: 18 migrations applied and exact Prisma schema parity confirmed in Backend CI run `34008349347` |
