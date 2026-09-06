@@ -58,7 +58,7 @@ export async function listCompletionEscalations(page = 1, limit = 20) {
   const bookingIds = items.map((item) => item.bookingId);
   const bookings = await prisma.booking.findMany({
     where: { id: { in: bookingIds } },
-    include: { seeker: { select: { id: true, name: true } }, provider: { select: { id: true, name: true } }, service: { select: { title: true } }, messages: { orderBy: { createdAt: "asc" }, take: 100 } },
+    include: { seeker: { select: { id: true, name: true } }, provider: { select: { id: true, name: true } }, service: { select: { title: true } } },
   });
   const byId = new Map(bookings.map((booking) => [booking.id, booking]));
   return { items: items.map((item) => ({ ...item, booking: byId.get(item.bookingId) || null })), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };

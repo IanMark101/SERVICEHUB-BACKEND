@@ -17,7 +17,7 @@ const reportInclude = {
       service: { select: { id: true, title: true, price: true } },
       offer: { include: { request: { select: { id: true, title: true } } } },
       directRequest: { include: { service: { select: { id: true, title: true } } } },
-      messages: { orderBy: { createdAt: "asc" as const } },
+      _count: { select: { messages: true } },
       queue: true,
       cancellationRequests: { where: { status: "ESCALATED" } },
     },
@@ -39,11 +39,12 @@ export async function listAdminReports(page = 1, limit = 10) {
 
   const items = reports.map((report) => {
     const { evidenceStorageKey, ...safeReport } = report;
+    const { _count, cancellationRequests, ...safeBooking } = report.booking;
     return {
     ...safeReport,
     hasPrivateEvidence: Boolean(evidenceStorageKey),
     booking: {
-      ...report.booking,
+      ...safeBooking,
       title:
         report.booking.service?.title ||
         report.booking.offer?.request.title ||
@@ -56,8 +57,8 @@ export async function listAdminReports(page = 1, limit = 10) {
         report.booking.service?.price ||
         0,
       ),
-      messages: report.booking.messages.map((message) => ({ ...message, text: message.content })),
-      escalatedCancellation: report.booking.cancellationRequests[0] || null,
+      messageCount: _count.messages,
+      escalatedCancellation: cancellationRequests[0] || null,
     },
   }});
   return { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
