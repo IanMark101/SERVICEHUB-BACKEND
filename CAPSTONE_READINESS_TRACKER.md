@@ -6,7 +6,7 @@ Authoritative specification: `SERVICEHUB_MASTER_PROMPT.md` Version 2.2
 
 Working branch: `fix/admin-security-hardening`
 
-Current estimated capstone readiness: **88%**
+Current estimated capstone readiness: **89%**
 
 ## Readiness summary
 
@@ -19,13 +19,13 @@ Current estimated capstone readiness: **88%**
 | Messaging, realtime, and notifications | 78% | Functional; pagination, durability, and request fan-out need polish |
 | Reviews, trust, community, and AI | 85% | Provider/seeker review roles, aggregate eligibility, private trust history, transactional trust events, and versioned AI caching are verified |
 | UX and code quality | 70% | Listing/payment controls are aligned and focused authentication, payment, lifecycle, and admin component tests pass; lint, remaining placeholders, terminology, and large files remain |
-| Testing and deployment readiness | 78% | Phase 2-7 backend integration, 13 frontend tests, production builds, and local production dependency audits pass; browser E2E, public webhook checks, CI execution, and load automation remain |
+| Testing and deployment readiness | 84% | Phase 2-7 backend integration, 13 frontend tests, production builds, fresh-schema parity, CI/security workflows, dependency audits, and communication load automation pass; browser E2E and public webhook checks remain |
 
 Additional estimates:
 
 - Onsite-cash demonstration readiness: **85%**
-- Full capstone defense readiness: **88%**
-- Real production readiness: **59%**
+- Full capstone defense readiness: **89%**
+- Real production readiness: **60%**
 
 ## Completion order
 
@@ -211,9 +211,9 @@ Deferred external re-entry checklist:
 - [x] Test duplicate completion disputes and completion escalations. **DONE - duplicate disputes return `DUPLICATE_DISPUTE`; escalation locking, reuse, and cooldown behavior pass.**
 - [x] Add frontend unit/component tests for authentication, forms, lifecycle controls, and admin decisions. **DONE - 13 Vitest/Testing Library tests pass across four focused suites.**
 - [ ] Add browser E2E coverage for Flow A cash, Flow A online, Flow B cash, Flow B online, cancellation, completion, escalation, dispute, and refund.
-- [ ] Apply all migrations to a fresh isolated database in CI. **CI workflow is configured with an isolated PostgreSQL service; completion awaits the first successful remote run.**
+- [x] Apply all migrations to a fresh isolated database in CI. **DONE - all 18 migrations apply to a fresh PostgreSQL 17 service and Prisma reports zero difference from the checked-in schema.**
 - [x] Add load/concurrency testing for queues, messages, notifications, and payment webhooks. **DONE - Phase 2 covers queue/payment contention and duplicate webhook finalization; Phase 7 adds simultaneous message and notification durability/bounding checks.**
-- [ ] Add dependency, secret, and static-security checks to CI. **npm audit, CodeQL security-extended, and Gitleaks jobs are configured in both repositories; completion awaits successful remote runs.**
+- [x] Add dependency, secret, and static-security checks to CI. **DONE - npm production audit, CodeQL security-extended, and Gitleaks pass remotely in both repositories.**
 
 Phase 7 progress evidence (September 6, 2026):
 
@@ -224,7 +224,10 @@ Phase 7 progress evidence (September 6, 2026):
 - Frontend `npm test`: 4 files and 13 tests passed for authentication schemas, service payment/form rules, lifecycle states, and administrator confirmation gates.
 - Backend and frontend production builds passed after the Phase 7 changes; frontend generated 93 routes.
 - Full local dependency audits, including development tooling, passed with zero vulnerabilities in both repositories. The frontend advisory fixes were applied without `--force`, then its tests and production build passed again.
-- Backend and frontend CI workflows now define build/test/audit gates, fresh PostgreSQL migration deployment, CodeQL security-extended analysis, and full-history Gitleaks scans. These workflows are not marked passed until pushed and observed on GitHub.
+- Backend and frontend CI workflows define build/test/audit gates, fresh PostgreSQL migration deployment, CodeQL security-extended analysis, and full-history Gitleaks scans; all four workflows have now passed remotely.
+- Backend CI run `34008349347` passed the fresh PostgreSQL migration, exact schema-parity check, build, 21 contracts, all eight database-backed integration/load commands, and production dependency audit.
+- Backend Security run `34008349385` passed CodeQL security-extended and Gitleaks. Frontend CI run `34005484711` and Frontend Security run `34005484692` also passed.
+- Fresh-schema verification additionally caught and repaired seven columns that had existed only through schema synchronization and a cross-schema foreign-key check. The disposable-schema rehearsal now applies 18 migrations, reports zero drift, runs the booking flow, and cleans up.
 - Browser E2E remains blocked in part by the deferred Google/PayMongo configuration; cash-only browser scenarios can still be added independently.
 
 ### Phase 8 - UI, performance, and code-quality polish - **NOT STARTED**
@@ -253,6 +256,7 @@ Phase 7 progress evidence (September 6, 2026):
 - [ ] Run frontend and backend production builds.
 - [ ] Run all backend, integration, frontend, and E2E tests.
 - [ ] Run Prisma validation, target migration status, schema drift check, and fresh-database migration test.
+- [ ] Safely baseline the populated target database's Prisma migration ledger before any deployment migration command; its objects exist from earlier schema synchronization, but `_prisma_migrations` does not record the historical migrations.
 - [ ] Run fresh production dependency audits for both repositories.
 - [ ] Run tracked-secret and private-document scans.
 - [ ] Confirm browser and server logs contain no unexplained 4xx/5xx loops, duplicate listeners, or unhandled rejections.
@@ -283,17 +287,17 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | Phase 3 privacy/deletion integration | 1/1 passed after Phase 4 changes |
 | Phase 4 safety/admin safeguards integration | 1/1 passed |
 | Prisma schema validation | Passed |
-| Target database migration status | 13 migrations applied; current |
+| Target database migration status | **Needs baselining:** schema objects exist, but Prisma reports the 18 historical migrations as unapplied; do not run `migrate deploy` against the populated target yet |
 | Compiled backend startup and `/health` | Passed in development configuration |
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
 | Frontend lint | Failed: 359 errors, 341 warnings |
 | Frontend automated tests | Passed: 4 files, 13 tests |
 | Browser E2E suite | Not implemented |
-| Fresh-database migration | CI job configured; not yet run remotely |
+| Fresh-database migration | Passed remotely: 18 migrations applied and exact Prisma schema parity confirmed in Backend CI run `34008349347` |
 | PayMongo external Test Mode checkout/webhook/refund | Not run; webhook secret missing |
 | Fresh dependency audit | Passed locally (production and development trees): zero vulnerabilities in both repositories |
-| Load, penetration, and multi-instance tests | Not run |
+| Load, penetration, and multi-instance tests | Queue/payment and communication concurrency/load tests passed in CI; penetration and multi-instance deployment tests remain |
 
 ## Rules for updating this tracker
 
