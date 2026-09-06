@@ -9,6 +9,7 @@
     "start": "node ./dist/src/server.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "test:fresh-migrations": "tsx scripts/test-fresh-migrations.ts",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:seed-defense": "tsx prisma/seed-defense.ts --confirm-demo-data",
     "test:admin-contracts": "tsx --test src/schema/admin-contracts.test.ts",

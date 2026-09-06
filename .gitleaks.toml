@@ -1,0 +1,12 @@
+title = "ServiceHub Cordova secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exact non-secret placeholders retained in tests and historical generated output"
+regexTarget = "match"
+regexes = [
+  '''sk_test_placeholder''',
+  '''whsk_test_signature_secret_123456''',
+]
