@@ -111,3 +111,27 @@ test('every Tier 0 protected HTTP route rejects a missing bearer token with 401'
     assert.equal(body.success, false, `${method} ${path} must return the standard failure envelope`);
   }
 });
+
+test('HTTP responses include correlation and baseline security headers', async (t) => {
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+  t.after(() => new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  }));
+
+  const { port } = server.address() as AddressInfo;
+  const suppliedRequestId = 'capstone-test-request-001';
+  const response = await fetch(`http://127.0.0.1:${port}/health`, {
+    headers: { 'X-Request-Id': suppliedRequestId },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('x-request-id'), suppliedRequestId);
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(response.headers.get('x-frame-options'), 'DENY');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(response.headers.get('x-powered-by'), null);
+});

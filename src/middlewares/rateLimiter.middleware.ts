@@ -1,8 +1,29 @@
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import type { Request } from "express";
 import { env } from "../config/env";
 import type { AuthenticatedRequest } from "./auth.middleware";
 
 const isDev = env.NODE_ENV !== "production";
+
+function accountOrIpKey(prefix: string) {
+  return (req: Request) => {
+    const userId = (req as AuthenticatedRequest).user?.id;
+    if (userId) return `${prefix}:user:${userId}`;
+    const requestIp = req.ip;
+    return `${prefix}:ip:${requestIp ? ipKeyGenerator(requestIp) : "unknown"}`;
+  };
+}
+
+function actionLimiter(prefix: string, windowMs: number, productionMax: number, message: string) {
+  return rateLimit({
+    windowMs,
+    max: isDev ? productionMax * 10 : productionMax,
+    keyGenerator: accountOrIpKey(prefix),
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { success: false, error: message },
+  });
+}
 
 // ── Auth Limiter (Protects against brute-force password guessing) ─────────────
 // In production: 30 attempts per 15 min; successful logins are skipped so valid users are never locked out.
@@ -94,3 +115,9 @@ export const adminMutationLimiter = rateLimit({
     error: "Too many administrator changes. Please pause and try again shortly.",
   },
 });
+
+export const messageMutationLimiter = actionLimiter("message", 60 * 1000, 30, "Too many messages. Please pause briefly before sending another message.");
+export const reviewMutationLimiter = actionLimiter("review", 15 * 60 * 1000, 10, "Too many review changes. Please try again later.");
+export const reportMutationLimiter = actionLimiter("report", 60 * 60 * 1000, 10, "Too many reports submitted. Please try again later.");
+export const paymentInitiationLimiter = actionLimiter("payment", 15 * 60 * 1000, 20, "Too many payment attempts. Please wait before trying again.");
+export const waitlistMutationLimiter = actionLimiter("waitlist", 15 * 60 * 1000, 30, "Too many queue changes. Please wait before trying again.");

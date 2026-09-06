@@ -21,6 +21,7 @@ import {
 import { requireAuth, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
 import { escalateCompletion } from "../controllers/bookings/completion-escalations.controller";
 import { reportBookingSafety } from "../controllers/bookings/safety-reports.controller";
+import { paymentInitiationLimiter, reportMutationLimiter, waitlistMutationLimiter } from "../middlewares/rateLimiter.middleware";
 
 const router = Router();
 
@@ -43,19 +44,19 @@ router.patch("/direct/:id/respond", respondDirectRequest);
 router.post("/direct-from-offer", requireVerification, bookDirectFromOffer);
 
 // Online payment flow (two-step) — initiate-payment requires verification (Part 6)
-router.post("/initiate-payment", requireVerification, initiatePayment);
-router.post("/confirm-online", requireVerification, confirmOnlineBooking); // only call after PayMongo succeeds
+router.post("/initiate-payment", requireVerification, paymentInitiationLimiter, initiatePayment);
+router.post("/confirm-online", requireVerification, paymentInitiationLimiter, confirmOnlineBooking); // only call after PayMongo succeeds
 
 // Queue management
-router.post("/waitlist", requireVerification, joinWaitlistHandler);
-router.delete("/queue/:id", cancelQueue); // seeker cancels queue entry
+router.post("/waitlist", requireVerification, waitlistMutationLimiter, joinWaitlistHandler);
+router.delete("/queue/:id", waitlistMutationLimiter, cancelQueue); // seeker cancels queue entry
 router.patch("/queue/:id/start", requireVerification, startJob); // provider starts job
-router.delete("/queue/:id/provider", providerRemoveFromQueue); // provider removes entry
+router.delete("/queue/:id/provider", waitlistMutationLimiter, providerRemoveFromQueue); // provider removes entry
 router.patch("/queue/:id/complete", completeJob); // provider marks job complete
 
 // Seeker actions
 router.post("/:id/dispute", disputeJob); // dispute a booking
-router.post("/:id/reports", reportBookingSafety); // either participant may submit a safety report
+router.post("/:id/reports", reportMutationLimiter, reportBookingSafety); // either participant may submit a safety report
 router.post("/:id/confirm", confirmCompletion); // confirm completion of booking
 router.post("/:id/completion-escalations", escalateCompletion);
 router.post("/:id/cancel", cancelBookingHandler); // cancel booking (or request cancellation)

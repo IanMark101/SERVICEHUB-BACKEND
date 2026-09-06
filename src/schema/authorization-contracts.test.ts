@@ -69,10 +69,10 @@ test('existing-engagement resolution routes do not use the new-relationship veri
   const bookings = readFileSync(new URL('../routes/bookings.routes.ts', import.meta.url), 'utf8');
   for (const route of [
     'router.patch("/direct/:id/respond", respondDirectRequest)',
-    'router.delete("/queue/:id", cancelQueue)',
+    'router.delete("/queue/:id", waitlistMutationLimiter, cancelQueue)',
     'router.patch("/queue/:id/complete", completeJob)',
     'router.post("/:id/dispute", disputeJob)',
-    'router.post("/:id/reports", reportBookingSafety)',
+    'router.post("/:id/reports", reportMutationLimiter, reportBookingSafety)',
     'router.post("/:id/confirm", confirmCompletion)',
     'router.post("/:id/completion-escalations", escalateCompletion)',
     'router.post("/:id/cancel", cancelBookingHandler)',
@@ -81,4 +81,17 @@ test('existing-engagement resolution routes do not use the new-relationship veri
   ]) {
     assert.equal(bookings.includes(route), true, `resolution route changed or became trapped: ${route}`);
   }
+});
+
+test('high-impact marketplace mutations retain action-specific rate limits', () => {
+  const bookings = readFileSync(new URL('../routes/bookings.routes.ts', import.meta.url), 'utf8');
+  const messages = readFileSync(new URL('../routes/messages.routes.ts', import.meta.url), 'utf8');
+  const reviews = readFileSync(new URL('../routes/reviews.routes.ts', import.meta.url), 'utf8');
+
+  for (const limiter of ['paymentInitiationLimiter', 'reportMutationLimiter', 'waitlistMutationLimiter']) {
+    assert.equal(bookings.includes(limiter), true, `missing booking limiter: ${limiter}`);
+  }
+  assert.equal(messages.includes('messageMutationLimiter, create'), true);
+  assert.equal(reviews.includes('reviewMutationLimiter, submitReview'), true);
+  assert.equal(reviews.includes('reviewMutationLimiter, updateReview'), true);
 });

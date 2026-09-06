@@ -22,8 +22,12 @@ import communityRoutes from "./routes/community.routes";
 import uploadRoutes from "./routes/upload.routes";
 import { apiLimiter, webhookLimiter } from "./middlewares/rateLimiter.middleware";
 import { receivePaymongoWebhook } from "./controllers/payments.controller";
+import { requestContext } from "./middlewares/requestContext.middleware";
+import { logger } from "./utils/logger";
 
 const app = express();
+app.disable("x-powered-by");
+app.use(requestContext);
 
 // ─── Global Middleware ──────────────────────────────────────────────────────
 
@@ -71,14 +75,25 @@ app.use("/api/upload", uploadRoutes);
 
 // ─── Global Error Handler ────────────────────────────────────────────────────
 
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("Unhandled error:", err);
-  if (err?.name === "ZodError") {
-    return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
-  }
+app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const err = error as Error & { status?: number; statusCode?: number; errors?: unknown; code?: string };
   const status = err.status || err.statusCode || 500;
+  const requestId = String(res.locals.requestId || "unknown");
+
+  logger.error("request_failed", {
+    requestId,
+    method: req.method,
+    path: req.originalUrl,
+    status,
+    code: err.code,
+    error: err,
+  });
+
+  if (err.name === "ZodError") {
+    return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors, requestId });
+  }
   const message = env.NODE_ENV === "production" && status >= 500 ? "Internal server error" : err.message;
-  res.status(status).json({ success: false, error: message });
+  res.status(status).json({ success: false, error: message || "Request failed", requestId });
 });
 
 export default app;
