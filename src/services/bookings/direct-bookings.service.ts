@@ -204,6 +204,22 @@ export async function respondToDirectBookingService(requestId: string, providerI
   if (accept) {
     const booking = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
+      const provider = await tx.user.findUnique({
+        where: { id: providerId },
+        select: { isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true },
+      });
+      if (
+        !provider ||
+        !provider.isActive ||
+        provider.moderationStatus !== "ACTIVE" ||
+        !provider.emailVerified ||
+        provider.verificationStatus !== "APPROVED"
+      ) {
+        const err = new Error("Your account is not eligible to accept a new booking") as Error & { status?: number; code?: string };
+        err.status = 403;
+        err.code = "ACCEPT_BOOKING_NOT_ALLOWED";
+        throw err;
+      }
       if (directRequest) {
         const freshRequest = await tx.directRequest.findUnique({ where: { id: directRequest.id }, select: { status: true } });
         if (freshRequest?.status !== "PENDING_APPROVAL") {

@@ -28,11 +28,21 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
 });
 
-const parsed = envSchema.superRefine((value, ctx) => {
-  if (value.NODE_ENV === "production" && (!value.PAYMONGO_PUBLIC_KEY || !value.PAYMONGO_SECRET_KEY || !value.PAYMONGO_WEBHOOK_SECRET)) {
-    ctx.addIssue({ code: "custom", message: "Production requires PAYMONGO_PUBLIC_KEY, PAYMONGO_SECRET_KEY, and PAYMONGO_WEBHOOK_SECRET" });
+export const serviceHubEnvSchema = envSchema.superRefine((value, ctx) => {
+  if (value.NODE_ENV === "production") {
+    for (const field of ["PAYMONGO_PUBLIC_KEY", "PAYMONGO_SECRET_KEY", "PAYMONGO_WEBHOOK_SECRET"] as const) {
+      if (!value[field]) {
+        ctx.addIssue({ code: "custom", path: [field], message: `${field} is required in production` });
+      }
+    }
   }
-}).safeParse(process.env);
+});
+
+export function validateEnvironment(input: NodeJS.ProcessEnv) {
+  return serviceHubEnvSchema.safeParse(input);
+}
+
+const parsed = validateEnvironment(process.env);
 
 if (!parsed.success) {
   console.error("❌ Invalid environment variables:");

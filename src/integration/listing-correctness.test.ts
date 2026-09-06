@@ -9,6 +9,8 @@ import { summarizeProviderReviews, invalidateProviderSummary } from "../services
 import { env } from "../config/env";
 import { getUserPublicProfile } from "../services/auth/profile.service";
 import { getUserTrustHistoryHandler } from "../controllers/auth.controller";
+import { submitOffer } from "../services/offers.service";
+import { createDirectRequest } from "../services/bookings/direct-bookings.service";
 
 test("listing concurrency, material edits, custom pricing and trust retries", async (t) => {
   const suffix = randomUUID();
@@ -23,6 +25,7 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     await prisma.review.deleteMany({ where: { targetId: provider.id } });
     await prisma.completedService.deleteMany({ where: { OR: [{ providerId: provider.id }, { seekerId: provider.id }] } });
     await prisma.booking.deleteMany({ where: { OR: [{ providerId: provider.id }, { seekerId: provider.id }] } });
+    await prisma.serviceRequest.deleteMany({ where: { seekerId: seeker.id } });
     await prisma.notification.deleteMany({ where: { OR: [{ userId: provider.id }, { body: { contains: suffix } }] } });
     await prisma.service.deleteMany({ where: { providerId: provider.id } });
     await prisma.user.delete({ where: { id: provider.id } });
@@ -48,11 +51,37 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
   assert.equal(custom.price, null);
   await assert.rejects(updateService(listing.id, provider.id, { priceType: "FIXED" }));
   assert.equal(UpdateServiceSchema.safeParse({ paymentMethods: { cash: false, gcash: false, maya: false, card: false } }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...input(`Maya listing ${suffix}`), paymentMethods: { maya: true } }).success, true);
+  assert.equal(CreateServiceSchema.safeParse({ ...input(`Card listing ${suffix}`), paymentMethods: { card: true } }).success, false);
   await deleteService(listing.id, provider.id);
   const reused = await createService(provider.id, input(listing.title.toUpperCase()));
   assert.notEqual(reused.id, listing.id);
   const active = await prisma.service.findMany({ where: { providerId: provider.id, status: "PENDING_REVIEW" } });
   await assert.rejects(updateService(active.find((item) => item.id !== reused.id)!.id, provider.id, { title: `  ${reused.title.toLowerCase()}  ` }));
+  await prisma.service.update({
+    where: { id: reused.id },
+    data: { status: "ACTIVE", isAvailable: true, priceType: "STARTS_AT", price: 500 },
+  });
+  const request = await prisma.serviceRequest.create({
+    data: {
+      seekerId: seeker.id,
+      categoryId: category.id,
+      title: `Advanced price request ${suffix}`,
+      description: "A detailed request that requires a provider to submit an exact quotation.",
+      budgetMin: 400,
+      budgetMax: 800,
+      urgency: "medium",
+    },
+  });
+  await assert.rejects(createDirectRequest({ seekerId: seeker.id, providerId: provider.id, serviceId: reused.id }));
+  const exactOffer = await submitOffer(provider.id, {
+    requestId: request.id,
+    serviceId: reused.id,
+    offeredPrice: 650,
+    estimatedDuration: 90,
+    message: "This is the exact quoted price for the requested work.",
+  });
+  assert.equal(Number(exactOffer.offeredPrice), 650);
   const scoreBefore = (await prisma.user.findUniqueOrThrow({ where: { id: provider.id } })).trustScore;
   await Promise.all(Array.from({ length: 3 }, () => applyTrustEvent(provider.id, 3, "Duplicate business event test", undefined, `phase5:${suffix}`)));
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: provider.id } })).trustScore, scoreBefore + 3);

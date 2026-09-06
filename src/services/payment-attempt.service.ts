@@ -441,7 +441,7 @@ export async function refundCapturedAttempt(attemptId: string) {
     },
     update: {},
   });
-  if (refundRecord.status === "SUCCEEDED") return attempt;
+  if (["SUCCEEDED", "SIMULATED_TEST_MODE"].includes(refundRecord.status)) return attempt;
 
   try {
     const refund = await createRefund({
@@ -450,10 +450,13 @@ export async function refundCapturedAttempt(attemptId: string) {
       reason: "others",
       idempotencyKey: `servicehub-attempt-refund-${attempt.id}`,
     });
-    await prisma.$transaction([
-      prisma.paymentRefund.update({ where: { id: refundRecord.id }, data: { paymongoRefundId: refund.id, status: "SUCCEEDED" } }),
-      prisma.paymentAttempt.update({ where: { id: attempt.id }, data: { status: "REFUNDED" } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentRefund.update({
+        where: { id: refundRecord.id },
+        data: { paymongoRefundId: refund.id, status: refund.status.toUpperCase() },
+      });
+      await tx.paymentAttempt.update({ where: { id: attempt.id }, data: { status: "REFUNDED" } });
+    });
     return prisma.paymentAttempt.findUnique({ where: { id: attempt.id } });
   } catch (error: any) {
     await prisma.paymentRefund.update({ where: { id: refundRecord.id }, data: { status: "FAILED", failureReason: String(error?.code || error?.message || "REFUND_FAILED").slice(0, 500) } });

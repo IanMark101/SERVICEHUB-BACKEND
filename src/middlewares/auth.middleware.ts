@@ -154,6 +154,14 @@ export function requireEmailVerified(req: Request, res: Response, next: NextFunc
 export function requireVerification(req: Request, res: Response, next: NextFunction) {
   const user = (req as AuthenticatedRequest).user;
 
+  if (!user.emailVerified) {
+    return res.status(403).json({
+      success: false,
+      error: "Please verify your email address first",
+      code: "EMAIL_NOT_VERIFIED",
+    });
+  }
+
   const permissions = getUserPermissions(user);
   if (!permissions.canTransact) {
     const isPending = user.verificationStatus === "PENDING_REVIEW";

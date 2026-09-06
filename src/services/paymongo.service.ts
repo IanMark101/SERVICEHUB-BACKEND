@@ -132,6 +132,15 @@ export async function createRefund(params: {
   reason: string;
   idempotencyKey?: string;
 }): Promise<{ id: string; status: string }> {
+  // PayMongo's refund API applies to live paid transactions. During this
+  // capstone's mandatory Test Mode, preserve the idempotent application
+  // reversal without claiming that the payment provider moved real funds.
+  if (env.PAYMONGO_SECRET_KEY?.startsWith("sk_test_")) {
+    return {
+      id: `internal_test_refund_${params.paymentId}`,
+      status: "simulated_test_mode",
+    };
+  }
   const body = await paymongoFetch("/refunds", {
     method: "POST",
     ...(params.idempotencyKey ? { headers: { "Idempotency-Key": params.idempotencyKey } } : {}),

@@ -14,22 +14,26 @@ const NONTERMINAL_BOOKING_STATUSES = [
 export async function getUserActiveCaseCounts(tx: Prisma.TransactionClient, userId: string) {
   const bookingScope = { OR: [{ seekerId: userId }, { providerId: userId }] };
   const bookingIds = (await tx.booking.findMany({ where: bookingScope, select: { id: true } })).map((item) => item.id);
-  const [nonterminalBookings, heldPayments, cancellations, reports, completionEscalations] = await Promise.all([
-    tx.booking.count({ where: { ...bookingScope, status: { in: [...NONTERMINAL_BOOKING_STATUSES] } } }),
-    tx.booking.count({ where: { ...bookingScope, paymentStatus: { in: ["PAID_HELD", "FROZEN_HELD"] } } }),
-    tx.cancellationRequest.count({
-      where: { bookingId: { in: bookingIds }, status: { in: ["PENDING", "ESCALATED"] } },
-    }),
-    tx.report.count({
-      where: {
-        OR: [{ reporterId: userId }, { reportedUserId: userId }],
-        status: { in: ["PENDING", "UNDER_REVIEW"] },
-      },
-    }),
-    tx.completionEscalation.count({
-      where: { bookingId: { in: bookingIds }, status: { in: ["PENDING", "UNDER_REVIEW"] } },
-    }),
-  ]);
+  // Interactive transactions own one PostgreSQL client. Keep these queries
+  // sequential so the driver never receives overlapping work on that client.
+  const nonterminalBookings = await tx.booking.count({
+    where: { ...bookingScope, status: { in: [...NONTERMINAL_BOOKING_STATUSES] } },
+  });
+  const heldPayments = await tx.booking.count({
+    where: { ...bookingScope, paymentStatus: { in: ["PAID_HELD", "FROZEN_HELD"] } },
+  });
+  const cancellations = await tx.cancellationRequest.count({
+    where: { bookingId: { in: bookingIds }, status: { in: ["PENDING", "ESCALATED"] } },
+  });
+  const reports = await tx.report.count({
+    where: {
+      OR: [{ reporterId: userId }, { reportedUserId: userId }],
+      status: { in: ["PENDING", "UNDER_REVIEW"] },
+    },
+  });
+  const completionEscalations = await tx.completionEscalation.count({
+    where: { bookingId: { in: bookingIds }, status: { in: ["PENDING", "UNDER_REVIEW"] } },
+  });
   return { nonterminalBookings, heldPayments, cancellations, reports, completionEscalations };
 }
 

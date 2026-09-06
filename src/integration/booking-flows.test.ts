@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import { createDirectFromOfferService, createDirectRequest, respondToDirectBookingService } from "../services/bookings/direct-bookings.service";
 import { confirmCompletionService, disputeJobService, markJobComplete } from "../services/bookings/completion.service";
 import { providerStartJob } from "../services/bookings/provider-operations.service";
-import { expireStalePaymentAttempts, finalizeSuccessfulPayment, markPaymentAttemptFailed } from "../services/payment-attempt.service";
+import { expireStalePaymentAttempts, finalizeSuccessfulPayment, markPaymentAttemptFailed, refundCapturedAttempt } from "../services/payment-attempt.service";
 import { resolveAdminReport } from "../services/admin-report.service";
 import { requestCancellation } from "../services/cancellation.service";
 
@@ -203,6 +203,10 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   assert.equal(capacityResult.refundRequired, true);
   assert.equal(await prisma.booking.count({ where: { paymentAttemptId: capacityAttempt.id } }), 0);
   assert.equal((await prisma.paymentAttempt.findUniqueOrThrow({ where: { id: capacityAttempt.id } })).status, "REFUND_REQUIRED");
+  await refundCapturedAttempt(capacityAttempt.id);
+  await refundCapturedAttempt(capacityAttempt.id);
+  assert.equal((await prisma.paymentAttempt.findUniqueOrThrow({ where: { id: capacityAttempt.id } })).status, "REFUNDED");
+  assert.equal(await prisma.paymentRefund.count({ where: { paymentAttemptId: capacityAttempt.id, status: "SIMULATED_TEST_MODE" } }), 1);
 
   const suspensionReport = await prisma.report.create({ data: { bookingId: capacityBlocker.id, reporterId: seeker.id, reportedUserId: provider.id, reason: "NO_SHOW", description: "Administrative suspension guard integration case." } });
   await assert.rejects(

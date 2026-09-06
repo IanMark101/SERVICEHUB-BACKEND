@@ -1,31 +1,31 @@
 # ServiceHub Cordova Capstone Readiness Tracker
 
-Last audited: September 4, 2026
+Last audited: September 6, 2026
 
 Authoritative specification: `SERVICEHUB_MASTER_PROMPT.md` Version 2.2
 
 Working branch: `fix/admin-security-hardening`
 
-Current estimated capstone readiness: **82%**
+Current estimated capstone readiness: **88%**
 
 ## Readiness summary
 
 | Area | Readiness | Current assessment |
 | --- | ---: | --- |
-| Core marketplace flows | 85% | Flow A, Flow B cash, and concurrent paid queue lifecycle tests pass; live external payment verification remains |
+| Core marketplace flows | 89% | Listing concurrency, fixed direct booking, advanced-price exact offers, Flow B cash, and paid queue lifecycle tests pass; live external payment verification remains |
 | Authentication and session security | 91% | Strong sessions plus versioned verification consent, private proof access, retention rules, and deletion requests |
-| Payment and queue integrity | 90% | Database constraints, transactional service locks, and concurrent lifecycle tests pass |
+| Payment and queue integrity | 92% | Database constraints, transactional locks, signed webhook replay, expiry rollback, capacity reconciliation, and Test Mode reversal tests pass |
 | Admin operations | 89% | Safety evidence, review moderation, promotion, deletion, and audit-log workflows are guarded and auditable; broader release testing remains |
 | Messaging, realtime, and notifications | 78% | Functional; pagination, durability, and request fan-out need polish |
-| Reviews, trust, community, and AI | 72% | Review visibility moderation is implemented; aggregate correctness and AI eligibility still need fixes |
-| UX and code quality | 64% | Fake deletion behavior is removed; lint, remaining placeholders, terminology, and large files remain |
-| Testing and deployment readiness | 64% | Phase 2-4 integration and booking-flow regressions pass; frontend E2E and load automation remain |
+| Reviews, trust, community, and AI | 85% | Provider/seeker review roles, aggregate eligibility, private trust history, transactional trust events, and versioned AI caching are verified |
+| UX and code quality | 70% | Listing/payment controls are aligned and focused authentication, payment, lifecycle, and admin component tests pass; lint, remaining placeholders, terminology, and large files remain |
+| Testing and deployment readiness | 78% | Phase 2-7 backend integration, 13 frontend tests, production builds, and local production dependency audits pass; browser E2E, public webhook checks, CI execution, and load automation remain |
 
 Additional estimates:
 
 - Onsite-cash demonstration readiness: **85%**
-- Full capstone defense readiness: **82%**
-- Real production readiness: **54%**
+- Full capstone defense readiness: **88%**
+- Real production readiness: **59%**
 
 ## Completion order
 
@@ -126,67 +126,106 @@ Phase 4 verification evidence:
 - Migration `20260904180000_safety_moderation_admin_guards` applied successfully.
 - Policy: `docs/SAFETY_AND_ADMIN_MODERATION.md`.
 
-### Phase 5 - listing, review, trust, and AI correctness - **IN PROGRESS**
+### Phase 5 - listing, review, trust, and AI correctness - **DONE**
 
-- [ ] Return an approved listing to `PENDING_REVIEW` after material description, media, proof, title, or category edits.
+- [x] Return an approved listing to `PENDING_REVIEW` after material description, media, proof, title, or category edits. **DONE - implemented for every material field currently supported (title, description, and category); media/proof editing is not exposed.**
 - [x] Enforce the three-listing maximum transactionally under concurrent creation. **DONE - provider lock and concurrent four-create integration test.**
 - [x] Implement normalized, active-only duplicate-title protection while allowing safe title reuse after deletion. **DONE - partial unique index and archive/reuse/duplicate-edit integration assertions.**
 - [x] Align listing title and description minimum lengths with the Master Prompt. **DONE - 10/30-character minimums in API validation and create/edit forms; both builds pass.**
 - [x] Do not store an authoritative direct-booking price for `CUSTOM` listings. **DONE - nullable database price and tested transition rules.**
 - [x] Require at least one payment method during listing updates. **DONE - shared validation, edit-form gate and negative test.**
-- [ ] Align Card, GCash, Maya, and onsite-cash support between listing configuration and booking/payment APIs.
-- [ ] Make advanced price types usable only through an exact provider Offer in both UI and API.
+- [x] Align Card, GCash, Maya, and onsite-cash support between listing configuration and booking/payment APIs. **DONE - GCash, Maya, and cash are preserved end to end; Card is explicitly disabled and rejected until a secure checkout exists.**
+- [x] Make advanced price types usable only through an exact provider Offer in both UI and API. **DONE - direct booking rejects advanced pricing, the UI routes to Request a Quote, and integration proves an exact Offer succeeds.**
 - [x] Replace the fake `cert_uploaded.jpg` skill proof with managed storage or remove the field. **DONE - removed the fake argument from the listing creation path.**
-- [ ] Restrict provider rating, ranking, and AI aggregates to eligible reviews where the target participated as provider.
-- [ ] Keep seeker-role reviews in profile history without affecting provider metrics.
-- [ ] Route every trust change through one transactional trust service.
-- [ ] Give every business trust event a unique idempotency key.
-- [ ] Stop exposing another user's exact private trust-event history.
+- [x] Restrict provider rating, ranking, and AI aggregates to eligible reviews where the target participated as provider. **DONE - queries require visible reviews tied to a completed service where the target was provider.**
+- [x] Keep seeker-role reviews in profile history without affecting provider metrics. **DONE - profile integration asserts seeker context remains visible while provider average stays unchanged.**
+- [x] Route every trust change through one transactional trust service. **DONE - mutation scan leaves the user score update only inside `trust.service.ts`.**
+- [x] Give every business trust event a unique idempotency key. **DONE - verification, completion, review versions, cancellation, report, listing rejection, and baseline events use deterministic keys; concurrent retry is tested.**
+- [x] Stop exposing another user's exact private trust-event history. **DONE - only the account owner or an administrator may access the endpoint; a 403 integration assertion covers cross-user access.**
 - [x] Require five eligible written provider reviews before calling Gemini. **DONE - mocked integration proves zero calls at four, one at five, and fallback after hiding the fifth review.**
 - [x] Persist/cache summaries by provider and review-content version or clearly document an intentional cache strategy. **DONE - persisted fingerprint cache and reuse test; strategy documented in `docs/PHASE5_IMPLEMENTATION.md`.**
 - [x] Add defense seed data with five valid completed bookings and eligible written reviews. **DONE - opted-in seed executed September 5; all records are labelled DEMO.**
 - [x] Replace hardcoded named landing testimonials with real seed data or clearly labelled demonstration content. **DONE - landing provider previews and illustrative figures explicitly labelled as demo/sample content.**
 
-Phase 5 progress evidence (September 5, 2026):
+Phase 5 verification evidence (September 5, 2026):
 
 - Backend and frontend production builds passed; frontend generated 93 routes.
 - Backend contracts: 14/14 passed.
 - Phase 4 safeguards integration: 1/1 passed.
 - Booking lifecycle integration: 1/1 passed (a pg overlapping-query deprecation warning remains to trace).
-- Initial Phase 5 integration: listing concurrency, title reuse, custom prices, trust retry idempotency, Gemini threshold and persisted-cache assertions passed.
-- Maya selectors are wired and Card is explicitly unavailable; full browser/payment-method checks remain pending.
-- Shared trust mutations, privacy gates and provider/seeker review separation are implemented; remaining edge-case verification stays unchecked above.
-- Changes are local and uncommitted. Overall readiness remains **82%** until Phase 5 is fully verified.
+- Phase 5 integration: 1/1 passed, covering listing concurrency, moderation reset, title reuse, custom prices, exact advanced-price offers, direct-booking rejection, trust retry idempotency, role-aware reviews, trust-history privacy, Gemini threshold and persisted-cache behavior.
+- GCash, Maya, and cash are preserved through selection, mapping, activity, and transaction displays; Card is explicitly unavailable in both UI and API.
+- `npx prisma validate`: passed; `npx prisma migrate status`: 14 migrations applied and current.
+- Phase 5 migration `20260904210000_listing_review_ai_correctness` is applied.
+- Shared trust mutation scan confirms the score write is centralized in `trust.service.ts`.
+- The final Phase 5 changes are local and uncommitted on `fix/admin-security-hardening`.
 
-### Phase 6 - PayMongo Test Mode and external integration - **NOT STARTED**
+### Phase 6 - PayMongo Test Mode and external integration - **EXTERNAL CONFIGURATION DEFERRED**
+
+Phase 6 checkpoint: local implementation and automated verification may remain
+in place while work continues to Phase 7. The unchecked external items below
+must be revisited before the final defense rehearsal or any production-ready
+claim. They are deferred because the project-owned Google Cloud and PayMongo
+configuration consoles are not currently available—not because they passed.
 
 - [ ] Configure `PAYMONGO_WEBHOOK_SECRET` without committing it.
 - [ ] Configure a public HTTPS Test Mode webhook endpoint and required event subscriptions.
-- [ ] Make missing production environment-variable errors identify the actual missing fields.
+- [x] Make missing production environment-variable errors identify the actual missing fields. **DONE - schema issues are attached to each missing PayMongo variable and covered by a contract test.**
 - [ ] Run a real Test Mode Flow A online checkout.
 - [ ] Run a real Test Mode Flow B online checkout.
-- [ ] Replay a successful webhook and prove one PaymentAttempt, Booking, and Queue row.
-- [ ] Test failure and expiry rollback for a Flow B payment hold.
-- [ ] Test capacity loss after capture and the `REFUND_REQUIRED` reconciliation path.
-- [ ] Run an actual Test Mode refund and verify administrator reconciliation.
-- [ ] Retain clear wording that this is an internal Test Mode ledger, not regulated escrow or real provider payout.
+- [x] Replay a successful webhook and prove one PaymentAttempt, Booking, and Queue row. **DONE - signed raw-body controller replay is idempotent and the Phase 6 database integration passes.**
+- [x] Test failure and expiry rollback for a Flow B payment hold. **DONE - booking integration returns the held Offer to PENDING and request to OPEN without a Booking.**
+- [x] Test capacity loss after capture and the `REFUND_REQUIRED` reconciliation path. **DONE - booking integration proves capacity loss creates no Booking and persists REFUND_REQUIRED.**
+- [x] Verify Test Mode refund/reconciliation without claiming a real provider refund. **DONE - current PayMongo documentation says provider refunds are live-transaction-only, so Test Mode uses a tested idempotent `SIMULATED_TEST_MODE` internal reversal.**
+- [x] Retain clear wording that this is an internal Test Mode ledger, not regulated escrow or real provider payout. **DONE - checkout, activity, completion, landing and help wording identify Test Mode and internal PAID_HELD/RELEASED records.**
 - [ ] Configure and retest Google OAuth with project-owned credentials and authorized origins.
 
-### Phase 7 - automated test coverage - **NOT STARTED**
+Phase 6 progress evidence (September 5, 2026):
 
-- [ ] Add backend tests for every Tier 0 unauthorized and duplicate-event requirement.
-- [ ] Test that an unverified email cannot submit verification or perform marketplace mutations.
-- [ ] Test suspended-user resolution access and blocked new marketplace relationships.
-- [ ] Test that a suspended provider cannot Start Job.
-- [ ] Test that suspension, banning, or final deactivation cannot strand held payments.
-- [ ] Test both participant directions for after-start cancellation approve, decline, and escalation.
-- [ ] Test general safety reports and review moderation.
-- [ ] Test duplicate completion disputes and completion escalations.
-- [ ] Add frontend unit/component tests for authentication, forms, lifecycle controls, and admin decisions.
+- PayMongo public and secret keys are configured with Test Mode prefixes; the webhook signing secret is still absent.
+- Frontend and backend Google client IDs are configured and match; authorized-origin verification remains external.
+- `npm run test:phase6-integration`: 1/1 signed webhook replay passed and cleanup completed.
+- `npm run test:booking-integration`: 1/1 passed with failed/expired hold, capacity loss, idempotent Test Mode reversal, cancellation, queue, and completion assertions.
+- Backend contracts: 16/16 passed; backend and frontend production builds passed with 93 frontend routes.
+- Payment contracts include explicit production-field diagnostics and a no-provider-call Test Mode refund assertion.
+- External setup and limitations are documented in `docs/PHASE6_EXTERNAL_INTEGRATION.md`; no secrets are recorded.
+- The remaining `pg` deprecation warning traces to an open Prisma `adapter-pg` issue, not an overlapping query in ServiceHub code; upstream links are recorded in the Phase 6 document.
+
+Deferred external re-entry checklist:
+
+1. Obtain access to the project-owned PayMongo Test Mode dashboard and Google Cloud Console.
+2. Deploy or expose the backend through a stable public HTTPS URL.
+3. Register one PayMongo webhook, store its signing secret outside Git, and run both interactive online flows.
+4. Add localhost and the deployed frontend URL to the Google OAuth web client's Authorized JavaScript origins.
+5. Retest Google logout/login and both PayMongo flows in a fresh browser profile, then attach redacted evidence and mark the remaining items complete.
+
+### Phase 7 - automated test coverage - **IN PROGRESS**
+
+- [x] Add backend tests for every Tier 0 unauthorized and duplicate-event requirement. **DONE - an HTTP matrix proves every protected Tier 0 route returns the standard 401 response without a bearer token; role, permission, ownership, and duplicate-event cases are mapped to passing contract/integration suites in `docs/PHASE7_TEST_COVERAGE.md`.**
+- [x] Test that an unverified email cannot submit verification or perform marketplace mutations. **DONE - middleware and database-backed service assertions cover the email gate.**
+- [x] Test suspended-user resolution access and blocked new marketplace relationships. **DONE - a suspended provider may decline an existing request but cannot accept a new booking; cancellation resolution remains available.**
+- [x] Test that a suspended provider cannot Start Job. **DONE - the Phase 7 integration asserts the guarded 403 path.**
+- [x] Test that suspension, banning, or final deactivation cannot strand held payments. **DONE - suspended and banned providers can resolve existing held Test Mode bookings, while final deletion remains blocked by a held payment.**
+- [x] Test both participant directions for after-start cancellation approve, decline, and escalation. **DONE - seeker/provider requester directions and counterpart decisions are covered.**
+- [x] Test general safety reports and review moderation. **DONE - Phase 4 integration covers participant directions, deduplication, evidence authorization, and hide/restore decisions.**
+- [x] Test duplicate completion disputes and completion escalations. **DONE - duplicate disputes return `DUPLICATE_DISPUTE`; escalation locking, reuse, and cooldown behavior pass.**
+- [x] Add frontend unit/component tests for authentication, forms, lifecycle controls, and admin decisions. **DONE - 13 Vitest/Testing Library tests pass across four focused suites.**
 - [ ] Add browser E2E coverage for Flow A cash, Flow A online, Flow B cash, Flow B online, cancellation, completion, escalation, dispute, and refund.
-- [ ] Apply all migrations to a fresh isolated database in CI.
-- [ ] Add load/concurrency testing for queues, messages, notifications, and payment webhooks.
-- [ ] Add dependency, secret, and static-security checks to CI.
+- [ ] Apply all migrations to a fresh isolated database in CI. **CI workflow is configured with an isolated PostgreSQL service; completion awaits the first successful remote run.**
+- [x] Add load/concurrency testing for queues, messages, notifications, and payment webhooks. **DONE - Phase 2 covers queue/payment contention and duplicate webhook finalization; Phase 7 adds simultaneous message and notification durability/bounding checks.**
+- [ ] Add dependency, secret, and static-security checks to CI. **npm audit, CodeQL security-extended, and Gitleaks jobs are configured in both repositories; completion awaits successful remote runs.**
+
+Phase 7 progress evidence (September 6, 2026):
+
+- `npm run test:phase7-integration`: 1/1 passed and cleaned its fixtures.
+- `npm run test:phase7-load`: 1/1 passed with 40 concurrent messages, 120 notifications, eight simultaneous idempotent read operations, and a 50-record response cap.
+- Backend contracts: 21/21 passed, including an HTTP-level missing-authentication matrix across protected Tier 0 routes, admin/marketplace role separation, new-relationship gates, and preservation of restricted-account resolution routes.
+- Backend authorization/lifecycle integration covers email verification, restricted-account resolution versus new relationships, Start Job, bilateral cancellation decisions/escalations, duplicate disputes, held-payment resolution, and deletion blockers.
+- Frontend `npm test`: 4 files and 13 tests passed for authentication schemas, service payment/form rules, lifecycle states, and administrator confirmation gates.
+- Backend and frontend production builds passed after the Phase 7 changes; frontend generated 93 routes.
+- Full local dependency audits, including development tooling, passed with zero vulnerabilities in both repositories. The frontend advisory fixes were applied without `--force`, then its tests and production build passed again.
+- Backend and frontend CI workflows now define build/test/audit gates, fresh PostgreSQL migration deployment, CodeQL security-extended analysis, and full-history Gitleaks scans. These workflows are not marked passed until pushed and observed on GitHub.
+- Browser E2E remains blocked in part by the deferred Google/PayMongo configuration; cash-only browser scenarios can still be added independently.
 
 ### Phase 8 - UI, performance, and code-quality polish - **NOT STARTED**
 
@@ -238,7 +277,7 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | --- | --- |
 | Frontend production build | Passed; 93 routes generated |
 | Backend production build | Passed |
-| Backend contract tests | 14/14 passed |
+| Backend contract tests | 21/21 passed |
 | Database-backed booking/payment/queue integration | 1/1 passed |
 | Phase 2 concurrency integration | 1/1 passed after Phase 4 changes |
 | Phase 3 privacy/deletion integration | 1/1 passed after Phase 4 changes |
@@ -249,11 +288,11 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
 | Frontend lint | Failed: 359 errors, 341 warnings |
-| Frontend automated tests | Not implemented |
+| Frontend automated tests | Passed: 4 files, 13 tests |
 | Browser E2E suite | Not implemented |
-| Fresh-database migration | Not run |
+| Fresh-database migration | CI job configured; not yet run remotely |
 | PayMongo external Test Mode checkout/webhook/refund | Not run; webhook secret missing |
-| Fresh production dependency audit | Inconclusive; `npm audit` hung during the latest run |
+| Fresh dependency audit | Passed locally (production and development trees): zero vulnerabilities in both repositories |
 | Load, penetration, and multi-instance tests | Not run |
 
 ## Rules for updating this tracker

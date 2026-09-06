@@ -10,7 +10,7 @@ router.use(requireAuth, requireMarketplaceUser);
 router.post("/", requireVerification, create);
 router.get("/", list);
 router.get("/mine", getMine);
-router.patch("/:id", update);
+router.patch("/:id", requireVerification, update);
 router.delete("/:id", remove);
 
 export default router;

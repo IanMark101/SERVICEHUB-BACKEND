@@ -4,6 +4,40 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { OfferSchema, ReportResolutionSchema } from "./marketplace.schema";
+import { env, validateEnvironment } from "../config/env";
+import { createRefund } from "../services/paymongo.service";
+
+test("production configuration reports each missing PayMongo field", () => {
+  const parsed = validateEnvironment({
+    DATABASE_URL: "postgresql://test.invalid/servicehub",
+    JWT_ACCESS_SECRET: "test-access-secret-long-enough",
+    JWT_REFRESH_SECRET: "test-refresh-secret-long-enough",
+    NODE_ENV: "production",
+  });
+  assert.equal(parsed.success, false);
+  if (parsed.success) return;
+  const fields = parsed.error.flatten().fieldErrors;
+  assert.deepEqual(Object.keys(fields).sort(), [
+    "PAYMONGO_PUBLIC_KEY",
+    "PAYMONGO_SECRET_KEY",
+    "PAYMONGO_WEBHOOK_SECRET",
+  ]);
+});
+
+test("Test Mode refund is an explicit internal reversal and never calls the provider refund API", async () => {
+  const savedKey = env.PAYMONGO_SECRET_KEY;
+  const savedFetch = globalThis.fetch;
+  env.PAYMONGO_SECRET_KEY = "sk_test_contract_only";
+  globalThis.fetch = async () => { throw new Error("Test Mode refund must not call PayMongo"); };
+  try {
+    const result = await createRefund({ paymentId: "pay_test_contract", reason: "others", idempotencyKey: "refund-contract" });
+    assert.equal(result.status, "simulated_test_mode");
+    assert.match(result.id, /^internal_test_refund_/);
+  } finally {
+    env.PAYMONGO_SECRET_KEY = savedKey;
+    globalThis.fetch = savedFetch;
+  }
+});
 
 test("Flow B offers require an exact provider listing", () => {
   const base = {
@@ -59,11 +93,16 @@ test("queue start and completion retain the global and idempotency guards", () =
 });
 
 test("PayMongo webhook signature covers the unmodified raw body", async () => {
-  process.env.PAYMONGO_WEBHOOK_SECRET = "whsk_test_signature_secret_123456";
+  const savedSecret = env.PAYMONGO_WEBHOOK_SECRET;
+  env.PAYMONGO_WEBHOOK_SECRET = "whsk_test_signature_secret_123456";
   const { validPaymongoSignature } = await import("../controllers/payments.controller");
   const body = Buffer.from('{"data":{"id":"evt_test"}}', "utf8");
-  const signature = crypto.createHmac("sha256", process.env.PAYMONGO_WEBHOOK_SECRET).update(body).digest("hex");
-  assert.equal(validPaymongoSignature(body, signature), true);
-  assert.equal(validPaymongoSignature(Buffer.from(`${body.toString("utf8")} `), signature), false);
-  assert.equal(validPaymongoSignature(body, "not-a-signature"), false);
+  try {
+    const signature = crypto.createHmac("sha256", env.PAYMONGO_WEBHOOK_SECRET).update(body).digest("hex");
+    assert.equal(validPaymongoSignature(body, signature), true);
+    assert.equal(validPaymongoSignature(Buffer.from(`${body.toString("utf8")} `), signature), false);
+    assert.equal(validPaymongoSignature(body, "not-a-signature"), false);
+  } finally {
+    env.PAYMONGO_WEBHOOK_SECRET = savedSecret;
+  }
 });

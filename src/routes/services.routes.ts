@@ -15,8 +15,8 @@ router.get("/:id", getOne);
 
 // Protected mutations — POST /services requires residency verification (Part 6)
 router.post("/", requireAuth, requireMarketplaceUser, requireVerification, requirePostingPrivilege, create);
-router.patch("/:id", requireAuth, requireMarketplaceUser, requirePostingPrivilege, update);
-router.patch("/:id/toggle", requireAuth, requireMarketplaceUser, toggle);
+router.patch("/:id", requireAuth, requireMarketplaceUser, requireVerification, requirePostingPrivilege, update);
+router.patch("/:id/toggle", requireAuth, requireMarketplaceUser, requireVerification, toggle);
 router.delete("/:id", requireAuth, requireMarketplaceUser, remove);
 
 export default router;

@@ -185,12 +185,12 @@ export async function disputeJobService(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`completion:${bookingId}`}))`;
     const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { queue: true } });
     if (!booking || booking.seekerId !== seekerId) throw httpError("Booking not found or access denied", 404);
-    if (booking.status !== "AWAITING_CONFIRMATION") throw httpError("A dispute can only be filed while completion confirmation is pending", 409);
-    assertDistinctAccounts(seekerId, booking.providerId, "dispute job");
     const duplicate = await tx.report.findFirst({
       where: { bookingId, reporterId: seekerId, reportType: "COMPLETION_DISPUTE", status: { in: ["PENDING", "UNDER_REVIEW"] } },
     });
     if (duplicate) throw httpError("An unresolved completion dispute already exists", 409, "DUPLICATE_DISPUTE");
+    if (booking.status !== "AWAITING_CONFIRMATION") throw httpError("A dispute can only be filed while completion confirmation is pending", 409);
+    assertDistinctAccounts(seekerId, booking.providerId, "dispute job");
 
     const paymentStatus = booking.paymentMethod === "On-site Cash" ? "UNPAID" : "FROZEN_HELD";
     await tx.booking.update({

@@ -550,7 +550,7 @@ model Booking {
 
   originType          BookingOriginType?
   paymentAttemptId    String?            @unique
-  paymentMethod       String // "GCash" | "On-site Cash"
+  paymentMethod       String // "GCash" | "Maya" | "On-site Cash"
   agreedAmount        Decimal?           @db.Decimal(10, 2) // immutable price snapshot at booking/payment time
   paymentStatus       PaymentStatus      @default(PAID_HELD)
   status              BookingStatus      @default(WAITING)

@@ -1,0 +1,57 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, fix/admin-security-hardening]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: servicehub
+          POSTGRES_PASSWORD: servicehub_test_password
+          POSTGRES_DB: servicehub_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U servicehub -d servicehub_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://servicehub:servicehub_test_password@localhost:5432/servicehub_ci
+      JWT_ACCESS_SECRET: ci-only-access-secret-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-at-least-32-characters
+      NODE_ENV: test
+      FRONTEND_URL: http://localhost:3000
+      PRISMA_LOG_QUERIES: "false"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations to a fresh database
+        run: npx prisma migrate deploy
+      - run: npx prisma validate
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:booking-integration
+      - run: npm run test:phase2-integration
+      - run: npm run test:phase3-integration
+      - run: npm run test:phase4-integration
+      - run: npm run test:phase5-integration
+      - run: npm run test:phase6-integration
+      - run: npm run test:phase7-integration
+      - run: npm run test:phase7-load
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

@@ -35,7 +35,9 @@ router.patch("/:id/hide", hideBooking);
 
 // Cash Direct Arrangement (NEVER enters queue) — requires residency verification (Part 6)
 router.post("/direct", requireVerification, bookDirect);
-router.patch("/direct/:id/respond", requireVerification, respondDirectRequest);
+// Restricted accounts may still decline an existing request. Acceptance is
+// eligibility-checked transactionally by the service.
+router.patch("/direct/:id/respond", respondDirectRequest);
 
 // Cash from Offer (Flow B Cash path) — requires residency verification (Part 6)
 router.post("/direct-from-offer", requireVerification, bookDirectFromOffer);
