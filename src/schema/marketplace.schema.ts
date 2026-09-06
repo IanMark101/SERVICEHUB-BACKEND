@@ -9,8 +9,6 @@ export const DirectBookingSchema = z.object({
   serviceId: Cuid,
   schedule: Text(500).optional(),
   message: Text(2_000).optional(),
-  scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  scheduledTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
 }).strict();
 
 export const InitiatePaymentSchema = z.object({

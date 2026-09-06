@@ -103,11 +103,8 @@ export async function initiateOnlinePayment(params: {
     });
     if (!service) throw httpError("Service not found", 404);
     if (service.providerId === params.seekerId) throw httpError("You cannot book your own service listing", 403, "SELF_TRANSACTION_NOT_ALLOWED");
-    if (!params.offerId && service.priceType !== "FIXED") {
+    if (!params.offerId && !["FIXED", "PER_SESSION"].includes(service.priceType)) {
       throw httpError("Direct online payment is available only for fixed-price listings", 400, "FIXED_PRICE_REQUIRED");
-    }
-    if (service.serviceType !== "ONE_TIME") {
-      throw httpError("Online queue payment is available only for one-time services", 400, "ONE_TIME_SERVICE_REQUIRED");
     }
     if (service.status !== "ACTIVE" || !service.isAvailable) throw httpError("This service is not available", 409);
     if (!service.provider.isActive || service.provider.moderationStatus !== "ACTIVE" || !service.provider.emailVerified || service.provider.verificationStatus !== "APPROVED") {

@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 export const PriceTypeValues = [
-  "FIXED", "STARTS_AT", "PER_HOUR", "PER_SESSION", "PER_DAY", "PER_PROJECT", "CUSTOM",
+  "FIXED", "STARTS_AT", "PER_HOUR", "PER_DAY", "PER_PROJECT", "CUSTOM",
 ] as const;
 export type PriceTypeValue = typeof PriceTypeValues[number];
 
-export const ServiceTypeValues = ["ONE_TIME", "SESSION_BASED"] as const;
+export const ServiceTypeValues = ["ONE_TIME"] as const;
 export type ServiceTypeValue = typeof ServiceTypeValues[number];
 
 const title = z.string()
@@ -65,10 +65,3 @@ export const UpdateServiceSchema = z.object({
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 export type UpdateServiceInput = z.infer<typeof UpdateServiceSchema>;
-
-export const BookingScheduleSchema = z.object({
-  scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "scheduledDate must be YYYY-MM-DD format").optional(),
-  scheduledTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "scheduledTime must be HH:MM format").optional(),
-});
-
-export type BookingScheduleInput = z.infer<typeof BookingScheduleSchema>;

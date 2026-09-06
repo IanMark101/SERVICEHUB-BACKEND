@@ -244,6 +244,7 @@ Phase 7 progress evidence (September 6, 2026):
 - [ ] Reduce dashboard refresh fan-out and remove redundant transaction derivation/fetching. **IN PROGRESS - notification socket events now refresh notifications only, while engagement events coalesce the related operational resources; remaining transaction derivation cleanup is pending.**
 - [x] Add request-specific rate limits for messages, reviews, reports, payment initiation, and waitlist operations. **DONE - authenticated-account/IP limiters cover each listed high-impact mutation family with IPv6-safe fallback keys.**
 - [x] Add security headers, request IDs, structured logging, and production-safe error context. **DONE - API responses carry correlation and baseline security headers, errors use structured logs, and production responses expose a request ID without internal stack details.**
+- [x] Simplify service reuse without exposing an incomplete session scheduler. **DONE - new and edited listings are reusable `ONE_TIME` listings; repeat requests create independent bookings only after the prior booking is terminal; onsite-cash schedule text is explicitly non-reserving; legacy service values have a normalization migration.**
 - [ ] Finish splitting the remaining 400-530-line frontend components and hooks by feature responsibility.
 - [ ] Remove or gate unnecessary production console logging.
 
@@ -274,12 +275,14 @@ Phase 8 progress evidence (September 6, 2026):
 - The reports/payment-attempt panel no longer selects a nonexistent Prisma `PaymentAttempt.booking` relation; related bookings are resolved explicitly by `paymentAttemptId`, preventing the raw 500 shown by the previous admin screen.
 - Notification creation for paid bookings, completion transitions/disputes, security-sensitive phone changes, and completion escalations now emits the matching user-room notification event. Notification-only events no longer trigger the previous broad dashboard request fan-out.
 - Backend source contracts pass 23/23, both production builds pass, and the database-backed listing suite passes including its concurrency cleanup. The suite now also verifies material-edit notifications for both the provider and an active administrator.
+- Reusable one-time listings replaced the incomplete session-booking surface: listing APIs reject new `SESSION_BASED`/`PER_SESSION` values, the UI offers **Request Again** after terminal bookings, onsite-cash schedule text is non-reserving, and provider incoming requests show the proposal. Backend contracts pass 23/23, both builds pass, and the database suite completes one cash booking before creating and declining a second request against the same listing.
+- Disposable-schema verification applies all 19 migrations, including `20260906190000_simplify_reusable_one_time_services`, reports 32 tables with zero Prisma drift, reruns the booking integration, and cleans up its schema.
 
 ### Phase 9 - documentation and final release gate - **NOT STARTED**
 
 - [ ] Reconcile `SECURITY_REAUDIT.md` with executable evidence and remove overstated claims.
 - [ ] Replace unsupported PASS labels in `SOFTWARE_TEST_DOCUMENT.md` with Passed, Failed, Not Run, or Not Implemented.
-- [ ] Remove claims that session booking, live payout, AI persistence, or unexecuted flows are verified.
+- [x] Remove claims that session booking is verified. **DONE - Version 2.3, the design/test/security documents, Help Center, marketplace, provider forms, and the replacement repeat-request test guide now describe reusable one-time bookings. Live payout, AI persistence, and other unexecuted-flow claims still require the final documentation pass.**
 - [ ] Document deployment, backup, restore, rollback, webhook recovery, and known limitations.
 - [ ] Run frontend and backend production builds.
 - [ ] Run all backend, integration, frontend, and E2E tests.
@@ -295,15 +298,15 @@ Phase 8 progress evidence (September 6, 2026):
 
 The following Master Prompt Tier 1/Tier 2 features may remain deferred as long as their controls are disabled or clearly labelled and the primary defense does not depend on them:
 
-- Session-based scheduling and collision-safe time-slot reservations.
-- Recurring contracts and calendar synchronization.
+- Optional provider calendar synchronization and collision-safe time-slot reservations.
+- Recurring contracts, subscriptions, and automatic recurring payments.
 - Private booking-authorized message images.
 - Real provider payouts, withdrawals, commissions, subscriptions, or Live Mode money.
 - AI Service Matching and other bonus AI assistants.
 - Provider workload forecasting beyond the one-ongoing-job safety guard.
 - Automated multi-account collusion detection.
 
-`SESSION_BASED` listing metadata may be displayed for inspection, but booking controls must remain unavailable. This is intentional—not a UI omission—because Master Prompt Part 17 classifies transactional slot reservation, overlap rejection, future Asia/Manila scheduling, and start-time enforcement as Tier 1 and requires the booking path to stay hidden until all of those rules are implemented end to end.
+The supported product does not expose a session-based listing type. A listing is reusable, but every request creates a new one-time Booking. `SESSION_BASED`, `PER_SESSION`, `scheduledDate`, and `scheduledTime` remain only as temporary database compatibility fields; the normalization migration converts legacy service values without rewriting historical Booking amounts. A preferred onsite-cash schedule is free text and is never presented as a reserved slot.
 
 ## Last executed evidence
 
@@ -324,7 +327,7 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | Frontend lint | In progress: 293 errors, 270 warnings (down from refreshed baseline 368/349) |
 | Frontend automated tests | Passed: 4 files, 13 tests |
 | Browser E2E suite | Not implemented |
-| Fresh-database migration | Passed remotely: 18 migrations applied and exact Prisma schema parity confirmed in Backend CI run `34008349347` |
+| Fresh-database migration | Passed locally against a disposable remote schema: 19 migrations applied, 32 tables verified, exact Prisma schema parity confirmed, booking integration passed, and the fixture schema was removed |
 | PayMongo external Test Mode checkout/webhook/refund | Not run; webhook secret missing |
 | Fresh dependency audit | Passed locally (production and development trees): zero vulnerabilities in both repositories |
 | Load, penetration, and multi-instance tests | Queue/payment and communication concurrency/load tests passed in CI; penetration and multi-instance deployment tests remain |

@@ -6,6 +6,7 @@ import test from "node:test";
 import { OfferSchema, ReportResolutionSchema } from "./marketplace.schema";
 import { env, validateEnvironment } from "../config/env";
 import { createRefund } from "../services/paymongo.service";
+import { CreateServiceSchema, UpdateServiceSchema } from "./services.schema";
 
 test("production configuration reports each missing PayMongo field", () => {
   const parsed = validateEnvironment({
@@ -62,24 +63,36 @@ test("browser payment return is status-only, never booking fulfillment", () => {
   assert.match(source, /getPaymentAttemptStatus/);
 });
 
-test("online initiation derives price from the service and requires one-time fixed pricing", () => {
+test("online initiation derives its fixed listing price", () => {
   const source = fs.readFileSync(path.join(process.cwd(), "src/services/payment-attempt.service.ts"), "utf8");
   const initiationContract = source.match(/initiateOnlinePayment\(params: \{[\s\S]*?\n\}\) \{/);
   assert.ok(initiationContract, "initiateOnlinePayment input contract should be present");
   assert.match(source, /PAYMENT_NOT_CONFIGURED/);
   assert.match(source, /price: true/);
   assert.match(source, /Number\(service\.price\)/);
-  assert.match(source, /!params\.offerId && service\.priceType !== "FIXED"/);
-  assert.match(source, /service\.serviceType !== "ONE_TIME"/);
+  assert.match(source, /!params\.offerId && !\["FIXED", "PER_SESSION"\]\.includes\(service\.priceType\)/);
   assert.doesNotMatch(initiationContract[0], /amount\s*:/);
 });
 
-test("advanced pricing requires an exact offer and unfinished session booking stays disabled", () => {
+test("new listings are reusable one-time engagements and advanced pricing requires an exact offer", () => {
   const directSource = fs.readFileSync(path.join(process.cwd(), "src/services/bookings/direct-bookings.service.ts"), "utf8");
-  assert.match(directSource, /service\.priceType !== "FIXED"/);
-  assert.match(directSource, /service\.serviceType !== "ONE_TIME"/);
   assert.match(directSource, /agreedAmount: offer\.offeredPrice/);
-  assert.match(directSource, /SESSION_SCHEDULING_NOT_AVAILABLE/);
+  assert.doesNotMatch(directSource, /SESSION_SCHEDULING_NOT_AVAILABLE/);
+  const base = {
+    categoryId: "category-id",
+    title: "Mathematics tutoring",
+    description: "Individual tutoring requested as a reusable one-time engagement.",
+    price: 500,
+    estimatedDurationMins: 60,
+    queueLimit: 3,
+    paymentMethods: { cash: true },
+  };
+  assert.equal(CreateServiceSchema.safeParse({ ...base, serviceType: "ONE_TIME" }).success, true);
+  assert.equal(CreateServiceSchema.safeParse({ ...base, serviceType: "SESSION_BASED" }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...base, priceType: "PER_SESSION" }).success, false);
+  assert.equal(UpdateServiceSchema.safeParse({ serviceType: "SESSION_BASED" }).success, false);
+  assert.match(directSource, /status: \{\s*in: \["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"\]/);
+  assert.doesNotMatch(directSource, /status: \{\s*in: \[[^\]]*"COMPLETED"/);
 });
 
 test("queue start and completion retain the global and idempotency guards", () => {

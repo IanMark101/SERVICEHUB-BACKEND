@@ -55,6 +55,7 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         directRequest: {
           select: {
             message: true,
+            schedule: true,
             agreedPrice: true,
             service: {
               select: { title: true },

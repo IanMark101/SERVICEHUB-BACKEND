@@ -11,10 +11,8 @@ export async function createDirectRequest(params: {
   serviceId: string;
   schedule?: string;
   message?: string;
-  scheduledDate?: string; // ISO date e.g. "2026-08-15" — for session-based services
-  scheduledTime?: string; // HH:MM e.g. "16:00" — for session-based services
 }) {
-  const { seekerId, providerId, serviceId, schedule, message, scheduledDate, scheduledTime } = params;
+  const { seekerId, providerId, serviceId, schedule, message } = params;
 
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
   assertDistinctAccounts(seekerId, providerId, "book service");
@@ -40,7 +38,7 @@ export async function createDirectRequest(params: {
     throw err;
   }
 
-  if (service.priceType !== "FIXED") {
+  if (!["FIXED", "PER_SESSION"].includes(service.priceType)) {
     const err = new Error("Direct cash booking is available only for fixed-price listings") as any;
     err.status = 400;
     throw err;
@@ -51,12 +49,6 @@ export async function createDirectRequest(params: {
     throw err;
   }
   const fixedPrice = service.price;
-  if (service.serviceType !== "ONE_TIME") {
-    const err = new Error("Session booking is not available until conflict-safe scheduling is enabled") as any;
-    err.status = 409;
-    err.code = "SESSION_SCHEDULING_NOT_AVAILABLE";
-    throw err;
-  }
   if (!service.provider.isActive || service.provider.moderationStatus !== "ACTIVE" || !service.provider.emailVerified || service.provider.verificationStatus !== "APPROVED") {
     const err = new Error("The provider is not currently eligible to accept a new booking") as any;
     err.status = 409;
@@ -123,8 +115,6 @@ export async function createDirectRequest(params: {
         paymentStatus: "UNPAID",
         status: "PENDING_APPROVAL",
         started: false,
-        scheduledDate: scheduledDate || null,
-        scheduledTime: scheduledTime || null,
       },
     });
 
@@ -404,7 +394,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
     },
   });
   const methods = service?.paymentMethods as { cash?: boolean } | undefined;
-  if (!service || service.providerId !== offer.providerId || service.categoryId !== offer.request.categoryId || service.status !== "ACTIVE" || !service.isAvailable || service.serviceType !== "ONE_TIME" || !methods?.cash || !service.provider.isActive || service.provider.moderationStatus !== "ACTIVE" || !service.provider.emailVerified || service.provider.verificationStatus !== "APPROVED") {
+  if (!service || service.providerId !== offer.providerId || service.categoryId !== offer.request.categoryId || service.status !== "ACTIVE" || !service.isAvailable || !methods?.cash || !service.provider.isActive || service.provider.moderationStatus !== "ACTIVE" || !service.provider.emailVerified || service.provider.verificationStatus !== "APPROVED") {
     const err = new Error("The offer's provider listing is not eligible for a cash booking") as any;
     err.status = 409;
     throw err;
@@ -450,7 +440,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
       },
     });
     const currentMethods = eligibleService?.paymentMethods as { cash?: boolean } | undefined;
-    if (!eligibleService || eligibleService.providerId !== offer.providerId || eligibleService.categoryId !== offer.request.categoryId || eligibleService.status !== "ACTIVE" || !eligibleService.isAvailable || eligibleService.serviceType !== "ONE_TIME" || !currentMethods?.cash || !eligibleService.provider.isActive || eligibleService.provider.moderationStatus !== "ACTIVE" || !eligibleService.provider.emailVerified || eligibleService.provider.verificationStatus !== "APPROVED") {
+    if (!eligibleService || eligibleService.providerId !== offer.providerId || eligibleService.categoryId !== offer.request.categoryId || eligibleService.status !== "ACTIVE" || !eligibleService.isAvailable || !currentMethods?.cash || !eligibleService.provider.isActive || eligibleService.provider.moderationStatus !== "ACTIVE" || !eligibleService.provider.emailVerified || eligibleService.provider.verificationStatus !== "APPROVED") {
       const err = new Error("The offer's provider listing is no longer eligible for a cash booking") as any;
       err.status = 409;
       throw err;
