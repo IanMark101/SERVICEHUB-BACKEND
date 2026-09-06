@@ -33,6 +33,7 @@ jobs:
       NODE_ENV: test
       FRONTEND_URL: http://localhost:3000
       PRISMA_LOG_QUERIES: "false"
+      PAYMONGO_SECRET_KEY: ${{ github.run_id }}
       # URL-signing tests need configuration but never upload or call Cloudinary.
       CLOUDINARY_CLOUD_NAME: servicehub-ci
       CLOUDINARY_API_KEY: ${{ github.run_id }}
