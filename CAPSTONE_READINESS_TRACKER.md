@@ -18,7 +18,7 @@ Current estimated capstone readiness: **89%**
 | Admin operations | 89% | Safety evidence, review moderation, promotion, deletion, and audit-log workflows are guarded and auditable; broader release testing remains |
 | Messaging, realtime, and notifications | 78% | Functional; pagination, durability, and request fan-out need polish |
 | Reviews, trust, community, and AI | 85% | Provider/seeker review roles, aggregate eligibility, private trust history, transactional trust events, and versioned AI caching are verified |
-| UX and code quality | 70% | Listing/payment controls are aligned and focused authentication, payment, lifecycle, and admin component tests pass; lint, remaining placeholders, terminology, and large files remain |
+| UX and code quality | 74% | Shared workspace roles now have consistent visual identities, Community Hub and Admin surfaces are formalized, and focused tests pass; lint, remaining placeholders, terminology, and large files remain |
 | Testing and deployment readiness | 84% | Phase 2-7 backend integration, 13 frontend tests, production builds, fresh-schema parity, CI/security workflows, dependency audits, and communication load automation pass; browser E2E and public webhook checks remain |
 
 Additional estimates:
@@ -232,7 +232,7 @@ Phase 7 progress evidence (September 6, 2026):
 
 ### Phase 8 - UI, performance, and code-quality polish - **IN PROGRESS**
 
-- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 318 errors/347 warnings without disabling rules.**
+- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 314 errors/339 warnings without disabling rules.**
 - [ ] Remove unused variables and replace avoidable explicit `any` types.
 - [ ] Resolve React effect/state, dependency, purity, ref, and immutability warnings.
 - [ ] Replace remaining `window.prompt` and `alert` interactions with validated application modals.
@@ -253,6 +253,11 @@ Phase 8 progress evidence (September 6, 2026):
 - Landing FAQ/queue copy passes lint and now describes Test Mode RELEASED/frozen states as internal ledger records rather than real payout or escrow behavior.
 - Targeted lint passes across the nine changed files; the full lint inventory improved by 47 errors and two warnings.
 - Email verification now derives its missing-token state without a synchronous effect update, and both verification/reset pages use a typed shared API error parser; targeted lint, tests, and build pass in frontend commit `089cb43`.
+- Seeker retains terracotta/orange, Provider retains emerald/green, Community Hub now uses civic blue, and Admin now uses restrained violet so red remains reserved for danger/error states.
+- Community Hub navigation, header, statistics, announcements, category cards, rankings, skeletons, and empty/error states now share a minimalist visual hierarchy; amber remains only for ranking semantics.
+- Community data loading no longer triggers a synchronous effect cascade, and provider avatars have fixed image dimensions to prevent layout shift. Community targeted lint passes.
+- Provider navigation and explanatory copy now say `Payment Records` and explicitly distinguish the Test Mode internal ledger from real payouts.
+- Frontend commits `70e9af7` and `106cc21` are pushed; tests remain 13/13 and the production build remains green with 93 routes.
 - Frontend tests remain 4 files/13 tests passed and the production build remains green with 93 generated routes.
 - Frontend commit `0da9079` is pushed on `fix/admin-security-hardening`.
 
@@ -300,7 +305,7 @@ The following Master Prompt Tier 1/Tier 2 features may remain deferred as long a
 | Compiled backend startup and `/health` | Passed in development configuration |
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
-| Frontend lint | In progress: 318 errors, 347 warnings (down from refreshed baseline 368/349) |
+| Frontend lint | In progress: 314 errors, 339 warnings (down from refreshed baseline 368/349) |
 | Frontend automated tests | Passed: 4 files, 13 tests |
 | Browser E2E suite | Not implemented |
 | Fresh-database migration | Passed remotely: 18 migrations applied and exact Prisma schema parity confirmed in Backend CI run `34008349347` |
