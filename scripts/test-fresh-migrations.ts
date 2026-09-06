@@ -14,6 +14,20 @@ const isolatedUrl = new URL(databaseUrl);
 isolatedUrl.searchParams.set('schema', schemaName);
 const admin = new Client({ connectionString: databaseUrl });
 
+function runNpm(args: string[], env: NodeJS.ProcessEnv) {
+  const npmCli = process.env.npm_execpath;
+  if (!npmCli) throw new Error('npm_execpath is unavailable');
+  const result = spawnSync(process.execPath, [npmCli, ...args], {
+    cwd: process.cwd(),
+    env,
+    encoding: 'utf8',
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) throw result.error;
+  return result;
+}
+
 async function main() {
   await admin.connect();
   await admin.query(`CREATE SCHEMA "${schemaName}"`);
@@ -31,16 +45,12 @@ async function main() {
       AS 'SELECT public.digest(value, algorithm)'
     `);
 
-    const npmCli = process.env.npm_execpath;
-    if (!npmCli) throw new Error('npm_execpath is unavailable');
-    const migration = spawnSync(process.execPath, [npmCli, 'exec', '--', 'prisma', 'migrate', 'deploy'], {
-      cwd: process.cwd(),
-      env: { ...process.env, DATABASE_URL: isolatedUrl.toString() },
-      encoding: 'utf8',
-    });
-    if (migration.stdout) process.stdout.write(migration.stdout);
-    if (migration.stderr) process.stderr.write(migration.stderr);
-    if (migration.error) throw migration.error;
+    const isolatedEnv = {
+      ...process.env,
+      DATABASE_URL: isolatedUrl.toString(),
+      NODE_ENV: 'test',
+    };
+    const migration = runNpm(['exec', '--', 'prisma', 'migrate', 'deploy'], isolatedEnv);
     assert.equal(migration.status, 0, 'fresh migration deployment failed');
 
     const tables = await admin.query<{ table_name: string }>(
@@ -52,6 +62,17 @@ async function main() {
       assert.equal(tableNames.has(expected), true, `fresh schema is missing ${expected}`);
     }
     console.log(`Fresh migration verification passed with ${tableNames.size} tables.`);
+
+    const drift = runNpm([
+      'exec', '--', 'prisma', 'migrate', 'diff',
+      '--from-config-datasource',
+      '--to-schema', 'prisma/schema.prisma',
+      '--exit-code',
+    ], isolatedEnv);
+    assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
+
+    const bookingFlow = runNpm(['run', 'test:booking-integration'], isolatedEnv);
+    assert.equal(bookingFlow.status, 0, 'fresh-schema booking integration failed');
   } finally {
     assert.match(schemaName, /^servicehub_migration_test_[a-f0-9]{32}$/);
     await admin.query(`DROP SCHEMA "${schemaName}" CASCADE`);

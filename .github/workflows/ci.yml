@@ -43,6 +43,8 @@ jobs:
       - run: npx prisma generate
       - name: Apply migrations to a fresh database
         run: npx prisma migrate deploy
+      - name: Verify migration and schema parity
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
       - run: npx prisma validate
       - run: npm run build
       - run: npm test

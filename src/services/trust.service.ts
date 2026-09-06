@@ -12,10 +12,15 @@ type TrustEventInput = {
 
 /** The only function allowed to mutate User.trustScore. */
 export async function applyTrustEventInTransaction(tx: Prisma.TransactionClient, input: TrustEventInput) {
-  const users = await tx.$queryRaw<Array<{ trustScore: number }>>`
-    SELECT "trustScore" FROM "users" WHERE "id" = ${input.userId} FOR UPDATE
+  // Serialize trust changes without hard-coding a table schema into raw SQL.
+  // This remains correct for isolated test schemas and multi-schema deploys.
+  await tx.$queryRaw<Array<{ lock: string }>>`
+    SELECT pg_advisory_xact_lock(hashtext(${`trust:${input.userId}`}))::text AS "lock"
   `;
-  const user = users[0];
+  const user = await tx.user.findUnique({
+    where: { id: input.userId },
+    select: { trustScore: true },
+  });
   if (!user) {
     const error = new Error("User not found") as Error & { status?: number };
     error.status = 404;

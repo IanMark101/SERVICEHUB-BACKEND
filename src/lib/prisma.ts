@@ -16,10 +16,13 @@ let prismaInstance: PrismaClient;
 if (globalForPrisma.prisma) {
   prismaInstance = globalForPrisma.prisma;
 } else {
+  const connectionString = enforceDatabaseTlsVerification(env.DATABASE_URL);
+  if (!connectionString) throw new Error("DATABASE_URL is required");
+  const configuredSchema = new URL(connectionString).searchParams.get("schema") || undefined;
   const pool = new Pool({
-    connectionString: enforceDatabaseTlsVerification(env.DATABASE_URL),
+    connectionString,
   });
-  const adapter = new PrismaPg(pool);
+  const adapter = new PrismaPg(pool, configuredSchema ? { schema: configuredSchema } : undefined);
   
   prismaInstance = new PrismaClient({
     adapter,
