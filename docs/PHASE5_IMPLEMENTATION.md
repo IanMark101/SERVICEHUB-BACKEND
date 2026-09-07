@@ -48,18 +48,13 @@ implement card-detail collection or a hosted card checkout. Returned Maya
 bookings remain Maya throughout frontend mapping and activity/transaction
 displays. External Test Mode verification remains Phase 6.
 
-## Defense seed
+## Defense data
 
-Executed against the configured development database on September 5:
-
-```
-node node_modules/tsx/dist/cli.mjs prisma/seed-defense.ts --confirm-demo-data
-```
-
-The seed creates a clearly labelled demonstration provider and five fictional
-written reviews linked through CompletedService to completed cash bookings.
-It skips existing demo reviews on retry and refuses production mode. Passwords
-are random and are not logged. No real money or external payment calls occur.
+Temporary demonstration records were used during implementation and removed
+after verification. The repository no longer contains a defense-data generator.
+For a defense rehearsal, create ordinary test accounts through the application,
+complete the required booking/review flows, capture evidence, and delete the
+temporary accounts afterward.
 
 ## Evidence and remaining work
 
@@ -68,5 +63,5 @@ contracts, Phase 4 integration, booking lifecycle integration and Phase 5
 listing/review/trust/AI integration pass. The Phase 5 suite also proves that an
 advanced-price listing rejects direct booking and accepts an exact provider
 Offer. Gemini is mocked in the automated threshold/cache test; this is not
-evidence of a live Gemini demonstration. Live payment-provider and browser E2E
-verification remain explicitly assigned to later tracker phases.
+evidence of a live Gemini demonstration. Live payment-provider and final manual
+browser verification remain explicitly assigned to later tracker phases.

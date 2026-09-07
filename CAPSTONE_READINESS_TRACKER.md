@@ -210,7 +210,7 @@ Deferred external re-entry checklist:
 - [x] Test general safety reports and review moderation. **DONE - Phase 4 integration covers participant directions, deduplication, evidence authorization, and hide/restore decisions.**
 - [x] Test duplicate completion disputes and completion escalations. **DONE - duplicate disputes return `DUPLICATE_DISPUTE`; escalation locking, reuse, and cooldown behavior pass.**
 - [x] Add frontend unit/component tests for authentication, forms, lifecycle controls, and admin decisions. **DONE - 13 Vitest/Testing Library tests pass across four focused suites.**
-- [ ] Add browser E2E coverage for Flow A cash, Flow A online, Flow B cash, Flow B online, cancellation, completion, escalation, dispute, and refund. **IN PROGRESS - five Chromium cases pass for real UI password login, Flow A cash, Flow B exact-listing cash, before/after-start cancellation, completion escalation, dispute, Admin resolution, and audit persistence. Flow A/Flow B PayMongo Test Mode checkout and real refund proof remain externally blocked.**
+- [ ] Complete the manual browser acceptance matrix for Flow A cash/online, Flow B cash/online, cancellation, completion, escalation, dispute, and refund. **IN PROGRESS - five temporary Chromium checks previously passed for password login and the core cash/admin lifecycles; the disposable harness and synthetic accounts were removed from the submission. PayMongo Test Mode checkout/refund and the final manual rehearsal remain open.**
 - [x] Apply all migrations to a fresh isolated database in CI. **DONE - all 18 migrations apply to a fresh PostgreSQL 17 service and Prisma reports zero difference from the checked-in schema.**
 - [x] Add load/concurrency testing for queues, messages, notifications, and payment webhooks. **DONE - Phase 2 covers queue/payment contention and duplicate webhook finalization; Phase 7 adds simultaneous message and notification durability/bounding checks.**
 - [x] Add dependency, secret, and static-security checks to CI. **DONE - npm production audit, CodeQL security-extended, and Gitleaks pass remotely in both repositories.**
@@ -228,7 +228,7 @@ Phase 7 progress evidence (September 6, 2026):
 - Backend CI run `34008349347` passed the fresh PostgreSQL migration, exact schema-parity check, build, 21 contracts, all eight database-backed integration/load commands, and production dependency audit.
 - Backend Security run `34008349385` passed CodeQL security-extended and Gitleaks. Frontend CI run `34005484711` and Frontend Security run `34005484692` also passed.
 - Fresh-schema verification additionally caught and repaired seven columns that had existed only through schema synchronization and a cross-schema foreign-key check. The disposable-schema rehearsal now applies 18 migrations, reports zero drift, runs the booking flow, and cleans up.
-- Browser E2E remains blocked in part by the deferred Google/PayMongo configuration; cash-only browser scenarios can still be added independently.
+- Final browser acceptance remains blocked in part by deferred Google/PayMongo configuration; cash-only scenarios can still be rehearsed manually.
 
 ### Phase 8 - UI, performance, and code-quality polish - **DONE**
 
@@ -289,13 +289,13 @@ Phase 8 progress evidence (September 6, 2026):
 - [x] Remove claims that session booking is verified. **DONE - Version 2.3, the design/test/security documents, Help Center, marketplace, provider forms, and the replacement repeat-request test guide now describe reusable one-time bookings. Live payout, AI persistence, and other unexecuted-flow claims still require the final documentation pass.**
 - [x] Document deployment, backup, restore, rollback, webhook recovery, and known limitations. **DONE - `docs/RELEASE_OPERATIONS.md` contains the release gate, backup/restore/rollback procedures, webhook recovery, monitoring, and limitations.**
 - [x] Run frontend and backend production builds. **DONE - both passed; the frontend generated 93 routes.**
-- [x] Run all backend, integration, frontend, and implemented E2E tests. **DONE - 23 contracts, all eight database-backed commands, 13 frontend tests, and five Chromium cases passed. External online checkout cases remain deferred below.**
+- [x] Run all retained backend, integration, and frontend tests. **DONE - 23 contracts, all eight database-backed commands, and 13 frontend tests passed. A temporary five-case Chromium acceptance harness also passed before being intentionally removed from the submission. External online checkout cases remain deferred below.**
 - [x] Run Prisma validation, target migration status, schema drift check, and fresh-database migration test. **DONE - validation and disposable 19-migration/32-table/booking rehearsal passed; target status/diff ran and correctly failed the release gate because five migrations and four schema differences remain.**
 - [ ] Back up and migrate the populated target database before release. **BLOCKED ON EXPLICIT OWNER APPROVAL - five migrations are unrecorded, and a live diff proves the target also lacks three indexes and has one obsolete default. Normal `migrate deploy` is required rather than baselining, but the final migration normalizes legacy session listing values, so the safety gate refused this data-changing action without explicit approval and backup confirmation.**
 - [x] Run fresh production dependency audits for both repositories. **DONE - production and complete dependency trees report zero vulnerabilities in both repositories.**
 - [x] Run tracked-secret and private-document scans. **DONE - no real tracked secret or private document reference was found; only explicit `.env.example` placeholders and isolated CI database credentials matched.**
-- [x] Confirm automated browser and server logs contain no unexplained 4xx/5xx loops, duplicate listeners, or unhandled rejections. **DONE - the final serial production-server Chromium run passed 5/5; UI login explicitly captured API error responses and found none. The known pg 8 adapter deprecation warning remains documented for the pg 9 upgrade.**
-- [ ] Perform the complete manual defense rehearsal using documented seed accounts and evidence screenshots/logs.
+- [x] Confirm browser and server logs contain no unexplained 4xx/5xx loops, duplicate listeners, or unhandled rejections. **DONE - the temporary serial production-server Chromium run passed 5/5; UI login explicitly captured API error responses and found none. The harness was removed afterward. The known pg 8 adapter deprecation warning remains documented for the pg 9 upgrade.**
+- [ ] Perform the complete manual defense rehearsal using temporary accounts created through the application, capture evidence screenshots/logs, then remove those accounts.
 - [x] Recalculate the readiness score and issue the final release decision. **DONE - capstone readiness is 94%; release decision remains NOT PRODUCTION READY until the unchecked target database, browser rehearsal, and external gates pass.**
 
 ## Features intentionally deferred or hidden
@@ -334,7 +334,7 @@ The supported product does not expose a session-based listing type. A listing is
 | Tracked-secret scan | No actual committed credentials detected |
 | Frontend lint | Passed: zero errors and zero warnings |
 | Frontend automated tests | Passed: 4 files, 13 tests |
-| Browser E2E suite | 5/5 passed: UI password login; Flow A/Flow B cash; cancellation; completion escalation; dispute; Admin resolution/audit. External online cases remain Not Run. |
+| Browser acceptance evidence | A temporary 5/5 run passed UI password login, Flow A/Flow B cash, cancellation, completion escalation, dispute, and Admin resolution/audit. The disposable harness was removed; final manual and external online cases remain Not Run. |
 | Fresh-database migration | Passed locally against a disposable remote schema: 19 migrations applied, 32 tables verified, exact Prisma schema parity confirmed, booking integration passed, and the fixture schema was removed |
 | PayMongo external Test Mode checkout/webhook/refund | Not run; webhook secret missing |
 | Fresh dependency audit | Passed locally (production and development trees): zero vulnerabilities in both repositories |

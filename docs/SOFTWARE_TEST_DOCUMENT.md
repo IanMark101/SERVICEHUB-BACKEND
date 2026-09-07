@@ -34,10 +34,10 @@ The supported marketplace uses reusable listings and independent one-time bookin
 | Backend dependencies | `npm audit --omit=dev` and `npm audit` | **Passed — 0 vulnerabilities** |
 | Prisma schema | `npx prisma validate` | **Passed** |
 | Fresh disposable schema | `npm run test:fresh-migrations` | **Passed — 19 migrations, 32 tables, zero drift, booking flow passed, schema removed** |
-| Chromium E2E | `npm run test:e2e` | **Passed — UI password login plus four API-assisted browser lifecycle cases** |
+| Temporary Chromium acceptance run | One-time local harness (not retained in the submission) | **Passed — UI password login plus four API-assisted browser lifecycle cases** |
 | Configured target migration parity | `prisma migrate status` and `prisma migrate diff` | **Failed release gate — five migrations are unrecorded and three indexes/one default differ** |
 
-All database-backed suites use uniquely named fixtures and delete those fixtures after execution. Gateway HTTP is mocked only where the test explicitly exercises signed webhook retrieval or a refund response; those tests do not prove PayMongo dashboard configuration.
+All retained database-backed suites use uniquely named fixtures and delete those fixtures after execution. The temporary browser harness and its synthetic accounts were removed after the acceptance run to keep the submitted codebase focused. Gateway HTTP is mocked only where the test explicitly exercises signed webhook retrieval or a refund response; those tests do not prove PayMongo dashboard configuration.
 
 ## 3. Requirements verification matrix
 
@@ -77,7 +77,7 @@ The following are not represented as passed until they are performed: independen
 
 ## 5. Final interactive defense checklist
 
-Use labelled demonstration accounts and retain screenshots plus browser/server logs.
+Create clearly labelled temporary accounts manually for the rehearsal, retain screenshots plus browser/server logs, and remove those accounts afterward.
 
 1. Password login as Seeker, Provider, and Admin; switch workspaces and log out.
 2. Submit and moderate a residency document; verify the user-visible decision note.

@@ -11,7 +11,6 @@
     "db:migrate": "prisma migrate dev",
     "test:fresh-migrations": "tsx scripts/test-fresh-migrations.ts",
     "db:seed": "npx tsx prisma/seed.ts",
-    "db:seed-defense": "tsx prisma/seed-defense.ts --confirm-demo-data",
     "test:admin-contracts": "tsx --test src/schema/admin-contracts.test.ts",
     "test": "tsx --test src/schema/*.test.ts",
     "test:booking-integration": "tsx --test src/integration/booking-flows.test.ts",
@@ -21,8 +20,7 @@
     "test:phase5-integration": "tsx --test src/integration/listing-correctness.test.ts",
     "test:phase6-integration": "tsx --test src/integration/payment-webhook.test.ts",
     "test:phase7-integration": "tsx --test src/integration/authorization-lifecycle.test.ts",
-    "test:phase7-load": "tsx --test src/integration/communication-concurrency.test.ts",
-    "test:e2e-fixtures": "tsx scripts/e2e-fixtures.ts --confirm-e2e"
+    "test:phase7-load": "tsx --test src/integration/communication-concurrency.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
