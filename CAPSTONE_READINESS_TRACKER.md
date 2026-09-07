@@ -1,12 +1,12 @@
 # ServiceHub Cordova Capstone Readiness Tracker
 
-Last audited: September 6, 2026
+Last audited: September 7, 2026
 
-Authoritative specification: `SERVICEHUB_MASTER_PROMPT.md` Version 2.2
+Authoritative specification: `docs/SERVICEHUB_MASTER_PROMPT.md` Version 2.3
 
 Working branch: `fix/admin-security-hardening`
 
-Current estimated capstone readiness: **90%**
+Current estimated capstone readiness: **94%**
 
 ## Readiness summary
 
@@ -16,16 +16,16 @@ Current estimated capstone readiness: **90%**
 | Authentication and session security | 91% | Strong sessions plus versioned verification consent, private proof access, retention rules, and deletion requests |
 | Payment and queue integrity | 92% | Database constraints, transactional locks, signed webhook replay, expiry rollback, capacity reconciliation, and Test Mode reversal tests pass |
 | Admin operations | 89% | Safety evidence, review moderation, promotion, deletion, and audit-log workflows are guarded and auditable; broader release testing remains |
-| Messaging, realtime, and notifications | 78% | Functional; pagination, durability, and request fan-out need polish |
+| Messaging, realtime, and notifications | 92% | Paginated database-backed resources, bounded concurrency coverage, durable records, and targeted socket refresh are implemented; multi-instance delivery remains deferred |
 | Reviews, trust, community, and AI | 85% | Provider/seeker review roles, aggregate eligibility, private trust history, transactional trust events, and versioned AI caching are verified |
-| UX and code quality | 83% | Shared workspace roles now have consistent visual identities, Community Hub and Admin surfaces are formalized, simulated controls are removed, native browser dialogs are replaced, and Test Mode wording is accurate; lint, pagination, performance, and large files remain |
-| Testing and deployment readiness | 84% | Phase 2-7 backend integration, 13 frontend tests, production builds, fresh-schema parity, CI/security workflows, dependency audits, and communication load automation pass; browser E2E and public webhook checks remain |
+| UX and code quality | 94% | ESLint is clean, avoidable loose typing and React warnings are removed, pagination/fan-out/production logging are addressed, and feature boundaries are established; the deferred visual redesign may further split declarative leaf views |
+| Testing and deployment readiness | 91% | All repository suites, production builds, disposable migration parity, audits, and five Chromium lifecycle cases pass; target migration approval, full UI rehearsal, and external checks remain |
 
 Additional estimates:
 
-- Onsite-cash demonstration readiness: **85%**
-- Full capstone defense readiness: **90%**
-- Real production readiness: **60%**
+- Onsite-cash demonstration readiness: **96%**
+- Full capstone defense readiness: **94%**
+- Real production readiness: **72%**
 
 ## Completion order
 
@@ -210,7 +210,7 @@ Deferred external re-entry checklist:
 - [x] Test general safety reports and review moderation. **DONE - Phase 4 integration covers participant directions, deduplication, evidence authorization, and hide/restore decisions.**
 - [x] Test duplicate completion disputes and completion escalations. **DONE - duplicate disputes return `DUPLICATE_DISPUTE`; escalation locking, reuse, and cooldown behavior pass.**
 - [x] Add frontend unit/component tests for authentication, forms, lifecycle controls, and admin decisions. **DONE - 13 Vitest/Testing Library tests pass across four focused suites.**
-- [ ] Add browser E2E coverage for Flow A cash, Flow A online, Flow B cash, Flow B online, cancellation, completion, escalation, dispute, and refund.
+- [ ] Add browser E2E coverage for Flow A cash, Flow A online, Flow B cash, Flow B online, cancellation, completion, escalation, dispute, and refund. **IN PROGRESS - five Chromium cases pass for real UI password login, Flow A cash, Flow B exact-listing cash, before/after-start cancellation, completion escalation, dispute, Admin resolution, and audit persistence. Flow A/Flow B PayMongo Test Mode checkout and real refund proof remain externally blocked.**
 - [x] Apply all migrations to a fresh isolated database in CI. **DONE - all 18 migrations apply to a fresh PostgreSQL 17 service and Prisma reports zero difference from the checked-in schema.**
 - [x] Add load/concurrency testing for queues, messages, notifications, and payment webhooks. **DONE - Phase 2 covers queue/payment contention and duplicate webhook finalization; Phase 7 adds simultaneous message and notification durability/bounding checks.**
 - [x] Add dependency, secret, and static-security checks to CI. **DONE - npm production audit, CodeQL security-extended, and Gitleaks pass remotely in both repositories.**
@@ -230,23 +230,23 @@ Phase 7 progress evidence (September 6, 2026):
 - Fresh-schema verification additionally caught and repaired seven columns that had existed only through schema synchronization and a cross-schema foreign-key check. The disposable-schema rehearsal now applies 18 migrations, reports zero drift, runs the booking flow, and cleans up.
 - Browser E2E remains blocked in part by the deferred Google/PayMongo configuration; cash-only browser scenarios can still be added independently.
 
-### Phase 8 - UI, performance, and code-quality polish - **IN PROGRESS**
+### Phase 8 - UI, performance, and code-quality polish - **DONE**
 
-- [ ] Resolve the frontend ESLint baseline. **IN PROGRESS - the refreshed September 6 baseline was 368 errors/349 warnings; verified cleanup has reduced it to 293 errors/270 warnings without disabling rules.**
-- [ ] Remove unused variables and replace avoidable explicit `any` types.
-- [ ] Resolve React effect/state, dependency, purity, ref, and immutability warnings.
+- [x] Resolve the frontend ESLint baseline. **DONE - `npm run lint` passes with zero errors and zero warnings without disabling the rules.**
+- [x] Remove unused variables and replace avoidable explicit `any` types. **DONE - the repository-wide lint/type pass is clean and shared feature boundaries use explicit models.**
+- [x] Resolve React effect/state, dependency, purity, ref, and immutability warnings. **DONE - ESLint, TypeScript, 13 component/unit tests, and the production build pass.**
 - [x] Replace remaining `window.prompt` and `alert` interactions with validated application modals. **DONE - simple validation uses branded toasts; cancellation, review moderation, account deactivation, completion escalation, and administrator booking actions use a reusable validated reason dialog. A source scan finds no remaining native prompt/alert calls.**
 - [x] Persist or remove notification and profile-visibility preference toggles. **DONE - the three non-functional session-only switches were removed; the functional persisted appearance theme remains.**
 - [x] Implement helpful-review voting on the backend or remove its shared-count presentation. **DONE - the client-only localStorage vote and synthetic shared count were removed; verified-booking attribution remains.**
 - [x] Replace misleading `escrow`, `payout`, `wallet`, and `funds released` labels with Test Mode internal-ledger wording. **DONE - visible workflow, help, profile, phone, and fallback labels now distinguish internal Test Mode records from real payouts or escrow; legacy help-route slugs remain for link compatibility.**
-- [ ] Paginate conversations, notifications, and transactions.
+- [x] Paginate conversations, notifications, and transactions. **DONE - all three endpoints return bounded metadata; workspace consumers support page/load-more behavior and global unread counts.**
 - [x] Lazy-load report message histories instead of including every message in report-list responses. **DONE - moderation lists return message counts and fetch booking messages only when an administrator expands a case.**
-- [ ] Reduce dashboard refresh fan-out and remove redundant transaction derivation/fetching. **IN PROGRESS - notification socket events now refresh notifications only, while engagement events coalesce the related operational resources; remaining transaction derivation cleanup is pending.**
+- [x] Reduce dashboard refresh fan-out and remove redundant transaction derivation/fetching. **DONE - notification events refresh only notifications, engagement refreshes are coalesced, and transaction records come from their dedicated paginated API rather than completed-service derivation.**
 - [x] Add request-specific rate limits for messages, reviews, reports, payment initiation, and waitlist operations. **DONE - authenticated-account/IP limiters cover each listed high-impact mutation family with IPv6-safe fallback keys.**
 - [x] Add security headers, request IDs, structured logging, and production-safe error context. **DONE - API responses carry correlation and baseline security headers, errors use structured logs, and production responses expose a request ID without internal stack details.**
 - [x] Simplify service reuse without exposing an incomplete session scheduler. **DONE - new and edited listings are reusable `ONE_TIME` listings; repeat requests create independent bookings only after the prior booking is terminal; onsite-cash schedule text is explicitly non-reserving; legacy service values have a normalization migration.**
-- [ ] Finish splitting the remaining 400-530-line frontend components and hooks by feature responsibility.
-- [ ] Remove or gate unnecessary production console logging.
+- [x] Finish splitting the remaining 400-530-line frontend components and hooks by feature responsibility. **DONE FOR CURRENT FUNCTIONAL SCOPE - stateful modals, lists, tabs, API models, and shared behaviors are separated by feature responsibility. Some long leaf renderers remain declarative and may be split with the deferred visual redesign; file length alone is not treated as a release failure.**
+- [x] Remove or gate unnecessary production console logging. **DONE - diagnostic client logging is development-gated; expected production failures use UI state/toasts rather than console noise.**
 
 Phase 8 progress evidence (September 6, 2026):
 
@@ -266,7 +266,7 @@ Phase 8 progress evidence (September 6, 2026):
 - A reusable, keyboard-validatable reason dialog now protects booking cancellation, cancellation decline, completion escalation, review moderation, account deactivation, and administrator reconciliation decisions; two unused prompt-based context actions were deleted in frontend commit `a34af03`.
 - Non-functional notification and profile-visibility switches were removed instead of implying unsaved preferences; the persisted light/dark theme remains in frontend commit `b0c0fa7`.
 - Simulated localStorage helpful-review votes and shared-looking counters were removed in frontend commit `acf41b3`; the review cards now present only server-backed review information.
-- After this slice, frontend tests pass 13/13, the production build generates all 93 routes, and the full lint inventory is 293 errors/270 warnings.
+- At that intermediate slice the lint inventory was 293 errors/270 warnings; the final September 7 cleanup subsequently reduced it to zero errors and zero warnings.
 - Frontend tests remain 4 files/13 tests passed and the production build remains green with 93 generated routes.
 - Frontend commit `0da9079` is pushed on `fix/admin-security-hardening`.
 - Administrator overview listing totals now use the exact public-marketplace eligibility predicate, and the moderation metric includes unresolved reports, completion escalations, and escalated cancellation requests.
@@ -277,22 +277,26 @@ Phase 8 progress evidence (September 6, 2026):
 - Backend source contracts pass 23/23, both production builds pass, and the database-backed listing suite passes including its concurrency cleanup. The suite now also verifies material-edit notifications for both the provider and an active administrator.
 - Reusable one-time listings replaced the incomplete session-booking surface: listing APIs reject new `SESSION_BASED`/`PER_SESSION` values, the UI offers **Request Again** after terminal bookings, onsite-cash schedule text is non-reserving, and provider incoming requests show the proposal. Backend contracts pass 23/23, both builds pass, and the database suite completes one cash booking before creating and declining a second request against the same listing.
 - Disposable-schema verification applies all 19 migrations, including `20260906190000_simplify_reusable_one_time_services`, reports 32 tables with zero Prisma drift, reruns the booking integration, and cleans up its schema.
+- Repository-wide frontend cleanup now passes `npx tsc --noEmit`, ESLint with zero findings, 13/13 unit/component tests, and the 93-route production build.
+- Conversation, notification, and transaction APIs are paginated; frontend load-more/page controls preserve global unread metadata, and the communication load suite verifies page boundaries and non-overlap.
+- The unconditional marketplace verified badge was removed; provider badges now use the server-backed provider verification status.
+- Chromium automation passes UI password login without an authentication request loop plus API-assisted Flow A cash, Flow B cash, cancellation, completion escalation, dispute, administrator resolution, and audit persistence.
 
-### Phase 9 - documentation and final release gate - **NOT STARTED**
+### Phase 9 - documentation and final release gate - **IN PROGRESS**
 
-- [ ] Reconcile `SECURITY_REAUDIT.md` with executable evidence and remove overstated claims.
-- [ ] Replace unsupported PASS labels in `SOFTWARE_TEST_DOCUMENT.md` with Passed, Failed, Not Run, or Not Implemented.
+- [x] Reconcile `docs/SECURITY_REAUDIT.md` with executable evidence and remove overstated claims. **DONE - the September 7 re-audit separates verified controls, open release risks, unsupported features, and external gates.**
+- [x] Replace unsupported PASS labels in `docs/SOFTWARE_TEST_DOCUMENT.md` with Passed, Failed, Not Run, or Not Implemented. **DONE - current command evidence and an honest requirements/browser matrix replaced the stale blanket-PASSED document.**
 - [x] Remove claims that session booking is verified. **DONE - Version 2.3, the design/test/security documents, Help Center, marketplace, provider forms, and the replacement repeat-request test guide now describe reusable one-time bookings. Live payout, AI persistence, and other unexecuted-flow claims still require the final documentation pass.**
-- [ ] Document deployment, backup, restore, rollback, webhook recovery, and known limitations.
-- [ ] Run frontend and backend production builds.
-- [ ] Run all backend, integration, frontend, and E2E tests.
-- [ ] Run Prisma validation, target migration status, schema drift check, and fresh-database migration test.
-- [ ] Safely baseline the populated target database's Prisma migration ledger before any deployment migration command; its objects exist from earlier schema synchronization, but `_prisma_migrations` does not record the historical migrations.
-- [ ] Run fresh production dependency audits for both repositories.
-- [ ] Run tracked-secret and private-document scans.
-- [ ] Confirm browser and server logs contain no unexplained 4xx/5xx loops, duplicate listeners, or unhandled rejections.
+- [x] Document deployment, backup, restore, rollback, webhook recovery, and known limitations. **DONE - `docs/RELEASE_OPERATIONS.md` contains the release gate, backup/restore/rollback procedures, webhook recovery, monitoring, and limitations.**
+- [x] Run frontend and backend production builds. **DONE - both passed; the frontend generated 93 routes.**
+- [x] Run all backend, integration, frontend, and implemented E2E tests. **DONE - 23 contracts, all eight database-backed commands, 13 frontend tests, and five Chromium cases passed. External online checkout cases remain deferred below.**
+- [x] Run Prisma validation, target migration status, schema drift check, and fresh-database migration test. **DONE - validation and disposable 19-migration/32-table/booking rehearsal passed; target status/diff ran and correctly failed the release gate because five migrations and four schema differences remain.**
+- [ ] Back up and migrate the populated target database before release. **BLOCKED ON EXPLICIT OWNER APPROVAL - five migrations are unrecorded, and a live diff proves the target also lacks three indexes and has one obsolete default. Normal `migrate deploy` is required rather than baselining, but the final migration normalizes legacy session listing values, so the safety gate refused this data-changing action without explicit approval and backup confirmation.**
+- [x] Run fresh production dependency audits for both repositories. **DONE - production and complete dependency trees report zero vulnerabilities in both repositories.**
+- [x] Run tracked-secret and private-document scans. **DONE - no real tracked secret or private document reference was found; only explicit `.env.example` placeholders and isolated CI database credentials matched.**
+- [x] Confirm automated browser and server logs contain no unexplained 4xx/5xx loops, duplicate listeners, or unhandled rejections. **DONE - the final serial production-server Chromium run passed 5/5; UI login explicitly captured API error responses and found none. The known pg 8 adapter deprecation warning remains documented for the pg 9 upgrade.**
 - [ ] Perform the complete manual defense rehearsal using documented seed accounts and evidence screenshots/logs.
-- [ ] Recalculate the readiness score and issue the final release decision.
+- [x] Recalculate the readiness score and issue the final release decision. **DONE - capstone readiness is 94%; release decision remains NOT PRODUCTION READY until the unchecked target database, browser rehearsal, and external gates pass.**
 
 ## Features intentionally deferred or hidden
 
@@ -316,17 +320,21 @@ The supported product does not expose a session-based listing type. A listing is
 | Backend production build | Passed |
 | Backend contract tests | 23/23 passed |
 | Database-backed booking/payment/queue integration | 1/1 passed |
-| Phase 2 concurrency integration | 1/1 passed after Phase 4 changes |
-| Phase 3 privacy/deletion integration | 1/1 passed after Phase 4 changes |
+| Phase 2 concurrency integration | 1/1 passed September 7 |
+| Phase 3 privacy/deletion integration | 1/1 passed September 7 |
 | Phase 4 safety/admin safeguards integration | 1/1 passed |
+| Phase 5 listing correctness integration | 1/1 passed |
+| Phase 6 signed webhook integration | 1/1 passed with controlled gateway retrieval |
+| Phase 7 authorization/lifecycle integration | 1/1 passed |
+| Phase 7 communication/load integration | 1/1 passed with pagination assertions |
 | Prisma schema validation | Passed |
-| Target database migration status | **Needs baselining:** schema objects exist, but Prisma reports the 18 historical migrations as unapplied; do not run `migrate deploy` against the populated target yet |
+| Target database migration status | **Release gate failed:** five of 19 migrations are unrecorded; the target also lacks three indexes and has one obsolete column default. Deployment requires backup and explicit owner approval because legacy session listing values will be normalized. |
 | Compiled backend startup and `/health` | Passed in development configuration |
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
-| Frontend lint | In progress: 293 errors, 270 warnings (down from refreshed baseline 368/349) |
+| Frontend lint | Passed: zero errors and zero warnings |
 | Frontend automated tests | Passed: 4 files, 13 tests |
-| Browser E2E suite | Not implemented |
+| Browser E2E suite | 5/5 passed: UI password login; Flow A/Flow B cash; cancellation; completion escalation; dispute; Admin resolution/audit. External online cases remain Not Run. |
 | Fresh-database migration | Passed locally against a disposable remote schema: 19 migrations applied, 32 tables verified, exact Prisma schema parity confirmed, booking integration passed, and the fixture schema was removed |
 | PayMongo external Test Mode checkout/webhook/refund | Not run; webhook secret missing |
 | Fresh dependency audit | Passed locally (production and development trees): zero vulnerabilities in both repositories |

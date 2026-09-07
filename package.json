@@ -21,7 +21,8 @@
     "test:phase5-integration": "tsx --test src/integration/listing-correctness.test.ts",
     "test:phase6-integration": "tsx --test src/integration/payment-webhook.test.ts",
     "test:phase7-integration": "tsx --test src/integration/authorization-lifecycle.test.ts",
-    "test:phase7-load": "tsx --test src/integration/communication-concurrency.test.ts"
+    "test:phase7-load": "tsx --test src/integration/communication-concurrency.test.ts",
+    "test:e2e-fixtures": "tsx scripts/e2e-fixtures.ts --confirm-e2e"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
