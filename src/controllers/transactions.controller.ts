@@ -8,13 +8,15 @@ export async function getMyTransactions(req: Request, res: Response, next: NextF
   try {
     const user = (req as AuthenticatedRequest).user;
 
-    const transactions = await prisma.transaction.findMany({
-      where: { walletOwnerId: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+    const page = Math.max(1, Number.parseInt(String(req.query?.page || "1"), 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query?.limit || "20"), 10) || 20));
+    const where = { walletOwnerId: user.id };
+    const [transactions, total] = await Promise.all([
+      prisma.transaction.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+      prisma.transaction.count({ where }),
+    ]);
 
-    res.json({ success: true, data: transactions });
+    res.json({ success: true, data: transactions, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (err) {
     next(err);
   }

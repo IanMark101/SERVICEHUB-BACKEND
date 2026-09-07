@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
 import { assertDistinctAccounts } from "../utils/security";
+import type { Prisma } from "@prisma/client";
 
 export async function checkMessagingAccess(bookingId: string, userId: string, userRole?: string) {
   const booking = await prisma.booking.findUnique({
@@ -34,16 +35,18 @@ export async function checkMessagingAccess(bookingId: string, userId: string, us
   return booking;
 }
 
-export async function getConversations(userId: string) {
-  const bookings = await prisma.booking.findMany({
-    where: {
+export async function getConversations(userId: string, page = 1, limit = 20) {
+  const where: Prisma.BookingWhereInput = {
       OR: [
         { seekerId: userId, hiddenBySeeker: false },
         { providerId: userId, hiddenByProvider: false }
       ],
       // Only show bookings where both parties have entered an agreement
       status: { notIn: ["PENDING_APPROVAL", "DECLINED"] }
-    },
+    };
+  const [bookings, total, unread] = await Promise.all([
+    prisma.booking.findMany({
+    where,
     include: {
       seeker: { select: { id: true, name: true, avatarUrl: true } },
       provider: { select: { id: true, name: true, avatarUrl: true } },
@@ -66,10 +69,15 @@ export async function getConversations(userId: string) {
         }
       }
     },
-    orderBy: { updatedAt: "desc" }
-  });
+    orderBy: { updatedAt: "desc" },
+    skip: (page - 1) * limit,
+    take: limit,
+  }),
+    prisma.booking.count({ where }),
+    prisma.message.count({ where: { receiverId: userId, isRead: false, booking: where } }),
+  ]);
 
-  return bookings.map(b => {
+  const items = bookings.map(b => {
     const isSeeker = b.seekerId === userId;
     const otherParty = isSeeker ? b.provider : b.seeker;
     const otherPartyRole = isSeeker ? "Provider" : "Seeker";
@@ -104,6 +112,7 @@ export async function getConversations(userId: string) {
       unreadCount: b._count?.messages || 0
     };
   });
+  return { items, total, unread };
 }
 
 export async function getMessages(bookingId: string, userId: string, userRole?: string) {

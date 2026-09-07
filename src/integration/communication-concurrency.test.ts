@@ -99,7 +99,7 @@ test('concurrent messages and notification operations remain durable and bounded
     })),
   });
 
-  const readRequest = { user: { id: seeker.id } } as any;
+  const readRequest = { user: { id: seeker.id }, query: {} } as any;
   await Promise.all(Array.from({ length: 8 }, async () => {
     const target = controllerResponse();
     await markAllAsRead(readRequest, target.response, (error) => { throw error; });
@@ -108,7 +108,13 @@ test('concurrent messages and notification operations remain durable and bounded
   assert.equal(await prisma.notification.count({ where: { userId: seeker.id, isRead: false } }), 0);
 
   const listTarget = controllerResponse();
-  await getMyNotifications(readRequest, listTarget.response, (error) => { throw error; });
+  await getMyNotifications({ ...readRequest, query: { page: '1', limit: '50' } }, listTarget.response, (error) => { throw error; });
   assert.equal(listTarget.read().statusCode, 200);
   assert.equal(listTarget.read().body.data.length, 50);
+  assert.deepEqual(listTarget.read().body.pagination, { page: 1, limit: 50, total: 120, totalPages: 3, unread: 0 });
+
+  const secondPage = controllerResponse();
+  await getMyNotifications({ ...readRequest, query: { page: '2', limit: '50' } }, secondPage.response, (error) => { throw error; });
+  assert.equal(secondPage.read().body.data.length, 50);
+  assert.equal(new Set([...listTarget.read().body.data, ...secondPage.read().body.data].map((item: { id: string }) => item.id)).size, 100);
 });

@@ -6,8 +6,10 @@ import { MessageSchema } from "../schema/marketplace.schema";
 export async function listConversations(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const conversations = await getConversations(user.id);
-    res.json({ success: true, data: conversations });
+    const page = Math.max(1, Number.parseInt(String(req.query?.page || "1"), 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query?.limit || "20"), 10) || 20));
+    const conversations = await getConversations(user.id, page, limit);
+    res.json({ success: true, data: conversations.items, pagination: { page, limit, total: conversations.total, totalPages: Math.ceil(conversations.total / limit), unread: conversations.unread } });
   } catch (err) {
     next(err);
   }
