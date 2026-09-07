@@ -281,6 +281,7 @@ Phase 8 progress evidence (September 6, 2026):
 - Conversation, notification, and transaction APIs are paginated; frontend load-more/page controls preserve global unread metadata, and the communication load suite verifies page boundaries and non-overlap.
 - The unconditional marketplace verified badge was removed; provider badges now use the server-backed provider verification status.
 - Chromium automation passes UI password login without an authentication request loop plus API-assisted Flow A cash, Flow B cash, cancellation, completion escalation, dispute, administrator resolution, and audit persistence.
+- September 8 Admin visual polish follows the approved minimalist reference: the Admin shell uses a wider neutral canvas, compact low-shadow surfaces, restrained violet accents, and black primary controls while preserving red for destructive/error states. Primary Admin directory and moderation-queue screens now share a compact result-count/page control; bounded overview/operations summaries stay deliberately capped, and announcements were moved from an implicit first-page list to explicit server pagination. The shared notification panel no longer uses the decorative sparkle fallback, displays five concise records per page, and fetches older bounded server pages on demand. Frontend lint, 13/13 tests, and the 93-route production build pass after the change.
 
 ### Phase 9 - documentation and final release gate - **IN PROGRESS**
 
