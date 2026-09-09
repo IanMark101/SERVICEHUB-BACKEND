@@ -20,6 +20,7 @@ export interface AuthenticatedRequest extends Request {
     trustScore: number;
     verificationStatus: string;
     emailVerified: boolean;
+    onboardingStatus: "PENDING" | "COMPLETED" | "SKIPPED";
     isActive: boolean;
     moderationStatus: string;
     suspendedUntil?: Date | null;
@@ -58,6 +59,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         trustScore: true,
         verificationStatus: true,
         emailVerified: true,
+        onboardingStatus: true,
         isActive: true,
         moderationStatus: true,
         suspendedUntil: true,
@@ -196,6 +198,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
         trustScore: true,
         verificationStatus: true,
         emailVerified: true,
+        onboardingStatus: true,
         isActive: true,
         moderationStatus: true,
         suspendedUntil: true,

@@ -61,6 +61,7 @@ export interface AuthUser {
   trustScore: number;
   verificationStatus: string;
   emailVerified: boolean;
+  onboardingStatus: "PENDING" | "COMPLETED" | "SKIPPED";
 }
 
 // ── Register ──────────────────────────────────────────────────────────────────
@@ -310,6 +311,7 @@ export function toPublicUser(user: any): AuthUser {
     trustScore: user.trustScore,
     verificationStatus: user.verificationStatus,
     emailVerified: user.emailVerified,
+    onboardingStatus: user.onboardingStatus,
   };
 }
 

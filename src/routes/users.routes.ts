@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { searchUsers } from "../controllers/users.controller";
+import { searchUsers, updateOnboardingStatus } from "../controllers/users.controller";
 import { requireAuth, requireMarketplaceUser } from "../middlewares/auth.middleware";
 import {
   cancelDeletionRequest,
@@ -11,6 +11,7 @@ const router = Router();
 
 // User discovery is available to signed-in residents only.
 router.get("/", requireAuth, searchUsers);
+router.patch("/me/onboarding", requireAuth, requireMarketplaceUser, updateOnboardingStatus);
 router.get("/me/account-deletion", requireAuth, requireMarketplaceUser, readAccountDeletionRequest);
 router.post("/me/account-deletion", requireAuth, requireMarketplaceUser, createAccountDeletionRequest);
 router.delete("/me/account-deletion", requireAuth, requireMarketplaceUser, cancelDeletionRequest);

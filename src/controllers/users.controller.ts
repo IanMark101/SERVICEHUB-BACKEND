@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
+import { UpdateOnboardingStatusSchema } from "../schema/users.schema";
 
 // ── GET /users ──────────────────────────────────────────────────────────────
 export async function searchUsers(req: Request, res: Response, next: NextFunction) {
@@ -58,5 +60,23 @@ export async function searchUsers(req: Request, res: Response, next: NextFunctio
     });
   } catch (err) {
     next(err);
+  }
+}
+
+// PATCH /users/me/onboarding
+// Reopening the tour does not reset this durable preference.
+export async function updateOnboardingStatus(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { status } = UpdateOnboardingStatusSchema.parse(req.body);
+    const userId = (req as AuthenticatedRequest).user.id;
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { onboardingStatus: status },
+      select: { onboardingStatus: true },
+    });
+
+    res.json({ success: true, data: user });
+  } catch (error) {
+    next(error);
   }
 }
