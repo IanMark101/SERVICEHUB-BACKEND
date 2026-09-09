@@ -3,7 +3,10 @@ import { prisma } from "../lib/prisma";
 import {
   getPublicServiceCount,
   getActivePublicProviderCount,
+  getRecentlyPublishedServices,
 } from "../services/services.service";
+
+const RECENT_CONTENT_WINDOW_DAYS = 30;
 
 /**
  * GET /community/stats
@@ -12,6 +15,7 @@ import {
  *   - Top Providers leaderboard (publicly discoverable providers with active services, ranked deterministically)
  *   - Platform-wide community stats (Services Completed, Verified Residents, Active Providers, Active Listings)
  *   - Newly approved categories (approved suggestions verified against active marketplace categories)
+ *   - Recently approved public service listings
  *   - Official administration announcements
  */
 export async function getCommunityStats(_req: Request, res: Response, next: NextFunction) {
@@ -34,6 +38,7 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
       activeListings,
       activeCategories,
       approvedSuggestions,
+      recentlyPublishedServices,
       announcements,
     ] = await Promise.all([
       // ── 1. Top Providers Leaderboard ───────────────────────────────────────
@@ -99,13 +104,24 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
 
       // ── 7. Recently Approved Category Suggestions ──────────────────────────
       prisma.categorySuggested.findMany({
-        where: { status: "APPROVED" },
+        where: {
+          status: "APPROVED",
+          reviewedAt: {
+            not: null,
+            gte: new Date(Date.now() - RECENT_CONTENT_WINDOW_DAYS * 24 * 60 * 60 * 1000),
+          },
+        },
         orderBy: { reviewedAt: "desc" },
         take: 6,
         select: { id: true, name: true, description: true, reviewedAt: true },
       }),
 
-      // ── 8. Official Community Hub Announcements ────────────────────────────
+      getRecentlyPublishedServices(
+        6,
+        new Date(Date.now() - RECENT_CONTENT_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+      ),
+
+      // ── 9. Official Community Hub Announcements ────────────────────────────
       prisma.announcement.findMany({
         where: {
           isPublished: true,
@@ -178,6 +194,11 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
           activeListings,
         },
         recentCategories,
+        recentServices: recentlyPublishedServices.map(({ reviewedAt, ...service }) => ({
+          ...service,
+          priceType: service.priceType === "PER_SESSION" ? "FIXED" : service.priceType,
+          publishedAt: reviewedAt,
+        })),
         announcements,
         leaderboardPeriod: {
           start: leaderboardWeekStart.toISOString(),

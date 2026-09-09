@@ -1,7 +1,7 @@
 # SERVICEHUB MASTER PROMPT
 
-**Specification version:** 2.3
-**Effective date:** September 6, 2026
+**Specification version:** 2.4
+**Effective date:** September 9, 2026
 **Status:** Authoritative capstone specification
 
 This is the single source of truth for **ServiceHub Cordova** — a hyperlocal two-sided service marketplace and queue-management system for Cordova, Cebu, Philippines. Read this document before changing application behavior.
@@ -103,6 +103,13 @@ Always succeeds if credentials are correct and `is_active` is true — **login i
 - Configure every real development/deployment origin in Google Cloud (for example the exact `http://localhost:3000` origin during local development). Origin errors are configuration failures, not authentication vulnerabilities.
 - The backend verifies the Google ID token signature, issuer, audience/client ID, expiry, and verified email. Never trust profile data sent separately by the browser.
 - OAuth may link to an existing account only when the verified email matches under a documented safe linking rule. It must never promote an account to Admin or automatically approve Cordova residency.
+
+### First-time orientation
+
+- A new normal user begins with `onboarding_status: PENDING`. On the first authenticated Seeker or Provider workspace visit, the application shows a short orientation explaining the unified account, marketplace flows, access gates, trust/queue/payment/messaging/review basics, and profile next steps.
+- Onboarding is never a marketplace authorization gate. The user may complete or skip it; either choice is persisted on the User as `COMPLETED` or `SKIPPED` so the prompt does not repeat across devices.
+- Help Center may reopen the orientation without resetting the persisted choice. Detailed rules remain in Help Center rather than being duplicated in the short first-time flow.
+- Existing users at the time this feature is introduced are migrated to `COMPLETED`; only accounts created afterward are automatically prompted.
 
 ### The Access-Gating Rule (Hybrid Model — this is the locked decision, do not build a hard wall at login)
 
@@ -605,9 +612,12 @@ Editing title, category, description, media, or proof re-triggers `PENDING_REVIE
 Deliberately scoped out: no user photo posts, no public scrollable social feed, no likes/comments system — this avoids moderation overhead unrelated to the core marketplace purpose.
 
 - **Announcements** — admin-posted only.
+- **Platform guides** — short, undated explanations of current ServiceHub capabilities and rules. They are informational content, not fabricated historical events.
 - **Top Providers leaderboard** — auto-generated weekly, ranked by trust score (primary) + completed services + rating (tiebreakers), no manual curation.
 - **Community Stats** — auto-computed counters. “Active provider” means a verified user with at least one `ACTIVE` listing. “Active seeker” means a verified user who created a request or booking during the displayed reporting period. One user may count in both; label this clearly rather than pretending these are exclusive account roles.
 - **Newly Added Categories** — auto-posted the moment admin approves a suggestion (Part 18).
+- **Recently Added Services** — approved, currently public listings ordered by the service moderation `reviewed_at` publication timestamp. Availability changes or ordinary edits must not make an old listing appear newly published.
+- “Recently added” content uses a defined recency window and displays only real database timestamps. An API failure must render an error state, never fabricated zero statistics or false empty-state content.
 
 ---
 
@@ -698,7 +708,8 @@ Copy rules: plain conversational language, no invented statistics, never say "bi
 USERS — id, name, email, password_hash?, phone, location, role (USER|ADMIN),
         trust_score, verification_status,
         moderation_status (ACTIVE|SUSPENDED|BANNED), is_active,
-        email_verified, created_at, updated_at
+        email_verified, onboarding_status (PENDING|COMPLETED|SKIPPED),
+        created_at, updated_at
 
 REFRESH_TOKENS — id, user_id, token_hash, expires_at, revoked_at?,
         replaced_by_token_id?, created_at
@@ -962,12 +973,12 @@ These are cross-cutting requirements, not optional features:
 ## INSTRUCTIONS FOR THE AI READING THIS DOCUMENT
 
 1. Read this entire document fully before writing or modifying any code.
-2. Treat specification version 2.3 as authoritative. Older comments or documents lose when they conflict with its state tables and invariants.
+2. Treat specification version 2.4 as authoritative. Older comments or documents lose when they conflict with its state tables and invariants.
 3. If the current codebase violates a rule above, report the affected flow and migration/test impact. When the user's request authorizes implementation, fix it without weakening another invariant. Schema/state-machine changes require migrations and regression tests; never silently reinterpret persisted states.
 4. If a request from the user conflicts with this document, point out the conflict. If the user confirms the new decision, update this document in the same change so it remains the source of truth.
 5. For new behavior, separate lifecycle stages, enforce authorization and invariants server-side, make external-event handling idempotent, and prefer the smallest approach that satisfies Tier 0.
 6. Do not claim “production ready” solely because builds pass. Use Part 27's defense release gate and report any unverified item honestly.
-7. Version 2.3 defines target product behavior; it does not prove the current code already implements every amendment. Audit the affected schema, authorization, lifecycle, and tests before claiming alignment, and preserve the implemented DirectRequest flow unless a separately authorized migration replaces it safely.
+7. Version 2.4 defines target product behavior; it does not prove the current code already implements every amendment. Audit the affected schema, authorization, lifecycle, and tests before claiming alignment, and preserve the implemented DirectRequest flow unless a separately authorized migration replaces it safely.
 
 ### Version 2.0 foundation decisions
 
@@ -1011,3 +1022,9 @@ These are cross-cutting requirements, not optional features:
 - Added repeat-request behavior after terminal bookings without introducing subscriptions or calendar reservations.
 - Defined provider acceptance and optional non-reserved schedule proposals for Flow A cash requests.
 - Retained legacy enum/column values only for backward-compatible migration and historical reads.
+
+### Version 2.4 orientation and community clarity
+
+- Added a persistent, skippable first-time orientation for normal users, with a Help Center path for reopening it later.
+- Kept onboarding informational rather than turning it into a new authorization gate or a duplicate Help Center.
+- Required Community Hub to distinguish undated platform guides from dated database events and to show genuinely recent approved categories and public service listings.

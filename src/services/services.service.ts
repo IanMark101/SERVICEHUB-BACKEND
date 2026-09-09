@@ -77,12 +77,21 @@ export async function getActivePublicProviderCount() {
   });
 }
 
-export async function getRecentlyPublishedServices(limit = 6) {
+export async function getRecentlyPublishedServices(limit = 6, since?: Date) {
   return prisma.service.findMany({
-    where: PUBLIC_SERVICE_WHERE,
-    orderBy: { updatedAt: "desc" }, // actual publication/approval timestamp
+    where: {
+      ...PUBLIC_SERVICE_WHERE,
+      reviewedAt: { not: null, ...(since ? { gte: since } : {}) },
+    },
+    orderBy: { reviewedAt: "desc" },
     take: limit,
-    include: {
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      price: true,
+      priceType: true,
+      reviewedAt: true,
       category: { select: { id: true, name: true } },
       provider: {
         select: {
