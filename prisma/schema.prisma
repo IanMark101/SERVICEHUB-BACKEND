@@ -289,6 +289,7 @@ model EmailVerificationToken {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
+  used      Boolean  @default(false)
   createdAt DateTime @default(now())
 
   @@map("email_verification_tokens")

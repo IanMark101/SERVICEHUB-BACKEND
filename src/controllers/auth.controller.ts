@@ -49,14 +49,16 @@ export async function register(req: Request, res: Response, next: NextFunction) 
         errors: result.error.flatten(),
       });
     }
-    const { user, tokens } = await registerUser(result.data);
+    const { user, tokens, verificationEmailSent } = await registerUser(result.data);
 
     res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
 
     res.status(201).json({
       success: true,
-      message: "Account created. Please verify your email to unlock full access.",
-      data: { user, accessToken: tokens.accessToken },
+      message: verificationEmailSent
+        ? "Account created. Please verify your email to unlock full access."
+        : "Account created, but the verification email could not be delivered. Sign in and request a new verification link.",
+      data: { user, accessToken: tokens.accessToken, verificationEmailSent },
     });
   } catch (err: any) {
     // Zod validation errors

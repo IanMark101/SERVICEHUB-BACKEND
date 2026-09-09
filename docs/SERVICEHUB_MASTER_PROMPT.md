@@ -103,6 +103,7 @@ Always succeeds if credentials are correct and `is_active` is true — **login i
 - Configure every real development/deployment origin in Google Cloud (for example the exact `http://localhost:3000` origin during local development). Origin errors are configuration failures, not authentication vulnerabilities.
 - The backend verifies the Google ID token signature, issuer, audience/client ID, expiry, and verified email. Never trust profile data sent separately by the browser.
 - OAuth may link to an existing account only when the verified email matches under a documented safe linking rule. It must never promote an account to Admin or automatically approve Cordova residency.
+- Google does not supply a dependable phone number. A Google-created account may therefore begin with an incomplete phone/location profile and must receive a clear profile-completion prompt; the UI must never invent placeholder contact data.
 
 ### First-time orientation
 
@@ -268,6 +269,7 @@ The FCFS queue is reserved for successfully paid online bookings. Cash never ent
 7. Work MUST NOT start automatically after payment. `started` remains false until the provider clicks Start Job.
 8. If payment fails or is abandoned, no Booking or Queue row is created. The durable PaymentAttempt records the failure without exposing sensitive provider data.
 9. Capacity is checked before payment and rechecked under the service lock during success handling. If a captured payment cannot safely become a booking, persist it as `REFUND_REQUIRED` and start an idempotent refund/reconciliation path; never lose the payment or silently exceed the configured capacity.
+10. A provider's profile phone number is contact information, not a PayMongo payout destination. Tier 0 creates an internal provider earning after completion and does not transfer money to a personal GCash number, Maya number, bank account, or wallet.
 
 ### Cash invariants
 

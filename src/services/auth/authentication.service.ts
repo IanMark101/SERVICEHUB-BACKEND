@@ -66,7 +66,11 @@ export interface AuthUser {
 
 // ── Register ──────────────────────────────────────────────────────────────────
 
-export async function registerUser(input: RegisterInput): Promise<{ user: AuthUser; tokens: AuthTokens }> {
+export async function registerUser(input: RegisterInput): Promise<{
+  user: AuthUser;
+  tokens: AuthTokens;
+  verificationEmailSent: boolean;
+}> {
   // Check for duplicate email
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
@@ -77,41 +81,61 @@ export async function registerUser(input: RegisterInput): Promise<{ user: AuthUs
 
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
 
-  const user = await prisma.user.create({
-    data: {
-      name: input.name,
-      email: input.email,
-      passwordHash,
-      phone: input.phone,
-      location: input.location,
-      bio: input.bio,
-      avatarUrl: input.avatarUrl,
-      trustScore: 50, // default Average band
-      verificationStatus: "UNVERIFIED",
-      emailVerified: false,
-      isActive: true,
-      role: "user",
-    },
-  });
-
-  // Record baseline trust score event in audit log
-  await recordAccountCreationBaseline(user.id);
-
   // Create email verification token (24h expiry)
   const verifyToken = generateSecureToken();
   const verifyExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  await prisma.emailVerificationToken.create({
-    data: { token: hashOpaqueToken(verifyToken), userId: user.id, expiresAt: verifyExpiry },
+  // Keep the account, trust baseline, and verification token atomic. A
+  // partial database failure must not leave a ghost account after the API
+  // tells the user registration failed.
+  const user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        name: input.name,
+        email: input.email,
+        passwordHash,
+        phone: input.phone,
+        location: input.location,
+        bio: input.bio,
+        avatarUrl: input.avatarUrl,
+        trustScore: 50,
+        verificationStatus: "UNVERIFIED",
+        emailVerified: false,
+        isActive: true,
+        role: "user",
+      },
+    });
+    await tx.trustScoreEvent.create({
+      data: {
+        userId: created.id,
+        delta: 50,
+        reason: "Initial Account Base Trust Score Baseline",
+        scoreBefore: 0,
+        scoreAfter: 50,
+        eventKey: `account-baseline:${created.id}`,
+      },
+    });
+    await tx.emailVerificationToken.create({
+      data: { token: hashOpaqueToken(verifyToken), userId: created.id, expiresAt: verifyExpiry },
+    });
+    return created;
   });
 
-  // Send verification email (logs to console in dev)
-  await sendVerificationEmail(user.email, user.name, verifyToken);
+  // Email delivery is external and cannot be part of the transaction. An
+  // email-provider outage must not turn a durably created account into a
+  // false registration failure; the user can request a fresh link.
+  let verificationEmailSent = true;
+  try {
+    await sendVerificationEmail(user.email, user.name, verifyToken);
+  } catch (error) {
+    verificationEmailSent = false;
+    console.error("Verification email delivery failed after account creation:", error);
+  }
 
   // Issue JWT tokens
   const tokens = await issueTokens(user.id, user.role);
 
-  return { user: toPublicUser(user), tokens };
+  return { user: toPublicUser(user), tokens, verificationEmailSent };
 }
 
 // ── Login ─────────────────────────────────────────────────────────────────────
@@ -193,14 +217,27 @@ export async function verifyEmail(token: string): Promise<void> {
   const invalidErr = new Error("Invalid or expired verification link") as any;
   invalidErr.status = 400;
 
-  if (!record || record.expiresAt < new Date()) throw invalidErr;
+  if (!record) throw invalidErr;
 
-  await prisma.user.update({
-    where: { id: record.userId },
-    data: { emailVerified: true },
-  });
+  // Reopening a consumed link is harmless and remains successful. This also
+  // handles development-mode duplicate effects and safe network retries.
+  if (record.used) return;
 
-  await prisma.emailVerificationToken.delete({ where: { token: tokenHash } });
+  if (record.expiresAt < new Date()) {
+    await prisma.emailVerificationToken.deleteMany({ where: { token: tokenHash } });
+    throw invalidErr;
+  }
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: record.userId },
+      data: { emailVerified: true },
+    }),
+    prisma.emailVerificationToken.update({
+      where: { token: tokenHash },
+      data: { used: true },
+    }),
+  ]);
 }
 
 export async function resendVerificationEmail(email: string): Promise<void> {
