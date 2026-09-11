@@ -6,7 +6,7 @@ import { BooleanDecisionSchema } from "../../schema/marketplace.schema";
 export async function resolveCancellationRequest(req: Request, res: Response, next: NextFunction) {
   try {
     const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
-    const { adminResolveCancellationRequest } = await import("../../services/cancellation.service");
+    const { adminResolveCancellationRequest } = await import("../../services/cancellation.service.js");
     const result = await adminResolveCancellationRequest(
       req.params.id as string,
       approve,

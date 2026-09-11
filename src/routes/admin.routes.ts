@@ -12,6 +12,8 @@ import {
   listServices,
   listPendingServices,
   reviewService,
+  listCategories,
+  updateCategory,
   listCategorySuggestions,
   resolveCategorySuggestion,
   listReports,
@@ -79,6 +81,8 @@ router.get("/services/pending", listPendingServices);
 router.patch("/services/:id/review", reviewService);
 
 // Category Suggestions
+router.get("/categories", listCategories);
+router.patch("/categories/:id", updateCategory);
 router.get("/categories/suggestions", listCategorySuggestions);
 router.patch("/categories/suggestions/:id", resolveCategorySuggestion);
 

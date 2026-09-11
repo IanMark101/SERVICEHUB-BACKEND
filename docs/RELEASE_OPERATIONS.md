@@ -123,4 +123,4 @@ Single-process in-memory rate limiting and Socket.io delivery are acceptable onl
 - A preferred onsite-cash schedule is proposal text, not a collision-safe reservation.
 - Socket notifications are best-effort; durable notification records are authoritative.
 - Cross-instance realtime delivery, shared throttling, disaster-restore timing, independent penetration testing, and browser performance budgets remain unproven until their dedicated deployment tests are run.
-- The populated development database currently has five unrecorded migrations and real schema drift. Do not run a deployment migration until the owner explicitly approves the inspected normalization and a backup exists.
+- The populated Neon development database was backed up and brought current through all 21 migrations on September 11, 2026; Prisma reported zero drift afterward. Continue to require a fresh verified backup before every future migration.

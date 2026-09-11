@@ -14,7 +14,7 @@ export const DirectBookingSchema = z.object({
 export const InitiatePaymentSchema = z.object({
   serviceId: Cuid,
   offerId: Cuid.optional(),
-  paymentMethodType: z.enum(["gcash", "paymaya", "card"]).default("gcash"),
+  paymentMethodType: z.literal("gcash").default("gcash"),
 }).strict();
 
 export const ConfirmOnlineBookingSchema = z.object({
@@ -97,6 +97,14 @@ export const CategorySuggestionSchema = z.object({
   name: Text(80).min(3),
   description: Text(500).min(10),
 }).strict();
+
+export const AdminCategoryUpdateSchema = z.object({
+  name: Text(80).min(3).optional(),
+  isActive: z.boolean().optional(),
+  reason: Text(500).min(3),
+}).strict().refine((value) => value.name !== undefined || value.isActive !== undefined, {
+  message: "A category name or status change is required",
+});
 
 export const MessageSchema = z.object({
   content: Text(2_000).optional(),

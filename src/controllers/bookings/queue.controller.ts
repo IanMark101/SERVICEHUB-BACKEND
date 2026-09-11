@@ -49,7 +49,7 @@ export async function cancelQueue(req: Request, res: Response, next: NextFunctio
       error.status = 404;
       throw error;
     }
-    const { requestCancellation } = await import("../../services/cancellation.service");
+    const { requestCancellation } = await import("../../services/cancellation.service.js");
     const result = await requestCancellation(queueEntry.bookingId, user.id, reason);
     res.json({ success: true, data: result });
   } catch (err) {

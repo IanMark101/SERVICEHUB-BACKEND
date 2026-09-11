@@ -11,6 +11,7 @@ import { getUserPublicProfile } from "../services/auth/profile.service";
 import { getUserTrustHistoryHandler } from "../controllers/auth.controller";
 import { submitOffer } from "../services/offers.service";
 import { createDirectRequest } from "../services/bookings/direct-bookings.service";
+import { updateManagedCategory } from "../services/admin-moderation.service";
 
 test("listing concurrency, material edits, custom pricing and trust retries", async (t) => {
   const suffix = randomUUID();
@@ -31,6 +32,7 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     await prisma.booking.deleteMany({ where: { OR: [{ providerId: provider.id }, { seekerId: provider.id }] } });
     await prisma.serviceRequest.deleteMany({ where: { seekerId: seeker.id } });
     await prisma.notification.deleteMany({ where: { OR: [{ userId: { in: [provider.id, admin.id] } }, { body: { contains: suffix } }] } });
+    await prisma.adminAuditLog.deleteMany({ where: { actorId: admin.id } });
     await prisma.service.deleteMany({ where: { providerId: provider.id } });
     await prisma.user.delete({ where: { id: provider.id } });
     await prisma.user.delete({ where: { id: seeker.id } });
@@ -38,6 +40,12 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     await prisma.category.delete({ where: { id: category.id } });
     await prisma.$disconnect();
   });
+  const renamedCategory = await updateManagedCategory(category.id, admin.id, {
+    name: `Marketplace Test ${suffix}`,
+    reason: "Verify auditable category management",
+  });
+  assert.equal(renamedCategory.name, `Marketplace Test ${suffix}`);
+  assert.equal(await prisma.adminAuditLog.count({ where: { actorId: admin.id, action: "CATEGORY_UPDATED" } }), 1);
   const input = (title: string) => CreateServiceSchema.parse({ categoryId: category.id, title,
     description: "A sufficiently detailed test description for a provider listing.", price: 500,
     estimatedDurationMins: 30, queueLimit: 3, paymentMethods: { cash: true } });
@@ -47,6 +55,10 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
   assert.ok(first?.status === "fulfilled");
   const listing = first.value;
   await prisma.service.update({ where: { id: listing.id }, data: { status: "ACTIVE", isAvailable: true } });
+  await assert.rejects(
+    updateManagedCategory(category.id, admin.id, { isActive: false, reason: "Attempt unsafe category retirement" }),
+    /cannot be deactivated/,
+  );
   assert.equal((await toggleServiceAvailability(listing.id, provider.id)).status, 'INACTIVE');
   assert.equal((await toggleServiceAvailability(listing.id, provider.id)).status, 'ACTIVE');
   const edited = await updateService(listing.id, provider.id, { description: "This changed description must be moderated before it becomes public." });
@@ -57,9 +69,9 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
   const custom = await updateService(listing.id, provider.id, { priceType: "CUSTOM" });
   assert.equal(custom.price, null);
   await assert.rejects(updateService(listing.id, provider.id, { priceType: "FIXED" }));
-  assert.equal(UpdateServiceSchema.safeParse({ paymentMethods: { cash: false, gcash: false, maya: false, card: false } }).success, false);
-  assert.equal(CreateServiceSchema.safeParse({ ...input(`Maya listing ${suffix}`), paymentMethods: { maya: true } }).success, true);
-  assert.equal(CreateServiceSchema.safeParse({ ...input(`Card listing ${suffix}`), paymentMethods: { card: true } }).success, false);
+  assert.equal(UpdateServiceSchema.safeParse({ paymentMethods: { cash: false, gcash: false } }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...input(`Unsupported payment listing ${suffix}`), paymentMethods: { maya: true } }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...input(`Unsupported card listing ${suffix}`), paymentMethods: { card: true } }).success, false);
   await deleteService(listing.id, provider.id);
   const reused = await createService(provider.id, input(listing.title.toUpperCase()));
   assert.notEqual(reused.id, listing.id);

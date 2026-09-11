@@ -4,3 +4,6 @@ node_modules
 .env
 
 /src/generated/prisma
+
+# Local pre-migration database backups may contain private user data.
+/.database-backups/

@@ -2,7 +2,7 @@
  * PayMongo Service — Test Mode Integration
  * 
  * During capstone development, PayMongo test mode is used exclusively.
- * No real money moves. Test cards/GCash numbers are provided by PayMongo docs.
+ * No real money moves. GCash uses PayMongo Test Mode only.
  * 
  * PayMongo charges immediately. PAID_HELD is only ServiceHub's internal
  * fulfillment state and is not represented to users as regulated escrow.
@@ -68,7 +68,7 @@ export async function createPaymentIntent(params: {
   description: string;
   statementDescriptor?: string;
   metadata?: Record<string, string>;
-  paymentMethod: "gcash" | "paymaya" | "card";
+  paymentMethod: "gcash";
   idempotencyKey: string;
 }): Promise<{ id: string; clientKey: string; status: string }> {
   const body = await paymongoFetch("/payment_intents", {
@@ -165,7 +165,7 @@ export async function createRefund(params: {
 // ── Create Payment Method ──────────────────────────────────────────────────────
 
 export async function createPaymentMethod(type: string): Promise<string> {
-  if (!['gcash', 'paymaya', 'card'].includes(type)) {
+  if (type !== 'gcash') {
     const err = new Error('Unsupported payment method') as any;
     err.status = 400;
     throw err;

@@ -78,6 +78,8 @@ const protectedRoutes: ProtectedRoute[] = [
   ['GET', '/api/admin/verifications/verification-id/proofs/proof-id/access'],
   ['PATCH', '/api/admin/verifications/verification-id'],
   ['PATCH', '/api/admin/services/service-id/review'],
+  ['GET', '/api/admin/categories'],
+  ['PATCH', '/api/admin/categories/category-id'],
   ['PATCH', '/api/admin/categories/suggestions/suggestion-id'],
   ['GET', '/api/admin/reports/report-id/evidence/access'],
   ['PATCH', '/api/admin/reports/report-id/resolve'],

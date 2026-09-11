@@ -26,11 +26,9 @@ const price = z.number()
 
 const paymentMethods = z.object({
   gcash: z.boolean().default(false),
-  maya: z.boolean().default(false),
-  card: z.literal(false).default(false),
   cash: z.boolean().default(false),
-}).refine(
-  (methods) => methods.gcash || methods.maya || methods.card || methods.cash,
+}).strict().refine(
+  (methods) => methods.gcash || methods.cash,
   "At least one payment method must be selected",
 );
 

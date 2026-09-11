@@ -2,9 +2,9 @@ import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { prisma } from "../../lib/prisma";
 import { listAdminServices, listPendingServices as adminListPendingServices } from "../../services/services.service";
-import { reviewServiceListing, resolveCategory } from "../../services/admin-moderation.service";
+import { listManagedCategories, reviewServiceListing, resolveCategory, updateManagedCategory } from "../../services/admin-moderation.service";
 import { safeEmit } from "../../lib/socket";
-import { BooleanDecisionSchema } from "../../schema/marketplace.schema";
+import { AdminCategoryUpdateSchema, BooleanDecisionSchema } from "../../schema/marketplace.schema";
 
 export async function listPendingServices(req: Request, res: Response, next: NextFunction) {
   try {
@@ -135,6 +135,31 @@ export async function resolveCategorySuggestion(req: Request, res: Response, nex
       adminNotes,
     );
     res.json({ success: true, data: suggestion });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listCategories(req: Request, res: Response, next: NextFunction) {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+    const result = await listManagedCategories(page, limit);
+    res.json({ success: true, data: result.items, pagination: result.pagination });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateCategory(req: Request, res: Response, next: NextFunction) {
+  try {
+    const input = AdminCategoryUpdateSchema.parse(req.body);
+    const result = await updateManagedCategory(
+      req.params.id as string,
+      (req as AuthenticatedRequest).user.id,
+      input,
+    );
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }

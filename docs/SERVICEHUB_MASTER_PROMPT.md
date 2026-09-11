@@ -1,7 +1,7 @@
 # SERVICEHUB MASTER PROMPT
 
-**Specification version:** 2.4
-**Effective date:** September 9, 2026
+**Specification version:** 2.5
+**Effective date:** September 10, 2026
 **Status:** Authoritative capstone specification
 
 This is the single source of truth for **ServiceHub Cordova** — a hyperlocal two-sided service marketplace and queue-management system for Cordova, Cebu, Philippines. Read this document before changing application behavior.
@@ -21,7 +21,9 @@ This is the single source of truth for **ServiceHub Cordova** — a hyperlocal t
 ## PART 1 — SYSTEM IDENTITY
 
 - **Name:** ServiceHub Cordova (use this exact name in user-facing UI and current documentation; historical/internal package names may remain until a safe maintenance migration)
-- **Geographic scope:** Cordova, Cebu, Philippines, only
+- **Implemented geographic scope:** Cordova, Cebu, Philippines, only. All capstone requirements, residency decisions, marketplace discovery, moderation, demonstrations, and acceptance tests MUST use this scope.
+- **Expansion boundary:** ServiceHub Cordova is a Cordova-focused pilot deployment of a hyperlocal marketplace. Multi-area or multi-city operation is a future enhancement, not an implemented capability and not a capstone acceptance criterion. Current documentation and UI MUST NOT imply that users can transact outside Cordova.
+- **Future service-area direction:** A future approved expansion MAY introduce configurable service areas and area-scoped discovery/moderation. It would require an explicit schema migration, authorization and residency-policy review, data migration, UI changes, and regression tests. Do not simulate scalability by hardcoding additional cities, relabeling the current free-text location field as a service-area model, or claiming multi-area support before those changes exist.
 - **Core purpose:** A community-based marketplace where people can browse local services and verified Cordova residents can transact, with fair queue management, a simulated online-payment hold in PayMongo Test Mode, and visible trust scoring.
 - **One-sentence description:** ServiceHub Cordova lets verified residents offer and request services, coordinate online-paid one-time work through listing-specific First-Come-First-Served queues, arrange onsite-cash work directly, and build trust through verification, completed work, and reviews.
 - **Account roles:** `USER` and `ADMIN`. A normal `USER` can switch between the Seeker and Provider workspaces; these are operating modes, not separate database roles or accounts. `ADMIN` is elevated and cannot switch into marketplace workspaces while acting as admin.
@@ -246,7 +248,7 @@ Supported capstone methods are:
 
 | Payment type | PayMongo? | FCFS Queue? | Settlement behavior |
 |---|---:|---:|---|
-| GCash / Maya / Card (online, Test Mode) | Yes | Yes | `PAID_HELD` after verified success, then `RELEASED`, `FROZEN_HELD`, or `REFUNDED` |
+| GCash (online, Test Mode) | Yes | Yes | `PAID_HELD` after verified success, then `RELEASED`, `FROZEN_HELD`, or `REFUNDED` |
 | Onsite Cash | No | Never | `UNPAID` until seeker confirms completion, then `CASH_CONFIRMED`; no platform wallet credit |
 
 The FCFS queue is reserved for successfully paid online bookings. Cash never enters Queue. Every Booking is one independent engagement, while its Service listing remains reusable.
@@ -269,7 +271,7 @@ The FCFS queue is reserved for successfully paid online bookings. Cash never ent
 7. Work MUST NOT start automatically after payment. `started` remains false until the provider clicks Start Job.
 8. If payment fails or is abandoned, no Booking or Queue row is created. The durable PaymentAttempt records the failure without exposing sensitive provider data.
 9. Capacity is checked before payment and rechecked under the service lock during success handling. If a captured payment cannot safely become a booking, persist it as `REFUND_REQUIRED` and start an idempotent refund/reconciliation path; never lose the payment or silently exceed the configured capacity.
-10. A provider's profile phone number is contact information, not a PayMongo payout destination. Tier 0 creates an internal provider earning after completion and does not transfer money to a personal GCash number, Maya number, bank account, or wallet.
+10. A provider's profile phone number is contact information, not a PayMongo payout destination. Tier 0 creates an internal provider earning after completion and does not transfer money to a personal GCash number, bank account, or wallet.
 
 ### Cash invariants
 
@@ -547,7 +549,7 @@ Apply this check to: direct bookings (Flow A), sending an offer (Flow B, provide
 ## PART 17 — SERVICE LISTINGS (PROVIDER SIDE) — CREATION, VALIDATION, MODERATION
 
 ### Fields
-Category (admin-approved list only), title, description, price, price type, estimated duration per service, max online queue capacity (1–10), and accepted methods (GCash, Maya, Card, Onsite Cash — at least one required). Only display methods actually enabled and configured in the environment.
+Category (admin-approved list only), title, description, price, price type, estimated duration per service, max online queue capacity (1–10), and accepted methods (GCash and On-site Cash — at least one required). GCash is the only online Test Mode method; the UI and API must reject unsupported payment methods.
 
 ### Reusable one-time booking model (Version 2.3)
 
@@ -924,6 +926,7 @@ Any known Tier 0 failure must be fixed before visual polish or bonus AI work.
 - Provider-wide scheduling forecasts beyond the required one-ongoing-job safety guard
 - Automatic recurring contracts or calendar synchronization
 - Automated two-account collusion detection
+- Configurable service areas, multi-city marketplace discovery, area-scoped moderation, regional administrators, and geospatial proximity search. Cordova remains the only implemented and tested service area until a separately authorized expansion project supplies the required model, policy, migration, UI, and test changes.
 
 ### Defense release gate
 
@@ -975,12 +978,12 @@ These are cross-cutting requirements, not optional features:
 ## INSTRUCTIONS FOR THE AI READING THIS DOCUMENT
 
 1. Read this entire document fully before writing or modifying any code.
-2. Treat specification version 2.4 as authoritative. Older comments or documents lose when they conflict with its state tables and invariants.
+2. Treat specification version 2.5 as authoritative. Older comments or documents lose when they conflict with its state tables and invariants.
 3. If the current codebase violates a rule above, report the affected flow and migration/test impact. When the user's request authorizes implementation, fix it without weakening another invariant. Schema/state-machine changes require migrations and regression tests; never silently reinterpret persisted states.
 4. If a request from the user conflicts with this document, point out the conflict. If the user confirms the new decision, update this document in the same change so it remains the source of truth.
 5. For new behavior, separate lifecycle stages, enforce authorization and invariants server-side, make external-event handling idempotent, and prefer the smallest approach that satisfies Tier 0.
 6. Do not claim “production ready” solely because builds pass. Use Part 27's defense release gate and report any unverified item honestly.
-7. Version 2.4 defines target product behavior; it does not prove the current code already implements every amendment. Audit the affected schema, authorization, lifecycle, and tests before claiming alignment, and preserve the implemented DirectRequest flow unless a separately authorized migration replaces it safely.
+7. Version 2.5 defines target product behavior; it does not prove the current code already implements every amendment. Audit the affected schema, authorization, lifecycle, and tests before claiming alignment, and preserve the implemented DirectRequest flow unless a separately authorized migration replaces it safely.
 
 ### Version 2.0 foundation decisions
 
@@ -1030,3 +1033,9 @@ These are cross-cutting requirements, not optional features:
 - Added a persistent, skippable first-time orientation for normal users, with a Help Center path for reopening it later.
 - Kept onboarding informational rather than turning it into a new authorization gate or a duplicate Help Center.
 - Required Community Hub to distinguish undated platform guides from dated database events and to show genuinely recent approved categories and public service listings.
+
+### Version 2.5 geographic scope boundary
+
+- Confirmed Cordova, Cebu as the only implemented, tested, and defense-critical service area.
+- Defined ServiceHub Cordova as a hyperlocal pilot without claiming that multi-area operation already exists.
+- Classified configurable service areas, multi-city discovery, area-scoped moderation, regional administration, and geospatial search as future enhancements requiring a separately authorized implementation and validation effort.

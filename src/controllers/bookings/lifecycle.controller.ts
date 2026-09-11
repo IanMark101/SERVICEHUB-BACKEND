@@ -29,7 +29,7 @@ export async function startJob(req: Request, res: Response, next: NextFunction) 
     const user = (req as AuthenticatedRequest).user;
     const { id } = req.params;
 
-    const { providerStartJob } = await import("../../services/bookings.service");
+    const { providerStartJob } = await import("../../services/bookings.service.js");
     const result = await providerStartJob(id as string, user.id);
 
     res.json({
@@ -58,7 +58,7 @@ export async function providerRemoveFromQueue(req: Request, res: Response, next:
       throw error;
     }
 
-    const { requestCancellation } = await import("../../services/cancellation.service");
+    const { requestCancellation } = await import("../../services/cancellation.service.js");
     const result = await requestCancellation(queueEntry.bookingId, user.id, reason);
 
     res.json({
@@ -78,7 +78,7 @@ export async function disputeJob(req: Request, res: Response, next: NextFunction
     const { id } = req.params;
     const { reason, description, evidenceUrl } = DisputeSchema.parse(req.body);
 
-    const { disputeJobService } = await import("../../services/bookings.service");
+    const { disputeJobService } = await import("../../services/bookings.service.js");
     const report = await disputeJobService(id as string, user.id, reason, description, evidenceUrl);
 
     res.json({
@@ -97,7 +97,7 @@ export async function confirmCompletion(req: Request, res: Response, next: NextF
     const user = (req as AuthenticatedRequest).user;
     const { id } = req.params;
 
-    const { confirmCompletionService } = await import("../../services/bookings.service");
+    const { confirmCompletionService } = await import("../../services/bookings.service.js");
     const result = await confirmCompletionService(id as string, user.id);
 
     res.json({

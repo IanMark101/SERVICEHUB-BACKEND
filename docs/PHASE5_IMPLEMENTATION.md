@@ -41,12 +41,11 @@ implementation does not claim a distributed work queue.
 
 ## Payment controls
 
-GCash, Maya and on-site cash use explicit accepted-method flags. Missing flags
-do not infer support from price. Card is disabled in listing controls and
-rejected before payment initiation because the current integration does not
-implement card-detail collection or a hosted card checkout. Returned Maya
-bookings remain Maya throughout frontend mapping and activity/transaction
-displays. External Test Mode verification remains Phase 6.
+GCash and on-site cash use explicit accepted-method flags. Missing flags do
+not infer support from price. The listing and payment contracts reject every
+unsupported method. Returned GCash bookings remain GCash throughout frontend
+mapping and activity/transaction displays. External Test Mode verification
+remains Phase 6.
 
 ## Defense data
 

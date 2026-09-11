@@ -66,7 +66,7 @@ export async function respondDirectRequest(req: Request, res: Response, next: Ne
     const { id } = req.params;
     const { accept } = DirectResponseSchema.parse(req.body);
 
-    const { respondToDirectBookingService } = await import("../../services/bookings.service");
+    const { respondToDirectBookingService } = await import("../../services/bookings.service.js");
     const result = await respondToDirectBookingService(id as string, user.id, accept);
 
     res.json({
@@ -85,7 +85,7 @@ export async function bookDirectFromOffer(req: Request, res: Response, next: Nex
     const user = (req as AuthenticatedRequest).user;
     const { offerId } = DirectOfferSchema.parse(req.body);
 
-    const { createDirectFromOfferService } = await import("../../services/bookings.service");
+    const { createDirectFromOfferService } = await import("../../services/bookings.service.js");
     const booking = await createDirectFromOfferService(offerId, user.id);
 
     res.status(201).json({

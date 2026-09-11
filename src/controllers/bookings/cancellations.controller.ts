@@ -29,7 +29,7 @@ export async function cancelBookingHandler(req: Request, res: Response, next: Ne
     const user = (req as AuthenticatedRequest).user;
     const id = req.params.id as string;
     const { reason } = CancellationRequestSchema.parse(req.body || {});
-    const { requestCancellation } = await import("../../services/cancellation.service");
+    const { requestCancellation } = await import("../../services/cancellation.service.js");
     const result = await requestCancellation(id, user.id, reason);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -42,7 +42,7 @@ export async function respondCancellationRequestHandler(req: Request, res: Respo
     const user = (req as AuthenticatedRequest).user;
     const id = req.params.id as string;
     const { approve, responderNote, providerNote } = CancellationResponseSchema.parse(req.body);
-    const { respondToCancellationRequest } = await import("../../services/cancellation.service");
+    const { respondToCancellationRequest } = await import("../../services/cancellation.service.js");
     const result = await respondToCancellationRequest(id, user.id, approve, responderNote || providerNote);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -54,7 +54,7 @@ export async function escalateCancellationRequestHandler(req: Request, res: Resp
   try {
     const user = (req as AuthenticatedRequest).user;
     const id = req.params.id as string;
-    const { escalateCancellationRequest } = await import("../../services/cancellation.service");
+    const { escalateCancellationRequest } = await import("../../services/cancellation.service.js");
     const result = await escalateCancellationRequest(id, user.id);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -66,7 +66,7 @@ export async function adminResolveCancellationRequestHandler(req: Request, res: 
   try {
     const id = req.params.id as string;
     const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
-    const { adminResolveCancellationRequest } = await import("../../services/cancellation.service");
+    const { adminResolveCancellationRequest } = await import("../../services/cancellation.service.js");
     const result = await adminResolveCancellationRequest(id, approve, adminNote, (req as AuthenticatedRequest).user.id);
     res.json({ success: true, data: result });
   } catch (err) {

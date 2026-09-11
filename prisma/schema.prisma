@@ -397,7 +397,7 @@ model Service {
   serviceType           ServiceType   @default(ONE_TIME)
   estimatedDurationMins Int
   queueLimit            Int           @default(3)
-  // payment_methods stored as JSON: { gcash: bool, maya: bool, card: bool, cash: bool }
+  // payment_methods stored as JSON: { gcash: bool, cash: bool }
   paymentMethods        Json
   status                ServiceStatus @default(PENDING_REVIEW)
   isAvailable           Boolean       @default(false)
@@ -555,7 +555,7 @@ model Booking {
 
   originType          BookingOriginType?
   paymentAttemptId    String?            @unique
-  paymentMethod       String // "GCash" | "Maya" | "On-site Cash"
+  paymentMethod       String // "GCash" | "On-site Cash"
   agreedAmount        Decimal?           @db.Decimal(10, 2) // immutable price snapshot at booking/payment time
   paymentStatus       PaymentStatus      @default(PAID_HELD)
   status              BookingStatus      @default(WAITING)

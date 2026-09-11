@@ -19,6 +19,8 @@ export {
   listServices,
   listPendingServices,
   reviewService,
+  listCategories,
+  updateCategory,
   listCategorySuggestions,
   resolveCategorySuggestion
 } from "./admin/marketplace-moderation.controller";

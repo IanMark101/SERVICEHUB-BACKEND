@@ -129,7 +129,7 @@ export async function hideBooking(req: Request, res: Response, next: NextFunctio
   try {
     const user = (req as AuthenticatedRequest).user;
     const { id } = req.params;
-    const { hideBookingService } = await import("../../services/bookings.service");
+    const { hideBookingService } = await import("../../services/bookings.service.js");
     const result = await hideBookingService(id as string, user.id);
     res.json({ success: true, message: "Booking removed from your view.", data: result });
   } catch (err) {

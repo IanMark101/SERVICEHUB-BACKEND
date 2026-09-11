@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { NextFunction, Request, Response } from "express";
 import { requireAdmin, requireEmailVerified, requireVerification } from "../middlewares/auth.middleware";
 import {
+  AdminCategoryUpdateSchema,
   BooleanDecisionSchema,
   ReportResolutionSchema,
   SuspendUserSchema,
@@ -16,6 +17,13 @@ test("moderation rejection requires a clear reason", () => {
   assert.equal(BooleanDecisionSchema.safeParse({ approve: false, adminNotes: "no" }).success, false);
   assert.equal(BooleanDecisionSchema.safeParse({ approve: false, adminNotes: "Address is outside Cordova." }).success, true);
   assert.equal(BooleanDecisionSchema.safeParse({ approve: true }).success, true);
+});
+
+test("category management requires an explicit change and audit reason", () => {
+  assert.equal(AdminCategoryUpdateSchema.safeParse({ name: "Plumbing", reason: "Correct marketplace label" }).success, true);
+  assert.equal(AdminCategoryUpdateSchema.safeParse({ isActive: false, reason: "Retire unused category" }).success, true);
+  assert.equal(AdminCategoryUpdateSchema.safeParse({ name: "Plumbing" }).success, false);
+  assert.equal(AdminCategoryUpdateSchema.safeParse({ reason: "No actual change" }).success, false);
 });
 
 test("report resolution always records an administrator rationale", () => {

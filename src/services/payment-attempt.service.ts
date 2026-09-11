@@ -12,7 +12,7 @@ import {
 import { recalculateQueueInTransaction } from "./queue.service";
 
 const ATTEMPT_TTL_MS = 15 * 60 * 1000;
-type OnlineMethod = "gcash" | "paymaya" | "card";
+type OnlineMethod = "gcash";
 
 function httpError(message: string, status: number, code?: string) {
   const error = new Error(message) as Error & { status?: number; code?: string };
@@ -22,7 +22,7 @@ function httpError(message: string, status: number, code?: string) {
 }
 
 function displayMethod(method: string) {
-  return ({ gcash: "GCash", paymaya: "Maya", card: "Card" } as Record<string, string>)[method] || method;
+  return method === "gcash" ? "GCash" : method;
 }
 
 async function releaseOfferHold(offerId: string | null, tx: Prisma.TransactionClient) {
@@ -45,9 +45,6 @@ export async function initiateOnlinePayment(params: {
   offerId?: string;
   paymentMethod: OnlineMethod;
 }) {
-  if (params.paymentMethod === "card") {
-    throw httpError("Card checkout is not available yet. Choose an accepted e-wallet or on-site cash.", 409, "CARD_CHECKOUT_UNAVAILABLE");
-  }
   if (!env.PAYMONGO_PUBLIC_KEY || !env.PAYMONGO_SECRET_KEY || !env.PAYMONGO_WEBHOOK_SECRET) {
     throw httpError("Online payment is unavailable until PayMongo Test Mode and its webhook are fully configured", 503, "PAYMENT_NOT_CONFIGURED");
   }
@@ -121,8 +118,8 @@ export async function initiateOnlinePayment(params: {
     });
     if (existingBooking) throw httpError("You already have an active booking for this service", 409, "ACTIVE_BOOKING_EXISTS");
 
-    const methods = service.paymentMethods as { gcash?: boolean; maya?: boolean; card?: boolean };
-    const accepted = params.paymentMethod === "gcash" ? methods?.gcash : params.paymentMethod === "paymaya" ? methods?.maya : methods?.card;
+    const methods = service.paymentMethods as { gcash?: boolean };
+    const accepted = methods?.gcash;
     if (!accepted) throw httpError("This payment method is not accepted for the service", 400);
 
     // Prisma's PostgreSQL adapter uses one connection for this transaction;
@@ -409,12 +406,14 @@ export async function finalizeSuccessfulPayment(params: {
     await prisma.notification.create({
       data: {
         userId: result.booking.providerId,
-        title: "New paid booking",
-        body: `Payment was confirmed for "${result.service.title}". The booking is ready in your queue.`,
+        title: "Paid booking ready to start",
+        body: result.queue.position === 1
+          ? `Payment was confirmed for "${result.service.title}". This customer is first in queue and ready for you to start.`
+          : `Payment was confirmed for "${result.service.title}". This customer is now in queue position ${result.queue.position}.`,
         link: `/provider/provider-activity?tab=waiting&booking=${result.booking.id}`,
       },
     });
-    safeEmit(`user:${result.booking.providerId}`, "notification", { title: "New paid booking" });
+    safeEmit(`user:${result.booking.providerId}`, "notification", { title: "Paid booking ready to start" });
     safeEmit(`service:${result.booking.serviceId}`, "queue_update", { serviceId: result.booking.serviceId });
     safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });
     safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });
