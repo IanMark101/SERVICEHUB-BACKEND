@@ -117,7 +117,14 @@ export async function getConversations(userId: string, page = 1, limit = 20) {
 
 export async function getMessages(bookingId: string, userId: string, userRole?: string) {
   // Validate basic access (seeker or provider check, admin bypass)
-  await checkMessagingAccess(bookingId, userId, userRole);
+  const booking = await checkMessagingAccess(bookingId, userId, userRole);
+
+  if (userRole !== "admin" && ["PENDING_APPROVAL", "DECLINED"].includes(booking.status)) {
+    const err = new Error("Messaging becomes available after both parties enter an agreement.") as any;
+    err.status = 403;
+    err.code = "MESSAGES_LOCKED";
+    throw err;
+  }
 
   // Only mark messages as read if the user is a participant (not admin viewing)
   if (userRole !== 'admin') {

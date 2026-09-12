@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireMarketplaceUser } from "../middlewares/auth.middleware";
+import { requireAuth, requireMarketplaceUser, requireVerification } from "../middlewares/auth.middleware";
 import {
   getCategories,
   suggestCategory,
@@ -11,8 +11,8 @@ const router = Router();
 // GET /categories — public list of all active categories
 router.get("/", getCategories);
 
-// POST /categories/suggest — suggest category (requires auth)
-router.post("/suggest", requireAuth, requireMarketplaceUser, suggestCategory);
+// POST /categories/suggest — suggesting marketplace scope is a verified-user action
+router.post("/suggest", requireAuth, requireMarketplaceUser, requireVerification, suggestCategory);
 
 // GET /categories/suggestions/mine — user's suggestions list (requires auth)
 router.get("/suggestions/mine", requireAuth, requireMarketplaceUser, getMySuggestions);

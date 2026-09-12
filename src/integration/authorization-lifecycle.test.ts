@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
 import { VERIFICATION_PRIVACY_NOTICE_VERSION } from "../config/privacy";
 import { requireVerification } from "../middlewares/auth.middleware";
+import { getMessages } from "../services/messages.service";
 import { submitVerification } from "../services/verification.service";
 import { createDirectRequest, respondToDirectBookingService } from "../services/bookings/direct-bookings.service";
 import { providerStartJob } from "../services/bookings/provider-operations.service";
@@ -113,6 +114,11 @@ test("email, moderation, existing-resolution, cancellation, and duplicate-disput
   assert.equal(suspendedGate.nextCalled, false);
 
   const pending = await createDirectRequest({ seekerId: seeker.id, providerId: provider.id, serviceId: service.id });
+  const pendingBooking = await prisma.booking.findUniqueOrThrow({ where: { directRequestId: pending.id } });
+  await assert.rejects(
+    getMessages(pendingBooking.id, seeker.id),
+    (error: any) => error?.status === 403 && error?.code === "MESSAGES_LOCKED",
+  );
   await prisma.user.update({ where: { id: provider.id }, data: { moderationStatus: "SUSPENDED", suspendedUntil: new Date(Date.now() + 86_400_000) } });
   await assert.rejects(
     respondToDirectBookingService(pending.id, provider.id, true),

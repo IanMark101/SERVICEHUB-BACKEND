@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
+import { requireAuth } from "../middlewares/auth.middleware";
 import { createSafetyReport, accessSafetyReportEvidence } from "../services/safety-report.service";
 import { requestAccountDeletion } from "../services/account-deletion.service";
 import { promoteUserToAdmin } from "../controllers/admin/users.controller";
@@ -94,9 +97,19 @@ test("participant safety, review moderation, promotion guards, and final deactiv
 
   const deletionRequest = await requestAccountDeletion(deletionTarget.id);
   assert.equal(deletionRequest.status, "PENDING");
+  const accessToken = jwt.sign(
+    { sub: deletionTarget.id, role: deletionTarget.role },
+    env.JWT_ACCESS_SECRET,
+    { expiresIn: "15m" },
+  );
   const finalized = await invoke(finalizeAccountDeletion, { params: { userId: deletionTarget.id }, body: { reason: "User-requested deletion after all obligations cleared." }, user: admin });
   assert.equal(finalized.error, undefined);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: deletionTarget.id } })).isActive, false);
   assert.equal((await prisma.accountDeletionRequest.findUniqueOrThrow({ where: { userId: deletionTarget.id } })).status, "COMPLETED");
   assert.equal(await prisma.adminAuditLog.count({ where: { targetUserId: deletionTarget.id, action: "ACCOUNT_DEACTIVATED" } }), 1);
+
+  const deactivatedAccess = await invoke(requireAuth, { headers: { authorization: `Bearer ${accessToken}` } });
+  assert.equal(deactivatedAccess.status, 403);
+  assert.equal(deactivatedAccess.body.error, "Account inactive");
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: deletionTarget.id } })).isActive, false);
 });

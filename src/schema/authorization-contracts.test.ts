@@ -43,6 +43,7 @@ test('new marketplace relationship routes retain authentication and verification
   const requests = source('../routes/requests.routes.ts');
   const offers = source('../routes/offers.routes.ts');
   const bookings = source('../routes/bookings.routes.ts');
+  const categories = source('../routes/categories.routes.ts');
 
   assert.match(services, /router\.post\("\/", requireAuth, requireMarketplaceUser, requireVerification,/);
   assert.match(services, /router\.patch\("\/:id", requireAuth, requireMarketplaceUser, requireVerification,/);
@@ -53,6 +54,7 @@ test('new marketplace relationship routes retain authentication and verification
   assert.match(offers, /router\.use\(requireAuth, requireMarketplaceUser\)/);
   assert.match(offers, /router\.post\("\/", requireVerification,/);
   assert.match(offers, /router\.patch\("\/:id\/accept", requireVerification,/);
+  assert.match(categories, /router\.post\("\/suggest", requireAuth, requireMarketplaceUser, requireVerification,/);
   for (const route of [
     'router.post("/direct", requireVerification,',
     'router.post("/direct-from-offer", requireVerification,',

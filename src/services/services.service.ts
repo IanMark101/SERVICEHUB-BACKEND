@@ -19,14 +19,26 @@ function listingConflict(error: unknown): never {
 }
 
 // ── Shared Marketplace Visibility Definition (Canonical Source of Truth) ──────
+export const PUBLIC_PROVIDER_ACCOUNT_WHERE = {
+  verificationStatus: "APPROVED" as const,
+  isActive: true,
+  moderationStatus: "ACTIVE" as const,
+  emailVerified: true,
+};
+
 export const PUBLIC_SERVICE_WHERE = {
   status: "ACTIVE" as const,
   isAvailable: true,
-  provider: {
-    verificationStatus: "APPROVED" as const,
-    isActive: true,
-    moderationStatus: "ACTIVE" as const,
-    emailVerified: true,
+  provider: PUBLIC_PROVIDER_ACCOUNT_WHERE,
+};
+
+export const PUBLIC_PROVIDER_WHERE = {
+  ...PUBLIC_PROVIDER_ACCOUNT_WHERE,
+  services: {
+    some: {
+      status: PUBLIC_SERVICE_WHERE.status,
+      isAvailable: PUBLIC_SERVICE_WHERE.isAvailable,
+    },
   },
 };
 
@@ -62,18 +74,7 @@ export async function getPublicServiceCount() {
 
 export async function getActivePublicProviderCount() {
   return prisma.user.count({
-    where: {
-      verificationStatus: "APPROVED",
-      isActive: true,
-      moderationStatus: "ACTIVE",
-      emailVerified: true,
-      services: {
-        some: {
-          status: "ACTIVE",
-          isAvailable: true,
-        },
-      },
-    },
+    where: PUBLIC_PROVIDER_WHERE,
   });
 }
 

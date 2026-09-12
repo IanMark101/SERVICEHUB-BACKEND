@@ -1,31 +1,27 @@
 # ServiceHub Cordova Capstone Readiness Tracker
 
-Last audited: September 11, 2026
+Last audited: September 12, 2026
 
-Authoritative specification: `docs/SERVICEHUB_MASTER_PROMPT.md` Version 2.3
+Authoritative specification: `docs/SERVICEHUB_MASTER_PROMPT.md` Version 2.5
 
-Working branch: `fix/admin-security-hardening`
+Verified branches: backend `feature/onboarding-community-hub`; frontend `codex/landing-login-redesign`
 
-Current estimated capstone readiness: **96%**
+Current functional verdict: **READY FOR UI/UX POLISH WITH MINOR FUNCTIONAL/RELEASE-VALIDATION CONDITIONS**
 
 ## Readiness summary
 
 | Area | Readiness | Current assessment |
 | --- | ---: | --- |
-| Core marketplace flows | 89% | Listing concurrency, fixed direct booking, advanced-price exact offers, Flow B cash, and paid queue lifecycle tests pass; live external payment verification remains |
-| Authentication and session security | 91% | Strong sessions plus versioned verification consent, private proof access, retention rules, and deletion requests |
-| Payment and queue integrity | 92% | Database constraints, transactional locks, signed webhook replay, expiry rollback, capacity reconciliation, and Test Mode reversal tests pass |
-| Admin operations | 89% | Safety evidence, review moderation, promotion, deletion, and audit-log workflows are guarded and auditable; broader release testing remains |
-| Messaging, realtime, and notifications | 92% | Paginated database-backed resources, bounded concurrency coverage, durable records, and targeted socket refresh are implemented; multi-instance delivery remains deferred |
-| Reviews, trust, community, and AI | 85% | Provider/seeker review roles, aggregate eligibility, private trust history, transactional trust events, and versioned AI caching are verified |
-| UX and code quality | 94% | ESLint is clean, avoidable loose typing and React warnings are removed, pagination/fan-out/production logging are addressed, and feature boundaries are established; the deferred visual redesign may further split declarative leaf views |
-| Testing and deployment readiness | 96% | All 21 target migrations are current with zero schema drift; repository suites, builds, disposable migration parity, audits, and five Chromium lifecycle cases pass; final UI rehearsal and external checks remain |
+| Core marketplace flows | Ready for polish | Flow A cash, Flow B cash, reusable one-time bookings, signed online-payment finalization, queue lifecycle, completion, and review/trust integrations pass |
+| Authentication and session security | Ready after final fix | Final deactivation now remains enforced even when an old access token is presented; auth/role/verification contracts pass |
+| Payment and queue integrity | Ready with external validation condition | Database locks, constraints, signed webhook replay, rollback, capacity reconciliation, and Test Mode reversal tests pass; interactive PayMongo checkout is not re-run in this pass |
+| Admin operations | Ready for polish | Real database moderation, safety evidence, review visibility, promotion, account deletion, announcements, and audit-log workflows are guarded and tested |
+| Messaging, realtime, and notifications | Ready with deployment condition | Participant authorization, pre-acceptance message locking, pagination, durable notifications, and concurrency pass; multi-instance realtime delivery remains outside the capstone baseline |
+| Reviews, trust, community, and AI | Ready for polish | Role-correct review aggregates, private trust history, idempotent trust events, AI summary thresholds, and canonical Community/public-provider visibility are verified |
+| UX and code quality | Ready for dedicated polish | Functional labels and Help/landing lifecycle wording were corrected; broad visual work remains intentionally deferred |
+| Testing and deployment readiness | Ready with conditions | All 21 migrations are current; fresh-schema parity, both builds, 28 backend contracts, eight database suites, and 19 frontend tests pass; final manual/browser and external-provider evidence remain |
 
-Additional estimates:
-
-- Onsite-cash demonstration readiness: **96%**
-- Full capstone defense readiness: **96%**
-- Real production readiness: **72%**
+Scope note: this verdict covers the Cordova capstone baseline. It is not a claim of Live Mode payments, real provider payouts, multi-city support, multi-instance deployment readiness, or production certification.
 
 ## Completion order
 
@@ -168,7 +164,7 @@ must be revisited before the final defense rehearsal or any production-ready
 claim. They are deferred because the project-owned Google Cloud and PayMongo
 configuration consoles are not currently available—not because they passed.
 
-- [ ] Configure `PAYMONGO_WEBHOOK_SECRET` without committing it.
+- [x] Configure `PAYMONGO_WEBHOOK_SECRET` without committing it. **DONE LOCALLY - the September 12 environment check found a non-empty untracked value; PayMongo dashboard registration and external delivery still require manual verification.**
 - [ ] Configure a public HTTPS Test Mode webhook endpoint and required event subscriptions.
 - [x] Make missing production environment-variable errors identify the actual missing fields. **DONE - schema issues are attached to each missing PayMongo variable and covered by a contract test.**
 - [ ] Run a real Test Mode Flow A online checkout.
@@ -182,7 +178,7 @@ configuration consoles are not currently available—not because they passed.
 
 Phase 6 progress evidence (September 5, 2026):
 
-- PayMongo public and secret keys are configured with Test Mode prefixes; the webhook signing secret is still absent.
+- PayMongo public, secret, and webhook-signing values are present in the untracked local environment and the secret key has a Test Mode prefix. This does not prove that the current public webhook URL/event subscription is registered in the PayMongo dashboard.
 - Frontend and backend Google client IDs are configured and match; authorized-origin verification remains external.
 - `npm run test:phase6-integration`: 1/1 signed webhook replay passed and cleanup completed.
 - `npm run test:booking-integration`: 1/1 passed with failed/expired hold, capacity loss, idempotent Test Mode reversal, cancellation, queue, and completion assertions.
@@ -290,7 +286,7 @@ Phase 8 progress evidence (September 6, 2026):
 
 - [x] Reconcile `docs/SECURITY_REAUDIT.md` with executable evidence and remove overstated claims. **DONE - the September 7 re-audit separates verified controls, open release risks, unsupported features, and external gates.**
 - [x] Replace unsupported PASS labels in `docs/SOFTWARE_TEST_DOCUMENT.md` with Passed, Failed, Not Run, or Not Implemented. **DONE - current command evidence and an honest requirements/browser matrix replaced the stale blanket-PASSED document.**
-- [x] Remove claims that session booking is verified. **DONE - Version 2.3, the design/test/security documents, Help Center, marketplace, provider forms, and the replacement repeat-request test guide now describe reusable one-time bookings. Live payout, AI persistence, and other unexecuted-flow claims still require the final documentation pass.**
+- [x] Remove claims that session booking is verified. **DONE - the Master Prompt (then Version 2.3; now Version 2.5), design/test/security documents, Help Center, marketplace, provider forms, and repeat-request guidance describe reusable one-time bookings.**
 - [x] Document deployment, backup, restore, rollback, webhook recovery, and known limitations. **DONE - `docs/RELEASE_OPERATIONS.md` contains the release gate, backup/restore/rollback procedures, webhook recovery, monitoring, and limitations.**
 - [x] Run frontend and backend production builds. **DONE - both passed; the frontend generated 95 routes.**
 - [x] Run all retained backend, integration, and frontend tests. **DONE - 23 contracts, all eight database-backed commands, and 13 frontend tests passed. A temporary five-case Chromium acceptance harness also passed before being intentionally removed from the submission. External online checkout cases remain deferred below.**
@@ -300,7 +296,7 @@ Phase 8 progress evidence (September 6, 2026):
 - [x] Run tracked-secret and private-document scans. **DONE - no real tracked secret or private document reference was found; only explicit `.env.example` placeholders and isolated CI database credentials matched.**
 - [x] Confirm browser and server logs contain no unexplained 4xx/5xx loops, duplicate listeners, or unhandled rejections. **DONE - the temporary serial production-server Chromium run passed 5/5; UI login explicitly captured API error responses and found none. The harness was removed afterward. The known pg 8 adapter deprecation warning remains documented for the pg 9 upgrade.**
 - [ ] Perform the complete manual defense rehearsal using temporary accounts created through the application, capture evidence screenshots/logs, then remove those accounts.
-- [x] Recalculate the readiness score and issue the final release decision. **DONE - capstone readiness is 96%; release decision remains NOT PRODUCTION READY until the final browser rehearsal and external PayMongo/Google gates pass.**
+- [x] Recalculate the readiness assessment and issue the final decision. **DONE - the former September 11 percentage estimate is superseded by the evidence-based September 12 verdict below: ready for UI/UX polish with explicit manual/external release conditions, not production certified.**
 
 ## Features intentionally deferred or hidden
 
@@ -322,7 +318,7 @@ The supported product does not expose a session-based listing type. A listing is
 | --- | --- |
 | Frontend production build | Passed; 95 routes generated |
 | Backend production build | Passed |
-| Backend contract tests | 24/24 passed |
+| Backend contract tests | 28/28 passed September 12 |
 | Database-backed booking/payment/queue integration | 1/1 passed |
 | Phase 2 concurrency integration | 1/1 passed September 7 |
 | Phase 3 privacy/deletion integration | 1/1 passed September 7 |
@@ -337,11 +333,11 @@ The supported product does not expose a session-based listing type. A listing is
 | Compiled frontend startup and basic route responses | Passed |
 | Tracked-secret scan | No actual committed credentials detected |
 | Frontend lint | Passed: zero errors and zero warnings |
-| Frontend automated tests | Passed: 4 files, 13 tests |
+| Frontend automated tests | Passed September 12: 7 files, 19 tests |
 | Browser acceptance evidence | A temporary 5/5 run passed UI password login, Flow A/Flow B cash, cancellation, completion escalation, dispute, and Admin resolution/audit. The disposable harness was removed; final manual and external online cases remain Not Run. |
-| Fresh-database migration | Passed locally against a disposable remote schema: 19 migrations applied, 32 tables verified, exact Prisma schema parity confirmed, booking integration passed, and the fixture schema was removed |
-| PayMongo external Test Mode checkout/webhook/refund | Not run; webhook secret missing |
-| Fresh dependency audit | Passed locally (production and development trees): zero vulnerabilities in both repositories |
+| Fresh-database migration | Passed September 12 against a disposable remote schema: 21 migrations applied, 32 tables verified, exact Prisma schema parity confirmed, booking integration passed, and the fixture schema was removed |
+| PayMongo external Test Mode checkout/webhook/refund | Local Test Mode keys and a webhook-signing value are present; signed replay passes, but an interactive PayMongo checkout and dashboard-to-public-URL delivery were not run in this pass |
+| Fresh dependency audit | Production trees: zero vulnerabilities in both repositories. Full backend tree: zero. Full frontend tree: two moderate dev-only advisories in Vitest/@vitest-mocker; remediation requires a breaking test-runner upgrade |
 | Load, penetration, and multi-instance tests | Queue/payment and communication concurrency/load tests passed in CI; penetration and multi-instance deployment tests remain |
 
 ### September 11 follow-up: populated Neon migration
@@ -366,3 +362,135 @@ The supported product does not expose a session-based listing type. A listing is
 3. Do not replace a failed or unexecuted test with a written claim of compliance.
 4. Do not describe ServiceHub as production-ready until every Tier 0 release-gate item is complete.
 5. Recalculate readiness after each phase rather than changing the percentage based only on code volume.
+
+# Final Verification Pass — September 12, 2026
+
+This pass re-read Master Prompt Version 2.5, revalidated the previous tracker against the current frontend/backend and Prisma schema, traced the connected marketplace lifecycle, fixed the P0/P1 and lifecycle-relevant P2 findings below, and re-ran the retained automated evidence. It deliberately did not perform the planned broad visual redesign.
+
+## Previous Findings Revalidation
+
+| Finding | Previous status | Current status | Evidence |
+| --- | --- | --- | --- |
+| Target Neon database was behind the checked-in migration history | Resolved September 11 | **RESOLVED** | `prisma migrate status` reports all 21 migrations current; a new disposable schema applied all 21 migrations, produced 32 tables, and reported no schema difference. |
+| Queue insertion/start/completion could race or skip FCFS order | Resolved | **RESOLVED** | Phase 2 concurrency and booking integration pass; per-service advisory locks, positive/unique active positions, one SERVING row per service, and one provider-global ONGOING booking remain enforced. |
+| Cash bookings were incorrectly mixed with the online queue | Resolved | **RESOLVED** | Flow A/Flow B cash integration remains outside Queue and online transaction records; signed successful online payment creates the accepted Booking plus WAITING Queue row. |
+| Final account deactivation revoked sessions and prevented further access | Resolved | **REGRESSED, FIXED THIS PASS** | `requireAuth` contained a silent `isActive=true` repair for non-ACTIVE moderation states, allowing an old access token to reactivate a finalized account. The mutation was removed; Phase 4 now signs a token before finalization and proves the subsequent request returns 403 while the database remains inactive. |
+| New marketplace relationships require verified email and approved residency | Resolved | **PARTIALLY RESOLVED, FIXED THIS PASS** | Services, requests, offers, bookings, reviews, and uploads retained backend gates, but `POST /categories/suggest` lacked `requireVerification`. The route and authorization contract now enforce the same server-side Limited Mode rule. |
+| Messaging is participant-scoped and unlocks only after agreement | Resolved | **PARTIALLY RESOLVED, FIXED THIS PASS** | ID ownership checks and send-status gates remained. Direct message-history reads could still reach a PENDING_APPROVAL/DECLINED booking. `getMessages` now returns `MESSAGES_LOCKED`; Phase 7 proves the pending-booking denial. Admin investigation access remains explicit. |
+| Public listing/provider eligibility is shared across marketplace, Admin, Community, and profiles | Resolved | **RESOLVED, CONSOLIDATED THIS PASS** | `PUBLIC_PROVIDER_ACCOUNT_WHERE`, `PUBLIC_SERVICE_WHERE`, and `PUBLIC_PROVIDER_WHERE` now provide one eligibility definition for marketplace counts, Admin live listings, Community active providers, recently published services, and weekly leaders. |
+| Listing moderation and material-edit re-review control public visibility | Resolved | **RESOLVED** | Phase 5 passes concurrent listing cap/title protection, PENDING_REVIEW reset, provider/admin notifications, approval-date handling, and exact-offer pricing. Public get/list queries use `PUBLIC_SERVICE_WHERE`. |
+| Reviews, provider metrics, Trust Score, and AI summaries use eligible database records | Resolved | **RESOLVED** | Phase 5 passes role-aware review aggregation, private trust-history authorization, idempotent trust events, hidden-review exclusion, five-written-review AI threshold, and persisted summary fingerprinting. |
+| Announcements persisted but did not notify users | Resolved | **RESOLVED** | Admin publication creates durable non-admin notifications in bounded batches, emits a realtime refresh, and links recipients to their active-workspace Community Hub. |
+| Onboarding used durable user state and did not lock the application | Resolved | **RESOLVED** | `OnboardingStatus` persists PENDING/COMPLETED/SKIPPED; authenticated user-only update contracts and three onboarding component tests pass; Help may reopen through the query-controlled tour without resetting the stored state. |
+| Community Hub used real data and did not turn request failures into zeroes | Resolved | **RESOLVED** | Community API queries PostgreSQL for counts, announcements, recent approvals, and weekly providers. The hook retains `data=null` and exposes an error on failure instead of creating zero statistics. Community tests pass. |
+| Payment copy overstated escrow/payout behavior | Resolved | **RESOLVED** | Landing, onboarding, booking UI, Help, and Master Prompt consistently state PayMongo **Test Mode**, internal PAID_HELD/RELEASED records, simulated reversal, no regulated escrow, and no real provider payout. Only GCash and On-site Cash are offered. |
+| Reusable service listings were confused with recurring/session contracts | Resolved | **RESOLVED** | New listings are reusable ONE_TIME services; every repeat request creates an independent Booking. Legacy SESSION_BASED/PER_SESSION fields remain compatibility-only and are not exposed as a supported flow. |
+| Seeker navigation distinguished received offers from owned request management | Previously unclear | **RESOLVED THIS PASS** | The incoming-offers route is now labelled **Offers Received**; **Request Manager** remains the page for the seeker's own postings. The nonfunctional pre-acceptance “Message Provider” button was replaced by an explicit locked-state explanation. |
+| Production paths contained placeholder/mock marketplace collections | Historical artifact | **NO LONGER APPLICABLE** | The unused empty `src/context/mockData.ts` module had no imports and was deleted. Remaining `setTimeout`, placeholder attributes, and `Math.random` matches are UI timing/input labels or local transient identifiers, not fake API/database data. |
+| Full manual browser and external-provider acceptance evidence was complete | In progress | **UNVERIFIED IN THIS PASS** | The removed temporary Chromium harness cannot serve as current executable evidence. Final manual defense rehearsal, fresh Google OAuth validation, and interactive PayMongo Flow A/Flow B checkout remain explicit release conditions. |
+
+## Final MVP Lifecycle
+
+| Step | Status | Evidence | Notes |
+| --- | --- | --- | --- |
+| Registration, password login, session refresh/logout | **PASS** | Auth schemas, route protection matrix, hashed-token/session implementation, frontend auth tests, both builds | SMTP is locally configured, but a fresh real mailbox round trip was not repeated in this pass. |
+| Google OAuth | **UNVERIFIED** | Client IDs are present in both local environments and the backend validates Google tokens | Fresh-profile popup/FedCM success and deployed authorized origins require external browser/console validation. Optional Tier 1; password authentication is the core path. |
+| First-time onboarding | **PASS** | Persistent enum/migration, authenticated self-only endpoint, frontend navigation/skip tests | Optional fields do not gate app entry; completion/skip are terminal stored choices. |
+| Profile and Limited Mode | **PASS** | Public/private field selections, profile forms, permission helper, route guards | One account and one profile are shared across Seeker and Provider workspaces. |
+| Email/residency verification submission | **PASS** | Phase 3 privacy/deletion integration | Email gate, versioned consent, managed private proof keys, redaction, retention, and audited access pass. |
+| Admin verification review | **PASS** | Admin-only route matrix, verification service/tests, durable notification logic | APPROVED unlocks new relationships; non-approved states remain Limited Mode. |
+| Provider listing creation/moderation | **PASS** | Phase 5 plus source contracts | Creation is PENDING_REVIEW and hidden; Admin decision persists; material edits return approved listings to review. |
+| Marketplace/public service discovery | **PASS** | Canonical `PUBLIC_SERVICE_WHERE`, public-service contract, Community tests | Only active/available listings from active, email/residency-approved, non-moderated providers are public. |
+| Flow A — On-site Cash | **PASS** | Booking integration | Creates PENDING_APPROVAL; provider explicitly accepts/declines; cash never enters the online queue/ledger. |
+| Flow A — GCash Test Mode | **PASS (automated)** | Signed webhook integration and booking integration | Successful verified webhook creates ACCEPTED Booking + WAITING Queue; provider does not accept a second time. Interactive provider checkout remains unverified. |
+| Flow B — On-site Cash offer | **PASS** | Booking integration | Exact listing-bound offer acceptance atomically rejects siblings, advances request, and creates ACCEPTED Booking. |
+| Flow B — GCash Test Mode offer | **PASS (automated)** | Booking/payment integration | Offer is held PENDING_PAYMENT, signed success finalizes atomically; failure/expiry reopens it; capacity loss becomes REFUND_REQUIRED. Interactive checkout remains unverified. |
+| Messaging | **PASS** | Phase 7 authorization plus load suite | Participant IDOR checks, pre-agreement lock, accepted/active send states, terminal read-only behavior, pagination, and persistence are enforced server-side. |
+| Queue and Start Job | **PASS** | Phase 2 concurrency plus booking integration | Listing-specific FCFS is enforced; a provider chooses a service but cannot skip its first waiting entry; provider-global one-ONGOING guard remains. |
+| Completion, dispute, and cancellation | **PASS** | Booking, Phase 2, Phase 4, and Phase 7 suites | Provider marks AWAITING_CONFIRMATION; seeker/admin settlement is atomic; duplicate disputes/escalations and bilateral after-start cancellation are guarded. |
+| Completed record, payment record, review, and trust | **PASS** | Booking and Phase 5 suites | One CompletedService per Booking, immutable price snapshot, internal RELEASED/CASH_CONFIRMED state, eligible reviews, and idempotent trust events pass. |
+| Notifications and realtime refresh | **PASS (single instance)** | Durable database writes across lifecycle services and Phase 7 load | Recipient links and bounded pagination are verified in code/tests; cross-instance Socket.io delivery remains outside the current capstone deployment scope. |
+| Admin monitoring/statistics | **PASS** | Admin authorization contracts and real Prisma queries | No frontend-only moderation state or mock metric source was found. |
+| Community Hub | **PASS** | Backend community contracts, frontend component tests, shared eligibility predicates | Counts and recent content are database-backed; failures are rendered as errors rather than valid zero data. |
+| Full current manual defense rehearsal | **UNVERIFIED** | Not run in this pass | Must be executed with temporary accounts and evidence capture after UI polish, without changing the frozen business rules unless a real defect appears. |
+
+## Fixes Applied During This Pass
+
+| Priority | Root cause | Minimal correction | Verification |
+| --- | --- | --- | --- |
+| P0 | Authentication middleware silently reactivated finalized inactive users holding an unexpired access token | Removed the database mutation and fail closed with `403 Account inactive` | New database-backed Phase 4 assertion passes |
+| P1 | Category suggestion was treated as verified-only in the UI but not on the API route | Added `requireVerification` and a source contract | 28/28 backend contracts pass |
+| P2 | Message history could be read before direct-booking acceptance | Added a participant pre-agreement read lock while preserving Admin investigation access | New Phase 7 database assertion passes |
+| P2 | Community leaderboard duplicated public-provider eligibility | Extracted and reused canonical provider/service predicates | Backend build and Community contracts pass |
+| P2 | Seeker offer navigation and Help/landing wording could mislead a defense demonstration | Renamed the received-offers item, removed a no-op message action, and corrected cash-versus-GCash lifecycle text | Frontend typecheck, lint, 19 tests, and build pass |
+| P2 | Unused empty mock collections remained in a production source folder | Deleted the unreferenced module | Source reference scan, typecheck, lint, tests, and build pass |
+
+## Remaining P0 Issues
+
+**None known.**
+
+## Remaining P1 Issues
+
+**None known in the implemented Cordova MVP business logic.** The external/manual checks below are release-validation conditions, not confirmed code defects.
+
+## Remaining P2 Issues
+
+- Run real PayMongo Test Mode Flow A and Flow B checkouts through the currently registered public HTTPS webhook and retain redacted dashboard/request/database evidence. Local values and signed replay are present, but external delivery was not independently observed in this pass.
+- Revalidate Google OAuth with a fresh browser profile for localhost and the eventual deployed frontend origin. A user-cancelled popup may still emit a Google/COOP development-console warning even when cancellation is handled normally.
+- Perform the final manual defense matrix after UI polish: password registration/email confirmation, verification approval/rejection, listing moderation, both cash flows, both Test Mode online flows, messaging, queue advancement, completion, cancellation, disputes, reviews, Admin statistics, notifications, and Community refresh.
+- Upgrade Vitest/@vitest-mocker through a controlled breaking-version migration. `npm audit --omit=dev` is clean for both applications and the full backend audit is clean, but the full frontend tree reports two moderate development-only path-traversal/arbitrary-read advisories in the test runner.
+- Plan the documented `pg`/connection-string upgrade before pg 9: current database suites pass, but they emit the known overlapping-query deprecation warning and fresh migration emits an upcoming SSL-mode semantics warning.
+
+## Deferred UI/UX Polish
+
+These are safe visual/interaction targets now that the functional rules above are stable. They are not business-logic changes.
+
+| Candidate | Focus for the next task |
+| --- | --- |
+| Onboarding | Mobile-height fit, focus return, motion restraint, and clearer final actions without adding tutorial length |
+| Seeker and Provider dashboards | Reduce top whitespace and competing summaries; strengthen action priority and responsive density |
+| Marketplace and Browse Jobs | Card scan order, filter feedback, long-text handling, mobile controls, and honest loading/empty/error states |
+| Service details and request/offer flows | Make cash approval versus automatic online queue commitment visually unmistakable |
+| Request Manager and activity views | Tighten status vocabulary, action-required prominence, timeline density, and cancellation/dispute explanations |
+| Profile, verification, and account settings | Reduce oversized hero space, group account versus marketplace information, and improve mobile form rhythm |
+| Messaging and notifications | Improve empty/read-only/locked states, small-screen conversation navigation, and destination clarity |
+| Community Hub | Refine section rhythm, responsive statistics, recent-content density, and weekly-provider explanation while retaining real data |
+| Admin workspace | Improve dense-table scanning, filters, evidence/reason dialogs, and small-screen overflow without changing moderation APIs |
+| Landing/login/register | Complete responsive visual QA, reduced-motion behavior, and cross-page typography consistency without changing authentication behavior |
+
+## Build Verification
+
+| Verification | September 12 result |
+| --- | --- |
+| Frontend TypeScript (`npx tsc --noEmit`) | **PASS** |
+| Frontend lint (`npm run lint`) | **PASS**, zero reported findings |
+| Frontend tests (`npm test`) | **PASS**, 7 files / 19 tests |
+| Frontend production build (`npm run build`) | **PASS**, 95 generated routes |
+| Backend Prisma generate | **PASS**, Prisma Client 7.10.0 |
+| Backend Prisma validate | **PASS** |
+| Backend production build (`npm run build`) | **PASS** |
+| Backend contracts (`npm test`) | **PASS**, 28/28 |
+| Booking integration | **PASS**, 1/1 |
+| Phase 2 queue/concurrency | **PASS**, 1/1 |
+| Phase 3 privacy/deletion | **PASS**, 1/1 |
+| Phase 4 safety/admin/inactive-token regression | **PASS**, 1/1 |
+| Phase 5 listing/review/trust/AI | **PASS**, 1/1; expected duplicate-title rejection is asserted |
+| Phase 6 signed webhook replay | **PASS**, 1/1 |
+| Phase 7 authorization/lifecycle/pre-acceptance messaging | **PASS**, 1/1 |
+| Phase 7 communication/load | **PASS**, 1/1 |
+| Target Neon migration status | **PASS**, 21/21 current |
+| Fresh migration/schema parity | **PASS**, 21 migrations / 32 tables / no difference / booking flow pass / disposable schema removed |
+| Production dependency audit | **PASS**, zero vulnerabilities in frontend and backend |
+| Full dependency audit | Backend **PASS**; frontend **PARTIAL**, two moderate dev-only Vitest advisories |
+| Current manual browser matrix | **NOT RUN** |
+| External Google OAuth + interactive PayMongo | **NOT RUN** |
+
+## Final Functional Readiness Verdict
+
+**READY FOR UI/UX POLISH WITH MINOR FUNCTIONAL/RELEASE-VALIDATION CONDITIONS**
+
+Critical question: **Can we now freeze the ServiceHub functional/business-logic baseline and focus primarily on final UI/UX polishing without expecting major MVP lifecycle changes?**
+
+**YES, WITH CONDITIONS.**
+
+The implemented Cordova MVP has no known remaining P0 or P1 business-logic defect after this pass. Both builds, all current source contracts, all eight live-database suites, target migration status, and clean fresh-schema reconstruction pass. The baseline may be frozen for UI/UX work provided the next phase does not redefine the documented flows, and provided final defense release remains conditional on the manual browser matrix, external PayMongo/Google validation, and honest Test Mode/no-real-payout wording. A failure in those real external/manual checks should reopen only the affected defect, not trigger a speculative redesign of the marketplace lifecycle.
