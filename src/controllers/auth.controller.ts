@@ -38,6 +38,15 @@ const REFRESH_COOKIE_OPTIONS: CookieOptions = {
   path: "/",
 };
 
+// Cookie deletion must use the same scope and security attributes used when
+// the cookie was issued. Only maxAge is intentionally omitted.
+const REFRESH_COOKIE_CLEAR_OPTIONS: CookieOptions = {
+  httpOnly: REFRESH_COOKIE_OPTIONS.httpOnly,
+  secure: REFRESH_COOKIE_OPTIONS.secure,
+  sameSite: REFRESH_COOKIE_OPTIONS.sameSite,
+  path: REFRESH_COOKIE_OPTIONS.path,
+};
+
 // ── POST /auth/register ───────────────────────────────────────────────────────
 
 export async function register(req: Request, res: Response, next: NextFunction) {
@@ -118,7 +127,7 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
     if (token) {
       await logoutUser(token);
     }
-    res.clearCookie("refreshToken", { path: "/" });
+    res.clearCookie("refreshToken", REFRESH_COOKIE_CLEAR_OPTIONS);
     res.json({ success: true, message: "Logged out successfully" });
   } catch (err) {
     next(err);
@@ -185,7 +194,7 @@ export async function resetPasswordHandler(req: Request, res: Response, next: Ne
     await resetPassword(input.token, input.password);
 
     // Invalidate session on password reset
-    res.clearCookie("refreshToken", { path: "/" });
+    res.clearCookie("refreshToken", REFRESH_COOKIE_CLEAR_OPTIONS);
     res.json({ success: true, message: "Password reset successfully. Please log in again." });
   } catch (err: any) {
     if (err.name === "ZodError") {
