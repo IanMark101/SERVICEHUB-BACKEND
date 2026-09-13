@@ -4,7 +4,7 @@
  * (Gmail / Resend / SendGrid) when deploying.
  */
 
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 import { env } from "../config/env";
 
 interface EmailPayload {
@@ -15,7 +15,7 @@ interface EmailPayload {
 
 // ── Transport ─────────────────────────────────────────────────────────────────
 
-function getTransporter(): { transporter: nodemailer.Transporter; emailFrom: string } | null {
+function getTransporter(): { transporter: Transporter; emailFrom: string } | null {
   const smtpHost = process.env.SMTP_HOST || env.SMTP_HOST;
   const smtpPort = Number(process.env.SMTP_PORT || env.SMTP_PORT || 587);
   const smtpUser = process.env.SMTP_USER || env.SMTP_USER;

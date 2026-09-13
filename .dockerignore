@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.database-backups
+*.log
+npm-debug.log*
+.DS_Store
+Dockerfile*
+compose*.yaml
+compose*.yml
