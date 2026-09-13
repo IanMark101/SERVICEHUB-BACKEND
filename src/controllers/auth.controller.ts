@@ -119,6 +119,34 @@ export async function refresh(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+// ── POST /auth/session ────────────────────────────────────────────────────────
+
+/**
+ * Quiet initial session probe. Unlike /refresh, having no browser session is a
+ * successful, expected result rather than a 401 response.
+ */
+export async function session(req: Request, res: Response, next: NextFunction) {
+  const incomingToken = req.cookies?.refreshToken;
+  if (!incomingToken) {
+    return res.json({ success: true, data: { authenticated: false } });
+  }
+
+  try {
+    const tokens = await refreshAccessToken(incomingToken);
+    res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
+    return res.json({
+      success: true,
+      data: { authenticated: true, accessToken: tokens.accessToken },
+    });
+  } catch (err: any) {
+    if (err?.status === 401) {
+      res.clearCookie("refreshToken", REFRESH_COOKIE_CLEAR_OPTIONS);
+      return res.json({ success: true, data: { authenticated: false } });
+    }
+    return next(err);
+  }
+}
+
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 
 export async function logout(req: Request, res: Response, next: NextFunction) {

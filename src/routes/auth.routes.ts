@@ -4,6 +4,7 @@ import {
   login,
   googleLogin,
   refresh,
+  session,
   logout,
   verifyEmailHandler,
   forgotPasswordHandler,
@@ -26,6 +27,7 @@ router.post("/register", authLimiter, register);
 router.post("/login", authLimiter, login);
 router.post("/google-login", authLimiter, googleLogin);
 router.post("/refresh", requireTrustedOrigin, refresh);
+router.post("/session", requireTrustedOrigin, session);
 router.post("/logout", requireTrustedOrigin, logout);
 router.get("/verify-email/:token", verifyEmailHandler);
 router.post("/forgot-password", authLimiter, forgotPasswordHandler);
