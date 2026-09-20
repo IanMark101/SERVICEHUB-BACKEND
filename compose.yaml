@@ -15,7 +15,7 @@ services:
       # Compose interpolation reads this value from SERVICEHUB-BACKEND/.env.
       # Keeping it explicit also allows a one-off shell override during a
       # read-only clean-machine verification.
-      DIRECT_URL: ${DIRECT_URL:-}
+      DIRECT_URL: ${DIRECT_URL:?DIRECT_URL is required. Copy the Neon connection string with pooling disabled into SERVICEHUB-BACKEND/.env}
     command: ["npx", "prisma", "migrate", "deploy"]
     restart: "no"
 
