@@ -27,12 +27,13 @@ export async function accessReportEvidence(req: Request, res: Response, next: Ne
 
 export async function resolveReport(req: Request, res: Response, next: NextFunction) {
   try {
-    const { action, adminNotes } = ReportResolutionSchema.parse(req.body);
+    const { outcome, penaltyAction, adminNotes } = ReportResolutionSchema.parse(req.body);
     const result = await resolveAdminReport(
       req.params.id as string,
       (req as AuthenticatedRequest).user.id,
-      action,
+      outcome,
       adminNotes,
+      penaltyAction,
     );
     res.json({ success: true, data: result });
   } catch (error) {

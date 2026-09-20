@@ -1,7 +1,10 @@
 import type { ReportReason } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { getPrivateVerificationUrl } from "../config/cloudinary";
 import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
+import { assertNoRefundInProgress, lockBookingLifecycle } from "./booking-lifecycle.service";
+import { assertNoFinancialResolutionReserved } from "./case-resolution.service";
 
 const ELIGIBLE_STATUSES = ["ACCEPTED", "ONGOING", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED", "COMPLETED", "CANCELED"];
 
@@ -11,6 +14,13 @@ function httpError(message: string, status: number) {
   return error;
 }
 
+function safetyIncidentKey(input: { bookingId: string; reporterId: string; reason: ReportReason; description: string }) {
+  const normalizedDescription = input.description.trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
+  return createHash("sha256")
+    .update([input.bookingId, input.reporterId, "SAFETY", input.reason, normalizedDescription].join("\u001f"))
+    .digest("hex");
+}
+
 export async function createSafetyReport(params: {
   bookingId: string;
   reporterId: string;
@@ -18,25 +28,28 @@ export async function createSafetyReport(params: {
   description: string;
   evidenceStorageKey?: string;
 }) {
+  const dedupeKey = safetyIncidentKey(params);
   const result = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`safety-report:${params.bookingId}:${params.reporterId}`}))`;
+    await lockBookingLifecycle(tx, params.bookingId);
     const booking = await tx.booking.findUnique({ where: { id: params.bookingId } });
     if (!booking || ![booking.seekerId, booking.providerId].includes(params.reporterId)) {
       throw httpError("Booking not found or access denied", 404);
     }
     if (!ELIGIBLE_STATUSES.includes(booking.status)) throw httpError("This booking is not eligible for a safety report", 409);
+    await assertNoRefundInProgress(tx, booking.id);
+    await assertNoFinancialResolutionReserved(tx, booking.id);
     const reportedUserId = booking.seekerId === params.reporterId ? booking.providerId : booking.seekerId;
     if (params.evidenceStorageKey && !params.evidenceStorageKey.startsWith(`servicehub/safety/${booking.id}/${params.reporterId}/`)) {
       throw httpError("Safety evidence does not belong to this booking participant", 403);
     }
     const existing = await tx.report.findFirst({
-      where: { bookingId: booking.id, reporterId: params.reporterId, reportType: "SAFETY", status: { in: ["PENDING", "UNDER_REVIEW"] } },
+      where: { dedupeKey, status: { in: ["PENDING", "UNDER_REVIEW"] } },
       orderBy: { createdAt: "desc" },
     });
     if (existing) return { report: existing, created: false, admins: [] as { id: string }[] };
 
     const report = await tx.report.create({
-      data: { bookingId: booking.id, reporterId: params.reporterId, reportedUserId, reason: params.reason, description: params.description, evidenceStorageKey: params.evidenceStorageKey, reportType: "SAFETY" },
+      data: { bookingId: booking.id, reporterId: params.reporterId, reportedUserId, reason: params.reason, description: params.description.trim(), evidenceStorageKey: params.evidenceStorageKey, reportType: "SAFETY", dedupeKey },
     });
     if (["ACCEPTED", "ONGOING", "AWAITING_CONFIRMATION"].includes(booking.status)) {
       await tx.booking.update({

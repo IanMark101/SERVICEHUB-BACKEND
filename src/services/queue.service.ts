@@ -32,8 +32,10 @@ export async function recalculateQueueInTransaction(
   });
   if (!service) return;
 
-  const activeOngoingCount = await tx.booking.count({
-    where: { serviceId, status: "ONGOING" },
+  // Queue occupancy belongs to Queue, not Booking. A safety report can freeze
+  // an in-progress booking as DISPUTED while its provider is still SERVING.
+  const activeServingCount = await tx.queue.count({
+    where: { serviceId, status: "SERVING" },
   });
   const waitingEntries = await tx.queue.findMany({
     where: { serviceId, status: "WAITING" },
@@ -45,7 +47,7 @@ export async function recalculateQueueInTransaction(
   // keeps every destination free under the partial unique database index.
   for (let index = 0; index < waitingEntries.length; index += 1) {
     const entry = waitingEntries[index];
-    const position = activeOngoingCount + index + 1;
+    const position = activeServingCount + index + 1;
     const estimatedWait = service.estimatedDurationMins * (position - 1);
 
     await tx.queue.update({
@@ -77,13 +79,13 @@ export async function notifyWaitlistInTransaction(
   });
   if (!service) return null;
 
-  const activeOngoingCount = await tx.booking.count({
-    where: { serviceId, status: "ONGOING" },
+  const activeServingCount = await tx.queue.count({
+    where: { serviceId, status: "SERVING" },
   });
   const waitingCount = await tx.queue.count({
     where: { serviceId, status: "WAITING" },
   });
-  if (activeOngoingCount + waitingCount >= service.queueLimit) return null;
+  if (activeServingCount + waitingCount >= service.queueLimit) return null;
 
   const firstWaiting = await tx.queueNotify.findFirst({
     where: { serviceId },

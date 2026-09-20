@@ -49,8 +49,15 @@ export async function initiateOnlinePayment(params: {
     throw httpError("Online payment is unavailable until PayMongo Test Mode and its webhook are fully configured", 503, "PAYMENT_NOT_CONFIGURED");
   }
   const expiresAt = new Date(Date.now() + ATTEMPT_TTL_MS);
+  const targetOffer = params.offerId
+    ? await prisma.offer.findUnique({ where: { id: params.offerId }, select: { requestId: true } })
+    : null;
+  if (params.offerId && !targetOffer) throw httpError("Offer not found", 404);
 
   const prepared = await prisma.$transaction(async (tx) => {
+    if (targetOffer) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${targetOffer.requestId}`}))`;
+    }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment:${params.seekerId}:${params.serviceId}:${params.offerId || "direct"}`}))`;
 
     const stale = await tx.paymentAttempt.findMany({
@@ -112,7 +119,7 @@ export async function initiateOnlinePayment(params: {
       where: {
         seekerId: params.seekerId,
         serviceId: service.id,
-        status: { in: ["PENDING_APPROVAL", "ACCEPTED", "WAITING", "ONGOING", "AWAITING_CONFIRMATION", "DISPUTED"] },
+        status: { in: ["PENDING_APPROVAL", "ACCEPTED", "WAITING", "ONGOING", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"] },
       },
       select: { id: true },
     });
@@ -124,9 +131,9 @@ export async function initiateOnlinePayment(params: {
 
     // Prisma's PostgreSQL adapter uses one connection for this transaction;
     // execute transaction-client queries serially instead of overlapping them.
-    const ongoingCount = await tx.booking.count({ where: { serviceId: service.id, status: "ONGOING" } });
+    const servingCount = await tx.queue.count({ where: { serviceId: service.id, status: "SERVING" } });
     const waitingCount = await tx.queue.count({ where: { serviceId: service.id, status: "WAITING" } });
-    if (ongoingCount + waitingCount >= service.queueLimit) throw httpError("The service queue is full", 409, "QUEUE_FULL");
+    if (servingCount + waitingCount >= service.queueLimit) throw httpError("The service queue is full", 409, "QUEUE_FULL");
 
     let amount = Number(service.price);
     let offerRequestId: string | undefined;
@@ -201,6 +208,9 @@ export async function initiateOnlinePayment(params: {
     });
   } catch (error: any) {
     await prisma.$transaction(async (tx) => {
+      if (targetOffer) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${targetOffer.requestId}`}))`;
+      }
       await tx.paymentAttempt.update({
         where: { id: prepared.attempt.id },
         data: { status: "FAILED", failureReason: error?.code || "PAYMENT_PROVIDER_ERROR" },
@@ -223,13 +233,17 @@ export async function getPaymentAttemptStatus(seekerId: string, paymentIntentId:
 export async function markPaymentAttemptFailed(paymentIntentId: string, reason: string) {
   const attempt = await prisma.paymentAttempt.findUnique({ where: { providerIntentId: paymentIntentId } });
   if (!attempt || attempt.status !== "PENDING") return attempt;
+  const offer = attempt.offerId ? await prisma.offer.findUnique({ where: { id: attempt.offerId }, select: { requestId: true } }) : null;
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.paymentAttempt.update({
-      where: { id: attempt.id },
+    if (offer) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${offer.requestId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-attempt:${attempt.id}`}))`;
+    const updated = await tx.paymentAttempt.updateMany({
+      where: { id: attempt.id, status: "PENDING" },
       data: { status: "FAILED", failureReason: reason.slice(0, 500) },
     });
+    if (updated.count !== 1) return tx.paymentAttempt.findUnique({ where: { id: attempt.id } });
     await releaseOfferHold(attempt.offerId, tx);
-    return updated;
+    return tx.paymentAttempt.findUnique({ where: { id: attempt.id } });
   });
 }
 
@@ -241,7 +255,10 @@ export async function expireStalePaymentAttempts() {
   });
   let expired = 0;
   for (const candidate of stale) {
+    const candidateAttempt = await prisma.paymentAttempt.findUnique({ where: { id: candidate.id }, select: { offerId: true } });
+    const candidateOffer = candidateAttempt?.offerId ? await prisma.offer.findUnique({ where: { id: candidateAttempt.offerId }, select: { requestId: true } }) : null;
     const changed = await prisma.$transaction(async (tx) => {
+      if (candidateOffer) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${candidateOffer.requestId}`}))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-attempt:${candidate.id}`}))`;
       const attempt = await tx.paymentAttempt.findUnique({ where: { id: candidate.id } });
       if (!attempt || attempt.status !== "PENDING" || attempt.expiresAt > new Date()) return false;
@@ -261,13 +278,23 @@ export async function finalizeSuccessfulPayment(params: {
   currency: string;
   metadata: Record<string, string>;
 }) {
+  const initialAttempt = await prisma.paymentAttempt.findUnique({
+    where: { providerIntentId: params.paymentIntentId },
+    select: { id: true, seekerId: true, serviceId: true, offerId: true },
+  });
+  if (!initialAttempt) throw httpError("Payment attempt is not registered", 409, "UNREGISTERED_PAYMENT");
+  const initialOffer = initialAttempt.offerId
+    ? await prisma.offer.findUnique({ where: { id: initialAttempt.offerId }, select: { requestId: true } })
+    : null;
   const result = await prisma.$transaction(async (tx) => {
-    const attempt = await tx.paymentAttempt.findUnique({ where: { providerIntentId: params.paymentIntentId } });
-    if (!attempt) throw httpError("Payment attempt is not registered", 409, "UNREGISTERED_PAYMENT");
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-attempt:${attempt.id}`}))`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`service:${attempt.serviceId}`}))`;
+    if (initialOffer) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${initialOffer.requestId}`}))`;
+    }
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-attempt:${initialAttempt.id}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-booking:${initialAttempt.seekerId}:${initialAttempt.serviceId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`service:${initialAttempt.serviceId}`}))`;
 
-    const fresh = await tx.paymentAttempt.findUnique({ where: { id: attempt.id } });
+    const fresh = await tx.paymentAttempt.findUnique({ where: { id: initialAttempt.id } });
     if (!fresh) throw httpError("Payment attempt not found", 404);
     const existingBooking = await tx.booking.findUnique({ where: { paymentAttemptId: fresh.id } });
     if (fresh.status === "SUCCEEDED" && existingBooking) return { booking: existingBooking, queue: null, created: false, refundRequired: false };
@@ -309,8 +336,8 @@ export async function finalizeSuccessfulPayment(params: {
         },
       },
     });
-    const ongoingCount = service
-      ? await tx.booking.count({ where: { serviceId: fresh.serviceId, status: "ONGOING" } })
+    const servingCount = service
+      ? await tx.queue.count({ where: { serviceId: fresh.serviceId, status: "SERVING" } })
       : 0;
     const waitingCount = service
       ? await tx.queue.count({ where: { serviceId: fresh.serviceId, status: "WAITING" } })
@@ -319,7 +346,7 @@ export async function finalizeSuccessfulPayment(params: {
       where: {
         seekerId: fresh.seekerId,
         serviceId: fresh.serviceId,
-        status: { in: ["PENDING_APPROVAL", "ACCEPTED", "WAITING", "ONGOING", "AWAITING_CONFIRMATION", "DISPUTED"] },
+        status: { in: ["PENDING_APPROVAL", "ACCEPTED", "WAITING", "ONGOING", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"] },
       },
       select: { id: true },
     });
@@ -331,7 +358,7 @@ export async function finalizeSuccessfulPayment(params: {
         service.provider.moderationStatus !== "ACTIVE" ||
         !service.provider.emailVerified ||
         service.provider.verificationStatus !== "APPROVED" ||
-        ongoingCount + waitingCount >= service.queueLimit ||
+        servingCount + waitingCount >= service.queueLimit ||
       Boolean(conflictingBooking)
     ) {
       await tx.paymentAttempt.update({
@@ -354,9 +381,22 @@ export async function finalizeSuccessfulPayment(params: {
         await tx.paymentAttempt.update({ where: { id: fresh.id }, data: { status: "REFUND_REQUIRED", providerPaymentId: params.paymentId || null, failureReason: "OFFER_HOLD_INVALID_AFTER_CAPTURE" } });
         return { booking: null, queue: null, created: false, refundRequired: true, attempt: { ...fresh, providerPaymentId: params.paymentId } };
       }
+      const competingSelection = await tx.offer.findFirst({
+        where: {
+          requestId: offer.requestId,
+          id: { not: offer.id },
+          status: { in: ["PENDING_PAYMENT", "ACCEPTED"] },
+        },
+        select: { id: true },
+      });
+      if (competingSelection) {
+        await tx.paymentAttempt.update({ where: { id: fresh.id }, data: { status: "REFUND_REQUIRED", providerPaymentId: params.paymentId || null, failureReason: "SIBLING_OFFER_ALREADY_SELECTED" } });
+        await tx.offer.updateMany({ where: { id: fresh.offerId, status: "PENDING_PAYMENT" }, data: { status: "REJECTED", paymentHoldExpiresAt: null } });
+        return { booking: null, queue: null, created: false, refundRequired: true, attempt: { ...fresh, providerPaymentId: params.paymentId } };
+      }
     }
 
-    const position = ongoingCount + waitingCount + 1;
+    const position = servingCount + waitingCount + 1;
     const booking = await tx.booking.create({
       data: {
         seekerId: fresh.seekerId,
@@ -396,7 +436,7 @@ export async function finalizeSuccessfulPayment(params: {
 
     if (fresh.offerId) {
       const offer = await tx.offer.update({ where: { id: fresh.offerId }, data: { status: "ACCEPTED", paymentHoldExpiresAt: null } });
-      await tx.offer.updateMany({ where: { requestId: offer.requestId, id: { not: offer.id }, status: "PENDING" }, data: { status: "REJECTED" } });
+      await tx.offer.updateMany({ where: { requestId: offer.requestId, id: { not: offer.id }, status: { in: ["PENDING", "PENDING_PAYMENT"] } }, data: { status: "REJECTED", paymentHoldExpiresAt: null } });
       await tx.serviceRequest.update({ where: { id: offer.requestId }, data: { status: "IN_PROGRESS" } });
     }
     return { booking, queue, created: true, refundRequired: false, service };

@@ -62,9 +62,13 @@ test("participant safety, review moderation, promotion guards, and final deactiv
   reportIds.push(firstReport.id);
   assert.equal(firstReport.created, true);
   assert.equal("evidenceStorageKey" in firstReport, false);
-  const duplicate = await createSafetyReport({ bookingId: booking.id, reporterId: seeker.id, reason: "NO_SHOW", description: "A duplicate active safety submission should return the first case." });
+  const duplicate = await createSafetyReport({ bookingId: booking.id, reporterId: seeker.id, reason: "INAPPROPRIATE_BEHAVIOR", description: "The participant behaved in a way that requires administrator review.", evidenceStorageKey });
   assert.equal(duplicate.id, firstReport.id);
   assert.equal(duplicate.created, false);
+  const separateIncident = await createSafetyReport({ bookingId: booking.id, reporterId: seeker.id, reason: "NO_SHOW", description: "A separate no-show incident must create its own moderation case." });
+  reportIds.push(separateIncident.id);
+  assert.notEqual(separateIncident.id, firstReport.id);
+  assert.equal(separateIncident.created, true);
   const reciprocal = await createSafetyReport({ bookingId: booking.id, reporterId: provider.id, reason: "INCOMPLETE_SERVICE", description: "The other participant may independently submit a safety concern." });
   reportIds.push(reciprocal.id);
   assert.notEqual(reciprocal.id, firstReport.id);

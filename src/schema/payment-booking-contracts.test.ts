@@ -52,7 +52,8 @@ test("Flow B offers require an exact provider listing", () => {
 
 test("administrator can explicitly release a disputed provider payment", () => {
   assert.equal(ReportResolutionSchema.safeParse({
-    action: "release_provider_and_complete",
+    outcome: "release_provider_and_complete",
+    penaltyAction: "none",
     adminNotes: "Message history and completion evidence support the provider.",
   }).success, true);
 });

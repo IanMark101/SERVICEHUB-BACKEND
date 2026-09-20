@@ -4,21 +4,10 @@ import { prisma } from "../../lib/prisma";
 
 export async function getNextQueuePosition(serviceId: string): Promise<number> {
   const lastEntry = await prisma.queue.findFirst({
-    where: { serviceId, status: "WAITING" },
+    where: { serviceId, status: { in: ["SERVING", "WAITING"] } },
     orderBy: { position: "desc" },
   });
-
-  if (lastEntry) {
-    return lastEntry.position + 1;
-  }
-
-  // If no entry in Queue table, check if the provider is currently serving an ONGOING booking on this service
-  const activeOngoing = await prisma.booking.findFirst({
-    where: { serviceId, status: "ONGOING" },
-  });
-
-  // If there's an ongoing job, position 1 is active, so the next queue entrant is position 2
-  return activeOngoing ? 2 : 1;
+  return lastEntry ? lastEntry.position + 1 : 1;
 }
 export async function calculateEstimatedWait(
   serviceId: string,

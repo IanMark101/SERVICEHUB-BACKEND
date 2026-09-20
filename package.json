@@ -14,6 +14,7 @@
     "test:admin-contracts": "tsx --test src/schema/admin-contracts.test.ts",
     "test": "tsx --test src/schema/*.test.ts",
     "test:booking-integration": "tsx --test src/integration/booking-flows.test.ts",
+    "test:high-priority-integration": "tsx --test src/integration/high-priority-case-workflows.test.ts",
     "test:phase2-integration": "tsx --test src/integration/queue-concurrency.test.ts",
     "test:phase3-integration": "tsx --test src/integration/privacy-deletion.test.ts",
     "test:phase4-integration": "tsx --test src/integration/safety-admin-guards.test.ts",

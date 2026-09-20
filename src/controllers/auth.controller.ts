@@ -11,6 +11,7 @@ import {
 import {
   registerUser,
   loginUser,
+  recoverAccessToken,
   refreshAccessToken,
   logoutUser,
   verifyEmail,
@@ -132,11 +133,12 @@ export async function session(req: Request, res: Response, next: NextFunction) {
   }
 
   try {
-    const tokens = await refreshAccessToken(incomingToken);
-    res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
+    // Session probing must not rotate the one-time refresh token. A rapid
+    // reload can abandon the response before a replacement cookie is stored.
+    const accessToken = await recoverAccessToken(incomingToken);
     return res.json({
       success: true,
-      data: { authenticated: true, accessToken: tokens.accessToken },
+      data: { authenticated: true, accessToken },
     });
   } catch (err: any) {
     if (err?.status === 401) {

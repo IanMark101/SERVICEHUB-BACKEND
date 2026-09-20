@@ -11,6 +11,8 @@ import {
   recalculateQueueInTransaction,
   type WaitlistNotification,
 } from "../queue.service";
+import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifecycle.service";
+import { assertNoFinancialResolutionReserved } from "../case-resolution.service";
 
 function httpError(message: string, status: number, code?: string) {
   const error = new Error(message) as Error & { status?: number; code?: string };
@@ -27,9 +29,10 @@ export async function markJobComplete(id: string, providerId: string) {
       booking = queue?.booking || null;
     }
     if (!booking) throw httpError("Booking or queue entry not found", 404);
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`completion:${booking.id}`}))`;
+    await lockBookingLifecycle(tx, booking.id);
     const fresh = await tx.booking.findUnique({ where: { id: booking.id }, include: { queue: true } });
     if (!fresh || fresh.providerId !== providerId) throw httpError("Access denied", 403);
+    await assertNoRefundInProgress(tx, booking.id);
     if (fresh.status === "AWAITING_CONFIRMATION") {
       return { booking: fresh, queue: fresh.queue, changed: false, waitlistNotification: null };
     }
@@ -71,21 +74,31 @@ export async function settleCompletedBooking(
   actor: { type: "SEEKER"; userId: string } | { type: "ADMIN"; userId: string },
 ) {
   const result = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`completion:${bookingId}`}))`;
+    await lockBookingLifecycle(tx, bookingId);
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
       include: { queue: true, offer: { select: { requestId: true } }, completedService: true },
     });
     if (!booking) throw httpError("Booking not found", 404);
+    await assertNoRefundInProgress(tx, bookingId);
     if (actor.type === "SEEKER" && booking.seekerId !== actor.userId) throw httpError("Access denied", 403);
     if (booking.status === "COMPLETED" && booking.completedService) return { completed: booking.completedService, booking, changed: false };
     const allowed = actor.type === "ADMIN"
-      ? ["AWAITING_CONFIRMATION", "DISPUTED"].includes(booking.status)
+      ? ["AWAITING_CONFIRMATION", "DISPUTED", "UNDER_REVIEW"].includes(booking.status)
       : booking.status === "AWAITING_CONFIRMATION";
     if (!allowed) throw httpError("This booking is not ready for completion settlement", 409);
+    if (actor.type === "ADMIN" && ["DISPUTED", "UNDER_REVIEW"].includes(booking.status) && booking.statusBeforeDispute !== "AWAITING_CONFIRMATION") {
+      throw httpError("Only a disputed completion awaiting seeker confirmation can be administratively completed", 422, "INVALID_DISPUTE_COMPLETION_STATE");
+    }
+    const isCash = booking.paymentMethod === "On-site Cash";
+    const validPaymentState = isCash
+      ? booking.paymentStatus === "UNPAID"
+      : actor.type === "ADMIN" && booking.status === "DISPUTED"
+        ? booking.paymentStatus === "FROZEN_HELD"
+        : booking.paymentStatus === "PAID_HELD";
+    if (!validPaymentState) throw httpError("This booking's payment state cannot be completed", 409, "INVALID_COMPLETION_PAYMENT_STATE");
     if (!booking.agreedAmount || Number(booking.agreedAmount) <= 0) throw httpError("Booking has no valid agreed amount", 409, "AGREED_AMOUNT_MISSING");
 
-    const isCash = booking.paymentMethod === "On-site Cash";
     const settlementStatus = isCash ? "CASH_CONFIRMED" : "RELEASED";
     const completed = await tx.completedService.create({
       data: {
@@ -110,6 +123,12 @@ export async function settleCompletedBooking(
     }
     if (booking.offer?.requestId) {
       await tx.serviceRequest.update({ where: { id: booking.offer.requestId }, data: { status: "CLOSED" } });
+    }
+    if (actor.type === "SEEKER") {
+      await tx.completionEscalation.updateMany({
+        where: { bookingId: booking.id, status: { in: ["PENDING", "UNDER_REVIEW"] } },
+        data: { status: "RESOLVED", resolution: "SEEKER_CONFIRMED", resolvedAt: new Date() },
+      });
     }
 
     // Only provider-collected online payments enter the internal wallet ledger.
@@ -184,9 +203,11 @@ export async function disputeJobService(
   evidenceUrl?: string,
 ) {
   const report = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`completion:${bookingId}`}))`;
+    await lockBookingLifecycle(tx, bookingId);
     const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { queue: true } });
     if (!booking || booking.seekerId !== seekerId) throw httpError("Booking not found or access denied", 404);
+    await assertNoRefundInProgress(tx, bookingId);
+    await assertNoFinancialResolutionReserved(tx, bookingId);
     const duplicate = await tx.report.findFirst({
       where: { bookingId, reporterId: seekerId, reportType: "COMPLETION_DISPUTE", status: { in: ["PENDING", "UNDER_REVIEW"] } },
     });
@@ -200,6 +221,10 @@ export async function disputeJobService(
       data: { status: "DISPUTED", statusBeforeDispute: booking.status as BookingStatus, paymentStatus },
     });
     if (booking.queue) await tx.queue.update({ where: { id: booking.queue.id }, data: { paymentStatus } });
+    await tx.completionEscalation.updateMany({
+      where: { bookingId: booking.id, status: { in: ["PENDING", "UNDER_REVIEW"] } },
+      data: { status: "DISMISSED", resolution: "SUPERSEDED_BY_SEEKER_DISPUTE", resolvedAt: new Date() },
+    });
 
     const validReasons = ["POOR_SERVICE_QUALITY", "INCOMPLETE_SERVICE", "SCAM_OR_FRAUD", "INAPPROPRIATE_BEHAVIOR", "OVERPRICING", "NO_SHOW"];
     return tx.report.create({

@@ -2,6 +2,7 @@
 export {
   registerUser,
   loginUser,
+  recoverAccessToken,
   refreshAccessToken,
   logoutUser,
   verifyEmail,

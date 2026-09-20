@@ -12,6 +12,10 @@ if (!databaseUrl) throw new Error('DATABASE_URL is required');
 
 const isolatedUrl = new URL(databaseUrl);
 isolatedUrl.searchParams.set('schema', schemaName);
+// Prisma migrations depend on a stable PostgreSQL session/search_path. Neon
+// transaction pooling can move sequential migration statements between
+// sessions, so the disposable harness uses the matching direct endpoint.
+isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const admin = new Client({ connectionString: databaseUrl });
 
 function runNpm(args: string[], env: NodeJS.ProcessEnv) {
@@ -49,6 +53,7 @@ async function main() {
       ...process.env,
       DATABASE_URL: isolatedUrl.toString(),
       NODE_ENV: 'test',
+      PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: '1',
     };
     const migration = runNpm(['exec', '--', 'prisma', 'migrate', 'deploy'], isolatedEnv);
     assert.equal(migration.status, 0, 'fresh migration deployment failed');
@@ -71,8 +76,13 @@ async function main() {
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
 
-    const bookingFlow = runNpm(['run', 'test:booking-integration'], isolatedEnv);
-    assert.equal(bookingFlow.status, 0, 'fresh-schema booking integration failed');
+    const highPriorityFlow = runNpm(['run', 'test:high-priority-integration'], isolatedEnv);
+    assert.equal(highPriorityFlow.status, 0, 'fresh-schema H1-H5 integration failed');
+
+    if (process.env.SERVICEHUB_ONLY_HIGH !== '1') {
+      const bookingFlow = runNpm(['run', 'test:booking-integration'], isolatedEnv);
+      assert.equal(bookingFlow.status, 0, 'fresh-schema booking integration failed');
+    }
   } finally {
     assert.match(schemaName, /^servicehub_migration_test_[a-f0-9]{32}$/);
     await admin.query(`DROP SCHEMA "${schemaName}" CASCADE`);

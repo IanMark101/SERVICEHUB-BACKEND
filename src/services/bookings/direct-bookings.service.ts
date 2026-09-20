@@ -3,6 +3,7 @@ import { safeEmit } from "../../lib/socket";
 import { assertDistinctAccounts } from "../../utils/security";
 import { sendMessage } from "../messages.service";
 import { refundBookingPayment } from "../payment-refund.service";
+import { lockBookingLifecycle } from "../booking-lifecycle.service";
 // ── Cash Direct Request (no queue) ────────────────────────────────────────────
 
 export async function createDirectRequest(params: {
@@ -193,6 +194,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
 
   if (accept) {
     const booking = await prisma.$transaction(async (tx) => {
+      if (targetBooking) await lockBookingLifecycle(tx, targetBooking.id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
       const provider = await tx.user.findUnique({
         where: { id: providerId },
@@ -296,6 +298,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      if (targetBooking) await lockBookingLifecycle(tx, targetBooking.id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
       if (directRequest) {
         const freshRequest = await tx.directRequest.findUnique({ where: { id: directRequest.id }, select: { status: true } });
@@ -306,7 +309,8 @@ export async function respondToDirectBookingService(requestId: string, providerI
         }
       }
       if (targetBooking) {
-        const freshBooking = await tx.booking.findUnique({ where: { id: targetBooking.id }, select: { status: true } });
+        const freshBooking = await tx.booking.findUnique({ where: { id: targetBooking.id } });
+        if (hasHeldOnlinePayment && freshBooking?.status === "CANCELED") return freshBooking;
         if (freshBooking?.status !== "PENDING_APPROVAL") {
           const err = new Error("This booking request has already been processed") as any;
           err.status = 409;
@@ -401,9 +405,16 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
   }
 
   const booking = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`offer-selection:${offerId}`}))`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${offer.requestId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`offer-selection:${offerId}`}))`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-booking:${seekerId}:${offer.serviceId}`}))`;
+
+    const freshOffer = await tx.offer.findUnique({ where: { id: offerId }, include: { request: true } });
+    if (!freshOffer || freshOffer.status !== "PENDING" || freshOffer.request.status !== "OPEN" || freshOffer.request.seekerId !== seekerId) {
+      const err = new Error("This offer is no longer available") as any;
+      err.status = 409;
+      throw err;
+    }
 
     const activeBooking = await tx.booking.findFirst({
       where: {
@@ -447,7 +458,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
     }
 
     const selected = await tx.offer.updateMany({
-      where: { id: offerId, status: "PENDING" },
+      where: { id: offerId, status: "PENDING", request: { status: "OPEN" } },
       data: { status: "ACCEPTED" },
     });
     if (selected.count !== 1) {
@@ -460,14 +471,21 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
       where: {
         requestId: offer.requestId,
         id: { not: offerId },
+        status: "PENDING",
       },
       data: { status: "REJECTED" },
     });
 
-    await tx.serviceRequest.update({
-      where: { id: offer.requestId },
+    const requestWon = await tx.serviceRequest.updateMany({
+      where: { id: offer.requestId, status: "OPEN" },
       data: { status: "IN_PROGRESS" },
     });
+    if (requestWon.count !== 1) {
+      const err = new Error("Another offer has already been selected") as any;
+      err.status = 409;
+      err.code = "REQUEST_ALREADY_SELECTED";
+      throw err;
+    }
 
     return tx.booking.create({
       data: {

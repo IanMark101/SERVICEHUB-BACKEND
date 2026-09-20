@@ -22,6 +22,7 @@ At minimum, confirm the following values:
 
 ```env
 DATABASE_URL=your_neon_postgresql_connection_string
+DIRECT_URL=your_neon_direct_connection_string
 JWT_ACCESS_SECRET=use_a_long_random_secret
 JWT_REFRESH_SECRET=use_a_different_long_random_secret
 FRONTEND_URL=http://localhost:3000
@@ -30,6 +31,12 @@ PAYMONGO_PUBLIC_KEY=your_test_public_key
 PAYMONGO_SECRET_KEY=your_test_secret_key
 PAYMONGO_WEBHOOK_SECRET=your_webhook_secret
 ```
+
+For Neon, `DATABASE_URL` is the pooled application URL whose hostname contains
+`-pooler`. `DIRECT_URL` is the connection string copied from Neon with
+**Connection pooling disabled**. Prisma migration and other CLI commands use
+`DIRECT_URL`; the running backend continues to use `DATABASE_URL`. Do not guess
+or manually edit the direct hostname.
 
 Keep the existing Cloudinary and SMTP variables when uploads and email delivery are required.
 
@@ -102,10 +109,20 @@ docker compose up --build -d
 
 ## Run a fresh migration check manually
 
-The default startup already runs `prisma migrate deploy`. To rerun it explicitly:
+The default startup already rebuilds the migration image and runs
+`prisma migrate deploy`. To rerun it explicitly after migration changes:
 
 ```powershell
+docker compose build migrate
 docker compose run --rm migrate
+```
+
+For a non-mutating connectivity and migration-history check, override the
+service command:
+
+```powershell
+docker compose build migrate
+docker compose run --rm migrate npx prisma migrate status
 ```
 
 ## PayMongo webhooks during local testing

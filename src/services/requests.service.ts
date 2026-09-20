@@ -139,27 +139,45 @@ export async function updateRequest(requestId: string, seekerId: string, params:
 }
 
 export async function cancelRequest(requestId: string, seekerId: string) {
-  const request = await prisma.serviceRequest.findFirst({
-    where: { id: requestId, seekerId },
-  });
-
-  if (!request) {
-    const err = new Error("Request not found or access denied") as any;
-    err.status = 404;
-    throw err;
-  }
-
-  if (request.status !== "OPEN") {
-    const err = new Error("Only an open unmatched request can be cancelled directly") as any;
-    err.status = 409;
-    throw err;
-  }
-
   return prisma.$transaction(async (tx) => {
-    await tx.offer.updateMany({ where: { requestId, status: "PENDING" }, data: { status: "REJECTED" } });
-    return tx.serviceRequest.update({
-      where: { id: requestId },
-      data: { status: "CANCELED" },
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${requestId}`}))`;
+    const request = await tx.serviceRequest.findFirst({ where: { id: requestId, seekerId } });
+    if (!request) {
+      const err = new Error("Request not found or access denied") as any;
+      err.status = 404;
+      throw err;
+    }
+    if (request.status !== "OPEN") {
+      const err = new Error("Only an open unmatched request can be cancelled directly") as any;
+      err.status = 409;
+      throw err;
+    }
+
+    const offers = await tx.offer.findMany({ where: { requestId }, select: { id: true } });
+    const offerIds = offers.map((offer) => offer.id);
+    const activeBooking = await tx.booking.findFirst({
+      where: { offerId: { in: offerIds }, status: { notIn: ["DECLINED", "CANCELED", "REMOVED"] } },
+      select: { id: true },
     });
+    const activePaymentAttempt = offerIds.length === 0 ? null : await tx.paymentAttempt.findFirst({
+      where: { offerId: { in: offerIds }, status: { in: ["PENDING", "SUCCEEDED"] } },
+      select: { id: true },
+    });
+    if (activeBooking || activePaymentAttempt) {
+      const err = new Error("This request already has a selected, paid, or matched offer") as any;
+      err.status = 409;
+      err.code = "REQUEST_ALREADY_MATCHED";
+      throw err;
+    }
+
+    const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: "OPEN" }, data: { status: "CANCELED" } });
+    if (changed.count !== 1) {
+      const err = new Error("The request changed before cancellation could be committed") as any;
+      err.status = 409;
+      err.code = "REQUEST_STATE_CHANGED";
+      throw err;
+    }
+    await tx.offer.updateMany({ where: { requestId, status: "PENDING" }, data: { status: "REJECTED" } });
+    return tx.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   });
 }

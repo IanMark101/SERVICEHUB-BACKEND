@@ -63,9 +63,9 @@ export async function joinWaitlist(serviceId: string, seekerId: string) {
       throw error;
     }
 
-    const ongoingCount = await tx.booking.count({ where: { serviceId, status: "ONGOING" } });
+    const servingCount = await tx.queue.count({ where: { serviceId, status: "SERVING" } });
     const waitingCount = await tx.queue.count({ where: { serviceId, status: "WAITING" } });
-    if (ongoingCount + waitingCount < service.queueLimit) {
+    if (servingCount + waitingCount < service.queueLimit) {
       const error = new Error("A queue slot is currently available; start the online payment flow instead") as Error & {
         status?: number;
         code?: string;

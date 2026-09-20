@@ -25,7 +25,7 @@ export async function listEscalatedCancellations(req: Request, res: Response, ne
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
-    const where = { status: "ESCALATED" };
+    const where = { status: { in: ["ESCALATED", "UNDER_REVIEW"] } };
     const [items, total] = await Promise.all([prisma.cancellationRequest.findMany({
       where,
       include: {

@@ -132,7 +132,7 @@ export const PrivateEvidenceAccessSchema = z.object({
 export const CancellationRequestSchema = z.object({ reason: Text(1_000).min(3) }).strict();
 export const CompletionEscalationSchema = z.object({ reason: Text(1_000).min(10) }).strict();
 export const AdminCompletionEscalationResolutionSchema = z.object({
-  action: z.enum(["release_provider_and_complete", "keep_awaiting", "dismiss"]),
+  action: z.enum(["release_provider_and_complete", "refund_seeker", "keep_awaiting"]),
   resolution: Text(2_000).min(3),
 }).strict();
 export const CancellationResponseSchema = z.object({
@@ -160,7 +160,8 @@ export const TrustAdjustmentSchema = z.object({
   reason: Text(500).min(3),
 }).strict();
 export const ReportResolutionSchema = z.object({
-  action: z.enum(["warn", "trust_deduct", "suspend", "ban", "approve_refund", "release_provider_and_complete", "dismiss"]),
+  outcome: z.enum(["dismiss", "cancel_booking", "release_provider_and_complete"]),
+  penaltyAction: z.enum(["none", "warn", "trust_deduct", "suspend", "ban"]).default("none"),
   adminNotes: Text(2_000).min(3),
 }).strict();
 export const SuspendUserSchema = z.object({

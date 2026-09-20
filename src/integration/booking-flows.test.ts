@@ -7,6 +7,7 @@ import { providerStartJob } from "../services/bookings/provider-operations.servi
 import { expireStalePaymentAttempts, finalizeSuccessfulPayment, markPaymentAttemptFailed, refundCapturedAttempt } from "../services/payment-attempt.service";
 import { resolveAdminReport } from "../services/admin-report.service";
 import { requestCancellation } from "../services/cancellation.service";
+import { cancelRequest } from "../services/requests.service";
 
 test("defense-critical cash, paid queue, and completion flows", async (t) => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -43,7 +44,8 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   const offerCashService = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: `Offer cash ${suffix}`, titleNormalized: `offer cash ${suffix}`.toLowerCase(), description: "Integration offer cash service", price: 650, priceType: "STARTS_AT", serviceType: "ONE_TIME", estimatedDurationMins: 30, queueLimit: 3, paymentMethods: { cash: true, gcash: false }, status: "ACTIVE", isAvailable: true } });
   const queueService = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: `Queue ${suffix}`, titleNormalized: `queue ${suffix}`.toLowerCase(), description: "Integration queue service", price: 700, priceType: "FIXED", serviceType: "ONE_TIME", estimatedDurationMins: 45, queueLimit: 3, paymentMethods: { cash: true, gcash: true }, status: "ACTIVE", isAvailable: true } });
   const capacityService = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: `Capacity ${suffix}`, titleNormalized: `capacity ${suffix}`.toLowerCase(), description: "Integration capacity service", price: 800, priceType: "FIXED", serviceType: "ONE_TIME", estimatedDurationMins: 45, queueLimit: 1, paymentMethods: { cash: false, gcash: true }, status: "ACTIVE", isAvailable: true } });
-  tracked.services.push(cashService.id, offerCashService.id, queueService.id, capacityService.id);
+  const requestRaceService = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: `Request race ${suffix}`, titleNormalized: `request race ${suffix}`.toLowerCase(), description: "Request cancellation race service", price: 725, priceType: "FIXED", serviceType: "ONE_TIME", estimatedDurationMins: 45, queueLimit: 3, paymentMethods: { cash: true, gcash: true }, status: "ACTIVE", isAvailable: true } });
+  tracked.services.push(cashService.id, offerCashService.id, queueService.id, capacityService.id, requestRaceService.id);
 
   await assert.rejects(
     createDirectRequest({ seekerId: provider.id, providerId: provider.id, serviceId: cashService.id }),
@@ -79,6 +81,61 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   assert.equal(await prisma.queue.count({ where: { bookingId: flowBCash.id } }), 0);
   assert.equal((await prisma.offer.findUniqueOrThrow({ where: { id: sibling.id } })).status, "REJECTED");
   assert.equal((await prisma.serviceRequest.findUniqueOrThrow({ where: { id: request.id } })).status, "IN_PROGRESS");
+
+  // C3 regression: two concurrent cash selections for sibling offers share the
+  // request lock. Exactly one can create a booking and the loser is rejected.
+  const competingRequest = await prisma.serviceRequest.create({ data: { seekerId: secondSeeker.id, categoryId: category.id, title: `Competing ${suffix}`, description: "Concurrent sibling selection case", budgetMin: 500, budgetMax: 900, urgency: "medium" } });
+  const competingOfferA = await prisma.offer.create({ data: { requestId: competingRequest.id, providerId: provider.id, serviceId: cashService.id, offeredPrice: 600, estimatedDuration: 60 } });
+  const competingOfferB = await prisma.offer.create({ data: { requestId: competingRequest.id, providerId: provider.id, serviceId: offerCashService.id, offeredPrice: 700, estimatedDuration: 60 } });
+  const competingResults = await Promise.allSettled([
+    createDirectFromOfferService(competingOfferA.id, secondSeeker.id),
+    createDirectFromOfferService(competingOfferB.id, secondSeeker.id),
+  ]);
+  assert.equal(competingResults.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(competingResults.filter((result) => result.status === "rejected").length, 1);
+  assert.equal(await prisma.offer.count({ where: { requestId: competingRequest.id, status: "ACCEPTED" } }), 1);
+  assert.equal(await prisma.offer.count({ where: { requestId: competingRequest.id, status: "REJECTED" } }), 1);
+  assert.equal((await prisma.serviceRequest.findUniqueOrThrow({ where: { id: competingRequest.id } })).status, "IN_PROGRESS");
+  const competingWinner = competingResults.find((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof createDirectFromOfferService>>> => result.status === "fulfilled");
+  assert.ok(competingWinner);
+  await requestCancellation(competingWinner.value.id, secondSeeker.id, "Integration cleanup after concurrency assertion.");
+
+  // Re-audit Flow B: cash selection and request cancellation share request
+  // coordination. Exactly one terminal decision can commit.
+  const cancelRaceRequest = await prisma.serviceRequest.create({ data: { seekerId: secondSeeker.id, categoryId: category.id, title: `Cancel race ${suffix}`, description: "Cash selection versus cancellation", budgetMin: 500, budgetMax: 900, urgency: "medium" } });
+  const cancelRaceOffer = await prisma.offer.create({ data: { requestId: cancelRaceRequest.id, providerId: provider.id, serviceId: requestRaceService.id, offeredPrice: 725, estimatedDuration: 60 } });
+  const cancelRace = await Promise.allSettled([
+    createDirectFromOfferService(cancelRaceOffer.id, secondSeeker.id),
+    cancelRequest(cancelRaceRequest.id, secondSeeker.id),
+  ]);
+  assert.equal(cancelRace.filter((result) => result.status === "fulfilled").length, 1);
+  const cancelRaceState = await prisma.serviceRequest.findUniqueOrThrow({ where: { id: cancelRaceRequest.id } });
+  assert.ok(["IN_PROGRESS", "CANCELED"].includes(cancelRaceState.status));
+  assert.equal(await prisma.booking.count({ where: { offerId: cancelRaceOffer.id } }), cancelRaceState.status === "IN_PROGRESS" ? 1 : 0);
+
+  // A successful captured hold cannot be overwritten by cancellation.
+  const capturedRequest = await prisma.serviceRequest.create({ data: { seekerId: seeker.id, categoryId: category.id, title: `Captured race ${suffix}`, description: "Capture finalization versus cancellation", budgetMin: 500, budgetMax: 900, urgency: "medium", status: "PAYMENT_PENDING" } });
+  const capturedOffer = await prisma.offer.create({ data: { requestId: capturedRequest.id, providerId: provider.id, serviceId: requestRaceService.id, offeredPrice: 725, estimatedDuration: 60, status: "PENDING_PAYMENT", paymentHoldExpiresAt: new Date(Date.now() + 60_000) } });
+  const capturedAttempt = await prisma.paymentAttempt.create({ data: { idempotencyKey: `captured-race-${suffix}`, seekerId: seeker.id, providerId: provider.id, serviceId: requestRaceService.id, offerId: capturedOffer.id, providerIntentId: `pi_captured_race_${suffix}`, amount: 725, paymentMethod: "gcash", expiresAt: new Date(Date.now() + 60_000) } });
+  const captureRace = await Promise.allSettled([
+    finalizeSuccessfulPayment({ paymentIntentId: `pi_captured_race_${suffix}`, paymentId: `pay_captured_race_${suffix}`, amount: 725, currency: "PHP", metadata: { servicehub_attempt_id: capturedAttempt.id, servicehub_seeker_id: seeker.id, servicehub_service_id: requestRaceService.id, servicehub_offer_id: capturedOffer.id, servicehub_expected_amount: "725.00", servicehub_payment_method: "gcash" } }),
+    cancelRequest(capturedRequest.id, seeker.id),
+  ]);
+  assert.equal(captureRace[0].status, "fulfilled");
+  assert.equal(captureRace[1].status, "rejected");
+  assert.equal((await prisma.serviceRequest.findUniqueOrThrow({ where: { id: capturedRequest.id } })).status, "IN_PROGRESS");
+  assert.equal(await prisma.booking.count({ where: { paymentAttemptId: capturedAttempt.id } }), 1);
+
+  // If cancellation wins before a late capture, finalization creates no
+  // booking and records explicit refund reconciliation instead.
+  const lateRequest = await prisma.serviceRequest.create({ data: { seekerId: secondSeeker.id, categoryId: category.id, title: `Late capture ${suffix}`, description: "Capture arrives after cancellation", budgetMin: 500, budgetMax: 900, urgency: "medium" } });
+  const lateOffer = await prisma.offer.create({ data: { requestId: lateRequest.id, providerId: provider.id, serviceId: requestRaceService.id, offeredPrice: 725, estimatedDuration: 60 } });
+  await cancelRequest(lateRequest.id, secondSeeker.id);
+  const lateAttempt = await prisma.paymentAttempt.create({ data: { idempotencyKey: `late-capture-${suffix}`, seekerId: secondSeeker.id, providerId: provider.id, serviceId: requestRaceService.id, offerId: lateOffer.id, providerIntentId: `pi_late_capture_${suffix}`, amount: 725, paymentMethod: "gcash", expiresAt: new Date(Date.now() + 60_000) } });
+  const lateCapture = await finalizeSuccessfulPayment({ paymentIntentId: `pi_late_capture_${suffix}`, paymentId: `pay_late_capture_${suffix}`, amount: 725, currency: "PHP", metadata: { servicehub_attempt_id: lateAttempt.id, servicehub_seeker_id: secondSeeker.id, servicehub_service_id: requestRaceService.id, servicehub_offer_id: lateOffer.id, servicehub_expected_amount: "725.00", servicehub_payment_method: "gcash" } });
+  assert.equal(lateCapture.refundRequired, true);
+  assert.equal(await prisma.booking.count({ where: { paymentAttemptId: lateAttempt.id } }), 0);
+  assert.equal((await prisma.paymentAttempt.findUniqueOrThrow({ where: { id: lateAttempt.id } })).status, "REFUND_REQUIRED");
 
   // An abandoned Flow B checkout releases its exact offer and request hold.
   const expiringRequest = await prisma.serviceRequest.create({ data: { seekerId: secondSeeker.id, categoryId: category.id, title: `Expiring ${suffix}`, description: "Integration expiring payment request", budgetMin: 500, budgetMax: 900, urgency: "medium", status: "PAYMENT_PENDING" } });
@@ -210,10 +267,10 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
 
   const suspensionReport = await prisma.report.create({ data: { bookingId: capacityBlocker.id, reporterId: seeker.id, reportedUserId: provider.id, reason: "NO_SHOW", description: "Administrative suspension guard integration case." } });
   await assert.rejects(
-    resolveAdminReport(suspensionReport.id, admin.id, "suspend", "Temporary suspension requested by integration test."),
+    resolveAdminReport(suspensionReport.id, admin.id, "dismiss", "Temporary suspension requested by integration test.", "suspend"),
     /Resolve or administratively cancel/i,
   );
-  assert.equal((await prisma.report.findUniqueOrThrow({ where: { id: suspensionReport.id } })).status, "PENDING");
+  assert.equal((await prisma.report.findUniqueOrThrow({ where: { id: suspensionReport.id } })).status, "UNDER_REVIEW");
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: provider.id } })).moderationStatus, "ACTIVE");
 
   // Administrator dispute release is a real database transition, is audited,
@@ -228,5 +285,7 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: disputedBooking.id } })).status, "COMPLETED");
   assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: disputedBooking.id } })).paymentStatus, "CASH_CONFIRMED");
   assert.equal(await prisma.adminAuditLog.count({ where: { actorId: admin.id, resourceId: report.id, action: "REPORT_RELEASE_PROVIDER_AND_COMPLETE" } }), 1);
-  await assert.rejects(resolveAdminReport(report.id, admin.id, "release_provider_and_complete", "Duplicate resolution attempt."), /already been resolved/i);
+  const repeatedAdminResolution = await resolveAdminReport(report.id, admin.id, "release_provider_and_complete", "Response was lost; return the established decision.");
+  assert.deepEqual(repeatedAdminResolution, adminResolution);
+  assert.equal(await prisma.adminAuditLog.count({ where: { actorId: admin.id, resourceId: report.id, action: "REPORT_RELEASE_PROVIDER_AND_COMPLETE" } }), 1);
 });

@@ -27,8 +27,9 @@ test("category management requires an explicit change and audit reason", () => {
 });
 
 test("report resolution always records an administrator rationale", () => {
-  assert.equal(ReportResolutionSchema.safeParse({ action: "dismiss" }).success, false);
-  assert.equal(ReportResolutionSchema.safeParse({ action: "approve_refund", adminNotes: "Evidence supports a full refund." }).success, true);
+  assert.equal(ReportResolutionSchema.safeParse({ outcome: "dismiss" }).success, false);
+  assert.equal(ReportResolutionSchema.safeParse({ outcome: "cancel_booking", penaltyAction: "trust_deduct", adminNotes: "Evidence supports cancellation." }).success, true);
+  assert.equal(ReportResolutionSchema.safeParse({ outcome: "trust_deduct", adminNotes: "Penalty without outcome." }).success, false);
 });
 
 test("trust changes cannot be zero or anonymous", () => {

@@ -257,16 +257,16 @@ model User {
   categorySuggestions CategorySuggested[]
 
   // Trust Score audit log
-  trustScoreEvents      TrustScoreEvent[]
-  adminActionsAuthored  AdminAuditLog[]       @relation("AdminAuditActor")
-  adminActionsReceived  AdminAuditLog[]       @relation("AdminAuditTarget")
-  trustEventsAuthored   TrustScoreEvent[]     @relation("TrustEventAdmin")
-  reportsResolved       Report[]              @relation("ReportAdmin")
-  servicesReviewed      Service[]             @relation("ServiceReviewer")
-  categoriesReviewed    CategorySuggested[]   @relation("CategoryReviewer")
-  cancellationsResolved CancellationRequest[] @relation("CancellationAdmin")
-  cancellationResponses CancellationRequest[] @relation("CancellationResponder")
-  refundsRequested      PaymentRefund[]       @relation("RefundAdmin")
+  trustScoreEvents       TrustScoreEvent[]
+  adminActionsAuthored   AdminAuditLog[]         @relation("AdminAuditActor")
+  adminActionsReceived   AdminAuditLog[]         @relation("AdminAuditTarget")
+  trustEventsAuthored    TrustScoreEvent[]       @relation("TrustEventAdmin")
+  reportsResolved        Report[]                @relation("ReportAdmin")
+  servicesReviewed       Service[]               @relation("ServiceReviewer")
+  categoriesReviewed     CategorySuggested[]     @relation("CategoryReviewer")
+  cancellationsResolved  CancellationRequest[]   @relation("CancellationAdmin")
+  cancellationResponses  CancellationRequest[]   @relation("CancellationResponder")
+  refundsRequested       PaymentRefund[]         @relation("RefundAdmin")
   accountDeletionRequest AccountDeletionRequest?
 
   @@map("users")
@@ -320,7 +320,7 @@ model ServiceVerification {
   reviewedAt            DateTime?
   adminId               String?
   admin                 User?              @relation("AdminReviewer", fields: [adminId], references: [id])
-  adminNotes             String?
+  adminNotes            String?
   privacyNoticeVersion  String
   privacyAcknowledgedAt DateTime
   privacyAcknowledgedBy String
@@ -571,12 +571,13 @@ model Booking {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  queue                Queue?
-  completedService     CompletedService?
-  messages             Message[]
-  reports              Report[]
-  cancellationRequests CancellationRequest[]
-  refund               PaymentRefund?
+  queue                 Queue?
+  completedService      CompletedService?
+  messages              Message[]
+  reports               Report[]
+  cancellationRequests  CancellationRequest[]
+  completionEscalations CompletionEscalation[]
+  refund                PaymentRefund?
 
   // The database migration also enforces one ONGOING booking per provider.
   @@index([providerId, status])
@@ -647,24 +648,26 @@ model Review {
 // ─────────────────────────────────────────────
 
 model Report {
-  id             String       @id @default(cuid())
-  bookingId      String
-  booking        Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  reporterId     String
-  reporter       User         @relation("ReporterReports", fields: [reporterId], references: [id])
-  reportedUserId String
-  reportedUser   User         @relation("ReportedUserReports", fields: [reportedUserId], references: [id])
-  reason         ReportReason
-  description    String
-  evidenceUrl    String?
-  evidenceStorageKey String?
-  reportType     String       @default("SAFETY")
-  status         ReportStatus @default(PENDING)
-  adminId        String?
-  admin          User?        @relation("ReportAdmin", fields: [adminId], references: [id], onDelete: SetNull)
-  adminNotes     String?
-  resolvedAt     DateTime?
-  createdAt      DateTime     @default(now())
+  id                  String               @id @default(cuid())
+  bookingId           String
+  booking             Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reporterId          String
+  reporter            User                 @relation("ReporterReports", fields: [reporterId], references: [id])
+  reportedUserId      String
+  reportedUser        User                 @relation("ReportedUserReports", fields: [reportedUserId], references: [id])
+  reason              ReportReason
+  description         String
+  evidenceUrl         String?
+  evidenceStorageKey  String?
+  reportType          String               @default("SAFETY")
+  dedupeKey           String?
+  status              ReportStatus         @default(PENDING)
+  adminId             String?
+  admin               User?                @relation("ReportAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  adminNotes          String?
+  resolvedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  cancellationRequest CancellationRequest?
 
   @@map("reports")
 }
@@ -772,33 +775,36 @@ model TrustScoreEvent {
 // ─────────────────────────────────────────────
 
 model AiReviewSummary {
-  id          String   @id @default(cuid())
-  providerId  String   @unique
-  summary     String
-  reviewCount Int // how many reviews were in the batch
+  id             String   @id @default(cuid())
+  providerId     String   @unique
+  summary        String
+  reviewCount    Int // how many reviews were in the batch
   contentVersion String
-  source      String   @default("computed")
-  generatedAt DateTime @default(now())
+  source         String   @default("computed")
+  generatedAt    DateTime @default(now())
 
   @@map("ai_review_summaries")
 }
 
 model CancellationRequest {
-  id            String    @id @default(cuid())
-  bookingId     String
-  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  requestedBy   String
-  responderId   String?
-  responder     User?     @relation("CancellationResponder", fields: [responderId], references: [id], onDelete: SetNull)
-  reason        String?
-  status        String // "PENDING" | "APPROVED" | "DECLINED" | "ESCALATED" | "RESOLVED"
-  providerNote  String?
-  responderNote String?
-  adminNote     String?
-  adminId       String?
-  admin         User?     @relation("CancellationAdmin", fields: [adminId], references: [id], onDelete: SetNull)
-  createdAt     DateTime  @default(now())
-  resolvedAt    DateTime?
+  id                String    @id @default(cuid())
+  bookingId         String
+  booking           Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  requestedBy       String
+  responderId       String?
+  responder         User?     @relation("CancellationResponder", fields: [responderId], references: [id], onDelete: SetNull)
+  reason            String?
+  status            String // "PENDING" | "APPROVED" | "DECLINED" | "ESCALATED" | "RESOLVED"
+  providerNote      String?
+  responderNote     String?
+  adminNote         String?
+  adminId           String?
+  admin             User?     @relation("CancellationAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  reportId          String?   @unique
+  report            Report?   @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  resolutionOutcome String?
+  createdAt         DateTime  @default(now())
+  resolvedAt        DateTime?
 
   @@index([responderId, status])
   @@map("cancellation_requests")
@@ -903,6 +909,7 @@ model ProcessedWebhookEvent {
 model CompletionEscalation {
   id          String    @id @default(cuid())
   bookingId   String
+  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   requestedBy String
   reason      String
   status      String    @default("PENDING")
@@ -914,4 +921,31 @@ model CompletionEscalation {
   @@index([bookingId, status])
   @@index([status, createdAt])
   @@map("completion_escalations")
+}
+
+/// Durable checkpoint for an administrator decision whose financial effect may
+/// cross the database/PayMongo boundary. The operationKey is stable per case,
+/// so retries resume the same decision instead of starting a second effect.
+model AdminResolutionOperation {
+  id                 String    @id @default(cuid())
+  operationKey       String    @unique
+  caseType           String
+  caseId             String
+  bookingId          String
+  requestedByAdminId String
+  requestedOutcome   String
+  requestedPenalty   String?
+  notes              String
+  status             String    @default("PROCESSING")
+  stage              String    @default("CLAIMED")
+  lastError          String?
+  result             Json?
+  startedAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  completedAt        DateTime?
+
+  @@unique([caseType, caseId])
+  @@index([status, updatedAt])
+  @@index([bookingId, status])
+  @@map("admin_resolution_operations")
 }

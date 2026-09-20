@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { safeEmit } from "../../lib/socket";
 import { sendMessage } from "../messages.service";
 import { lockServiceQueue, recalculateQueueInTransaction } from "../queue.service";
+import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifecycle.service";
 
 export async function providerStartJob(id: string, providerId: string) {
   const result = await prisma.$transaction(async (tx) => {
@@ -23,7 +24,20 @@ export async function providerStartJob(id: string, providerId: string) {
       throw error;
     }
 
+    await lockBookingLifecycle(tx, booking.id);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-start:${providerId}`}))`;
+    const fresh = await tx.booking.findUnique({
+      where: { id: booking.id },
+      include: { queue: true },
+    });
+    if (!fresh || fresh.providerId !== providerId) {
+      const error = new Error("Booking or queue entry not found or access denied") as Error & { status?: number };
+      error.status = 404;
+      throw error;
+    }
+    booking = fresh;
+    queueEntry = fresh.queue;
+    await assertNoRefundInProgress(tx, booking.id);
     const provider = await tx.user.findUnique({
       where: { id: providerId },
       select: { isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true },
@@ -43,14 +57,22 @@ export async function providerStartJob(id: string, providerId: string) {
       error.code = "START_JOB_NOT_ALLOWED";
       throw error;
     }
-    if (booking.status !== "ACCEPTED") {
+    if (booking.status !== "ACCEPTED" || booking.started) {
       const error = new Error("Only an accepted booking can be started.") as Error & { status?: number };
       error.status = 400;
       throw error;
     }
 
     const otherOngoing = await tx.booking.count({
-      where: { providerId, status: "ONGOING", id: { not: booking.id } },
+      where: {
+        providerId,
+        id: { not: booking.id },
+        OR: [
+          { status: "ONGOING" },
+          { started: true, paymentMethod: "On-site Cash", status: { in: ["DISPUTED", "UNDER_REVIEW"] } },
+          { queue: { is: { status: "SERVING" } } },
+        ],
+      },
     });
     if (otherOngoing > 0) {
       const error = new Error("Finish your current ongoing job before starting another one") as Error & {
@@ -69,10 +91,10 @@ export async function providerStartJob(id: string, providerId: string) {
         orderBy: { position: "asc" },
         select: { id: true },
       });
-      const ongoing = await tx.booking.count({
-        where: { serviceId: queueEntry.serviceId, status: "ONGOING" },
+      const serving = await tx.queue.count({
+        where: { serviceId: queueEntry.serviceId, status: "SERVING" },
       });
-      if (firstWaiting?.id !== queueEntry.id || ongoing > 0) {
+      if (firstWaiting?.id !== queueEntry.id || serving > 0) {
         const error = new Error("Start the first waiting booking after the current job is completed.") as Error & {
           status?: number;
         };
@@ -86,7 +108,7 @@ export async function providerStartJob(id: string, providerId: string) {
     }
 
     const updatedBooking = await tx.booking.update({
-      where: { id: booking.id },
+      where: { id: booking.id, status: "ACCEPTED", started: false },
       data: {
         status: "ONGOING",
         started: true,

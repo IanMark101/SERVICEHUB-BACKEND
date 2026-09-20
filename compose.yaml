@@ -6,6 +6,9 @@ services:
       context: .
       dockerfile: Dockerfile
       target: build
+    # Always rebuild this short-lived image before it is run. This prevents a
+    # manual `docker compose run migrate` from using an older migration set.
+    pull_policy: build
     env_file:
       - .env
     command: ["npx", "prisma", "migrate", "deploy"]

@@ -164,11 +164,9 @@ export async function loginUser(input: LoginInput): Promise<{ user: AuthUser; to
 
 // ── Refresh Token ─────────────────────────────────────────────────────────────
 
-export async function refreshAccessToken(incomingRefreshToken: string): Promise<AuthTokens> {
-  // Verify the token is signed correctly first
-  let payload: any;
+async function resolveRefreshTokenUser(incomingRefreshToken: string) {
   try {
-    payload = jwt.verify(incomingRefreshToken, env.JWT_REFRESH_SECRET);
+    jwt.verify(incomingRefreshToken, env.JWT_REFRESH_SECRET);
   } catch {
     const err = new Error("Invalid or expired refresh token") as any;
     err.status = 401;
@@ -190,6 +188,22 @@ export async function refreshAccessToken(incomingRefreshToken: string): Promise<
     err.status = 401;
     throw err;
   }
+
+  return { tokenHash, user };
+}
+
+/**
+ * Recover an access token without consuming the refresh token. This is used
+ * only for initial page boot, where repeated browser reloads can abandon an
+ * earlier response before its rotated cookie is committed.
+ */
+export async function recoverAccessToken(incomingRefreshToken: string): Promise<string> {
+  const { user } = await resolveRefreshTokenUser(incomingRefreshToken);
+  return signAccessToken(user.id, user.role);
+}
+
+export async function refreshAccessToken(incomingRefreshToken: string): Promise<AuthTokens> {
+  const { tokenHash, user } = await resolveRefreshTokenUser(incomingRefreshToken);
 
   // Rotate: delete old, issue new pair (deleteMany prevents P2025 on concurrent calls)
   const deleted = await prisma.refreshToken.deleteMany({ where: { token: tokenHash } });

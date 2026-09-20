@@ -6,6 +6,7 @@ import {
   notifyWaitlistInTransaction,
   recalculateQueueInTransaction,
 } from "./queue.service";
+import { lockBookingLifecycle } from "./booking-lifecycle.service";
 
 type RefundResult = {
   refundId: string;
@@ -30,15 +31,15 @@ export async function refundBookingPayment(
   requestedById: string,
   reason: string,
 ): Promise<RefundResult> {
-  const booking = await prisma.booking.findUnique({
+  const initialBooking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { queue: true },
   });
-  if (!booking) throw httpError("Booking not found", 404);
-  if (!booking.queue) throw httpError("This booking has no online payment to refund", 409);
+  if (!initialBooking) throw httpError("Booking not found", 404);
+  if (!initialBooking.queue) throw httpError("This booking has no online payment to refund", 409);
 
   const existing = await prisma.paymentRefund.findUnique({ where: { bookingId } });
-  if (existing?.paymongoRefundId) {
+  if (existing?.paymongoRefundId && initialBooking.status === "CANCELED" && initialBooking.paymentStatus === "REFUNDED") {
     return {
       refundId: existing.paymongoRefundId,
       status: existing.status,
@@ -46,26 +47,38 @@ export async function refundBookingPayment(
       alreadySubmitted: true,
     };
   }
-  if (existing?.status === "PROCESSING") {
-    throw httpError("A refund for this booking is already being processed", 409);
-  }
-  if (!["PAID_HELD", "FROZEN_HELD"].includes(booking.paymentStatus)) {
+  if (!existing?.paymongoRefundId && !["PAID_HELD", "FROZEN_HELD"].includes(initialBooking.paymentStatus)) {
     throw httpError("Only a held online payment can be refunded", 409);
   }
 
-  const intent = await getPaymentIntent(booking.queue.paymentId);
-  const paymentId = booking.queue.paymongoPaymentId || intent.paymentId;
+  const intent = await getPaymentIntent(initialBooking.queue.paymentId);
+  const paymentId = initialBooking.queue.paymongoPaymentId || intent.paymentId;
   if (!paymentId || intent.status !== "succeeded") {
     throw httpError("PayMongo did not confirm a refundable successful payment", 409);
   }
 
-  await prisma.$transaction(async (tx) => {
-    const current = await tx.paymentRefund.findUnique({ where: { bookingId } });
-    if (current?.paymongoRefundId || current?.status === "PROCESSING") {
-      throw httpError("A refund for this booking has already been submitted or is processing", 409);
+  const reservation = await prisma.$transaction(async (tx) => {
+    await lockBookingLifecycle(tx, bookingId);
+    const fresh = await tx.booking.findUnique({ where: { id: bookingId }, include: { queue: true, completedService: true } });
+    if (!fresh) throw httpError("Booking not found", 404);
+    if (fresh.completedService || fresh.status === "COMPLETED" || fresh.paymentStatus === "RELEASED" || fresh.paymentStatus === "CASH_CONFIRMED") {
+      throw httpError("A completed booking cannot be refunded", 409);
     }
+    const current = await tx.paymentRefund.findUnique({ where: { bookingId } });
+    if (current?.paymongoRefundId) {
+      return { resumed: true, refund: current, booking: fresh };
+    }
+    if (current?.status === "PROCESSING") {
+      // The provider call is idempotent by booking ID. Retrying a stranded
+      // PROCESSING reservation safely resumes the same external operation.
+      return { resumed: false, refund: current, booking: fresh };
+    }
+    if (!["PAID_HELD", "FROZEN_HELD"].includes(fresh.paymentStatus)) {
+      throw httpError("Only a held online payment can be refunded", 409);
+    }
+    let refundRecord;
     if (current) {
-      await tx.paymentRefund.update({
+      refundRecord = await tx.paymentRefund.update({
         where: { bookingId },
         data: {
           paymentId,
@@ -77,7 +90,7 @@ export async function refundBookingPayment(
         },
       });
     } else {
-      await tx.paymentRefund.create({
+      refundRecord = await tx.paymentRefund.create({
         data: {
           bookingId,
           paymentId,
@@ -88,29 +101,45 @@ export async function refundBookingPayment(
         },
       });
     }
+    return { resumed: false, refund: refundRecord, booking: fresh };
   });
 
-  let gatewayRefund: Awaited<ReturnType<typeof createRefund>>;
-  try {
-    gatewayRefund = await createRefund({
-      paymentId,
-      amount: intent.amount,
-      reason: "requested_by_customer",
-      idempotencyKey: `servicehub-booking-refund-${bookingId}`,
-    });
-  } catch (error) {
-    await prisma.paymentRefund.update({
-      where: { bookingId },
-      data: {
-        status: "FAILED",
-        failureReason: error instanceof Error ? error.message.slice(0, 1_000) : "PayMongo refund request failed",
-      },
-    });
-    throw error;
+  let gatewayRefund: Awaited<ReturnType<typeof createRefund>> | { id: string; status: string };
+  if (reservation.resumed && reservation.refund.paymongoRefundId) {
+    gatewayRefund = { id: reservation.refund.paymongoRefundId, status: reservation.refund.status };
+  } else {
+    try {
+      gatewayRefund = await createRefund({
+        paymentId,
+        amount: intent.amount,
+        reason: "requested_by_customer",
+        idempotencyKey: `servicehub-booking-refund-${bookingId}`,
+      });
+    } catch (error) {
+      await prisma.paymentRefund.update({
+        where: { bookingId },
+        data: {
+          status: "FAILED",
+          failureReason: error instanceof Error ? error.message.slice(0, 1_000) : "PayMongo refund request failed",
+        },
+      });
+      throw error;
+    }
   }
 
   const waitlistNotification = await prisma.$transaction(async (tx) => {
-    await lockServiceQueue(tx, booking.queue!.serviceId);
+    await lockBookingLifecycle(tx, bookingId);
+    const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { queue: true, completedService: true, offer: { select: { requestId: true } } } });
+    if (!booking || !booking.queue) throw httpError("Booking or online queue entry not found", 404);
+    if (booking.status === "CANCELED" && booking.paymentStatus === "REFUNDED") return null;
+    if (booking.completedService || booking.status === "COMPLETED" || !["PAID_HELD", "FROZEN_HELD"].includes(booking.paymentStatus)) {
+      throw httpError("Booking state changed before the refund could be finalized", 409);
+    }
+    const refundRecord = await tx.paymentRefund.findUnique({ where: { bookingId } });
+    if (!refundRecord || (!reservation.resumed && refundRecord.status !== "PROCESSING")) {
+      throw httpError("Refund reservation is no longer valid", 409);
+    }
+    await lockServiceQueue(tx, booking.queue.serviceId);
     await tx.paymentRefund.update({
       where: { bookingId },
       data: {
@@ -121,10 +150,10 @@ export async function refundBookingPayment(
     });
     await tx.booking.update({
       where: { id: bookingId },
-      data: { status: "CANCELED", paymentStatus: "REFUNDED" },
+      data: { status: "CANCELED", paymentStatus: "REFUNDED", statusBeforeDispute: null },
     });
     await tx.queue.update({
-      where: { id: booking.queue!.id },
+      where: { id: booking.queue.id },
       data: { status: "CANCELLED", paymentStatus: "REFUNDED" },
     });
     const transaction = await tx.transaction.findFirst({
@@ -145,8 +174,11 @@ export async function refundBookingPayment(
         },
       });
     }
-    await recalculateQueueInTransaction(tx, booking.queue!.serviceId);
-    return notifyWaitlistInTransaction(tx, booking.queue!.serviceId);
+    if (booking.offer?.requestId) {
+      await tx.serviceRequest.updateMany({ where: { id: booking.offer.requestId }, data: { status: "CANCELED" } });
+    }
+    await recalculateQueueInTransaction(tx, booking.queue.serviceId);
+    return notifyWaitlistInTransaction(tx, booking.queue.serviceId);
   });
   emitWaitlistNotification(waitlistNotification);
 
@@ -154,6 +186,6 @@ export async function refundBookingPayment(
     refundId: gatewayRefund.id,
     status: gatewayRefund.status,
     amount: intent.amount,
-    alreadySubmitted: false,
+    alreadySubmitted: reservation.resumed,
   };
 }
