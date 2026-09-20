@@ -11,6 +11,11 @@ services:
     pull_policy: build
     env_file:
       - .env
+    environment:
+      # Compose interpolation reads this value from SERVICEHUB-BACKEND/.env.
+      # Keeping it explicit also allows a one-off shell override during a
+      # read-only clean-machine verification.
+      DIRECT_URL: ${DIRECT_URL:-}
     command: ["npx", "prisma", "migrate", "deploy"]
     restart: "no"
 
