@@ -72,6 +72,29 @@ docker compose up -d app
 docker compose logs -f app
 ```
 
+## GitHub Actions deployment
+
+`.github/workflows/deploy.yaml` builds and pushes the backend image when `main`
+changes, then copies the server Compose file and `scripts/deploy.sh` to `/root`
+over SSH and runs the script. Pushes changing only `Docs/**` are skipped.
+
+Configure these repository secrets in GitHub Settings > Secrets and variables >
+Actions:
+
+- `DOCKERHUB_USERNAME`: `ianmark123`, matching the image in the server Compose file.
+- `DOCKERHUB_TOKEN`: a Docker Hub access token with push permission for that image.
+- `SSH_HOST`: the backend server's hostname or IP address.
+- `SSH_USER`: the SSH account with access to `/root` and permission to run Docker.
+- `SSH_PRIVATE_KEY`: the private key authorized for that SSH account.
+
+The server needs Docker with the Compose plugin and the environment file at
+`/root/env/servicehub-backend/.env` before the first deployment. If using another
+Docker Hub account, also update the image in `docker/docker-compose.yaml`.
+
+The deployment script validates Compose, pulls the image, and updates only the
+`app` service. A failed pull leaves the running container in place. Database
+migrations remain a separate release step as described below.
+
 ## Database migrations
 
 Building or starting the API does not apply database migrations. Run the pinned
