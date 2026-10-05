@@ -1,7 +1,10 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma";
 import { SALT_ROUNDS, toPublicUser } from "./authentication.service";
-import { safeEmit } from "../../lib/socket";
+import { disconnectUserSockets, safeEmit } from "../../lib/socket";
+import { lockAuthenticationSession } from "./session-lifecycle.service";
+import { lockAccountLifecycle } from "../account-lifecycle.service";
+import { StrongPasswordSchema } from "../../schema/password.schema";
 
 // ── Public & Edit Profile Services ───────────────────────────────────────────
 
@@ -151,7 +154,13 @@ export async function updateUserProfile(
     }
   }
 
-  const updatedUser = await prisma.user.update({
+  const updatedUser = await prisma.$transaction(async tx => {
+    await lockAccountLifecycle(tx, userId);
+    await lockAuthenticationSession(tx, userId);
+    const latest = await tx.user.findUnique({ where: { id: userId } });
+    if (!latest || !latest.isActive || latest.deactivatedAt) throw Object.assign(new Error("This account is no longer active."), { status: 403 });
+    if (isPhoneChanging && latest.passwordHash !== currentUser.passwordHash) throw Object.assign(new Error("Your password changed. Verify your current password again."), { status: 409 });
+    return tx.user.update({
     where: { id: userId },
     data: {
       ...(data.name !== undefined && { name: data.name }),
@@ -163,6 +172,7 @@ export async function updateUserProfile(
       ...(data.instagramUrl !== undefined && { instagramUrl: data.instagramUrl }),
       ...(data.websiteUrl !== undefined && { websiteUrl: data.websiteUrl }),
     },
+    });
   });
 
   // 3. Security Notification on Phone Change
@@ -188,7 +198,8 @@ export async function updateUserProfile(
 export async function changeUserPassword(
   userId: string,
   currentPassword?: string,
-  newPassword?: string
+  newPassword?: string,
+  sessionId?: string
 ) {
   if (!currentPassword || !newPassword) {
     const err = new Error("Current and new password are required") as any;
@@ -196,6 +207,7 @@ export async function changeUserPassword(
     throw err;
   }
 
+  StrongPasswordSchema.parse(newPassword);
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     const err = new Error("User not found") as any;
@@ -203,22 +215,28 @@ export async function changeUserPassword(
     throw err;
   }
 
+  if (user.passwordState === "NONE") throw Object.assign(new Error("No password is set. Verify with Google and use Set Password."), { status: 409, code: "PASSWORD_NOT_SET" });
   const passwordValid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!passwordValid) {
-    const err = new Error("Current password is incorrect") as any;
+    const err = new Error("Current password is incorrect. Try again.") as any;
     err.status = 400;
+    err.code = "CURRENT_PASSWORD_INCORRECT";
     throw err;
   }
 
   const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-  await prisma.user.update({
-    where: { id: userId },
-    data: { passwordHash: newHash },
+  await prisma.$transaction(async (tx) => {
+    await lockAccountLifecycle(tx, userId);
+    await lockAuthenticationSession(tx, userId);
+    const latest = await tx.user.findUnique({ where: { id: userId } });
+    if (!latest || !latest.isActive || latest.deactivatedAt) throw Object.assign(new Error("Account inactive."), { status: 403 });
+    if (sessionId && !await tx.refreshToken.findFirst({ where: { id: sessionId, userId, expiresAt: { gt: new Date() } } })) throw Object.assign(new Error("Your session ended. Sign in again."), { status: 401 });
+    if (latest.passwordHash !== user.passwordHash) throw Object.assign(new Error("Your password changed in another session. Enter your current password again."), { status: 409, code: "CURRENT_PASSWORD_CHANGED" });
+    await tx.user.update({ where: { id: userId }, data: { passwordHash: newHash, passwordState: "SET" } });
+    await tx.passwordResetToken.deleteMany({ where: { userId } });
+    await tx.refreshToken.deleteMany({ where: { userId } });
   });
-
-  // A password change should invalidate every existing refresh session, not
-  // only the browser that initiated it.
-  await prisma.refreshToken.deleteMany({ where: { userId } });
+  await disconnectUserSockets(userId, "Your password changed successfully. Please sign in again.", "PASSWORD_CHANGED");
 
   return { success: true };
 }

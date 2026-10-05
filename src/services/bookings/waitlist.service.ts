@@ -1,18 +1,16 @@
 import { prisma } from "../../lib/prisma";
 import { assertDistinctAccounts } from "../../utils/security";
-import { lockServiceQueue } from "../queue.service";
+import { lockProviderQueue } from "../queue.service";
 
 export async function joinWaitlist(serviceId: string, seekerId: string) {
   return prisma.$transaction(async (tx) => {
-    await lockServiceQueue(tx, serviceId);
     const service = await tx.service.findUnique({
       where: { id: serviceId },
       select: {
         providerId: true,
         status: true,
         isAvailable: true,
-        queueLimit: true,
-        provider: { select: { isActive: true, moderationStatus: true } },
+        provider: { select: { isActive: true, moderationStatus: true, onlineQueueLimit: true } },
       },
     });
     if (
@@ -27,6 +25,7 @@ export async function joinWaitlist(serviceId: string, seekerId: string) {
       throw error;
     }
     assertDistinctAccounts(seekerId, service.providerId, "join service waitlist");
+    await lockProviderQueue(tx, service.providerId);
 
     const activeBooking = await tx.booking.findFirst({
       where: {
@@ -63,9 +62,8 @@ export async function joinWaitlist(serviceId: string, seekerId: string) {
       throw error;
     }
 
-    const servingCount = await tx.queue.count({ where: { serviceId, status: "SERVING" } });
-    const waitingCount = await tx.queue.count({ where: { serviceId, status: "WAITING" } });
-    if (servingCount + waitingCount < service.queueLimit) {
+    const waitingCount = await tx.queue.count({ where: { providerId: service.providerId, status: "WAITING" } });
+    if (waitingCount < service.provider.onlineQueueLimit) {
       const error = new Error("A queue slot is currently available; start the online payment flow instead") as Error & {
         status?: number;
         code?: string;

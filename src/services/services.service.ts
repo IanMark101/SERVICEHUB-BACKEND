@@ -1,7 +1,9 @@
-import { Prisma, ServiceStatus } from "@prisma/client";
+import { Prisma, ServiceStatus, type PriceType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { safeEmit } from "../lib/socket";
+import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
+import { safeBroadcast, safeEmit } from "../lib/socket";
 import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.schema";
+import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
 
 const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
 
@@ -11,7 +13,7 @@ export function normalizeServiceTitle(title: string) {
 
 function listingConflict(error: unknown): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-    const conflict = new Error("You already have an active or pending listing with this title") as Error & { status?: number };
+    const conflict = new Error("You already have a service listing with this title. Choose a different title or edit that listing.") as Error & { status?: number };
     conflict.status = 409;
     throw conflict;
   }
@@ -29,6 +31,8 @@ export const PUBLIC_PROVIDER_ACCOUNT_WHERE = {
 export const PUBLIC_SERVICE_WHERE = {
   status: "ACTIVE" as const,
   isAvailable: true,
+  priceType: { in: ["FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT"] as PriceType[] },
+  price: { gte: 50 },
   provider: PUBLIC_PROVIDER_ACCOUNT_WHERE,
 };
 
@@ -38,6 +42,8 @@ export const PUBLIC_PROVIDER_WHERE = {
     some: {
       status: PUBLIC_SERVICE_WHERE.status,
       isAvailable: PUBLIC_SERVICE_WHERE.isAvailable,
+      priceType: PUBLIC_SERVICE_WHERE.priceType,
+      price: PUBLIC_SERVICE_WHERE.price,
     },
   },
 };
@@ -66,6 +72,24 @@ async function attachEligibleProviderRatings<T extends { providerId: string; pro
   }));
 }
 
+async function attachProviderWorkload<T extends { providerId: string }>(services: T[]) {
+  const providerIds = [...new Set(services.map((service) => service.providerId))];
+  if (!providerIds.length) return services;
+  const [providers, entries] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: providerIds } }, select: { id: true, onlineQueueLimit: true } }),
+    prisma.queue.findMany({ where: { providerId: { in: providerIds }, status: { in: ["WAITING", "SERVING"] } }, select: { providerId: true, status: true, position: true, estimatedWait: true } }),
+  ]);
+  const limits = new Map(providers.map((provider) => [provider.id, provider.onlineQueueLimit]));
+  return services.map((service) => ({
+    ...service,
+    // Compatibility fields now describe the provider's one paid workload.
+    queueLimit: limits.get(service.providerId) ?? 5,
+    queueEntries: entries.filter((entry) => entry.providerId === service.providerId)
+      .map(({ position, estimatedWait }) => ({ position, estimatedWait })),
+    providerWaitingCount: entries.filter((entry) => entry.providerId === service.providerId && entry.status === "WAITING").length,
+  }));
+}
+
 export async function getPublicServiceCount() {
   return prisma.service.count({
     where: PUBLIC_SERVICE_WHERE,
@@ -82,9 +106,9 @@ export async function getRecentlyPublishedServices(limit = 6, since?: Date) {
   return prisma.service.findMany({
     where: {
       ...PUBLIC_SERVICE_WHERE,
-      reviewedAt: { not: null, ...(since ? { gte: since } : {}) },
+      publishedAt: { not: null, ...(since ? { gte: since } : {}) },
     },
-    orderBy: { reviewedAt: "desc" },
+    orderBy: { publishedAt: "desc" },
     take: limit,
     select: {
       id: true,
@@ -92,7 +116,7 @@ export async function getRecentlyPublishedServices(limit = 6, since?: Date) {
       description: true,
       price: true,
       priceType: true,
-      reviewedAt: true,
+      publishedAt: true,
       category: { select: { id: true, name: true } },
       provider: {
         select: {
@@ -152,7 +176,7 @@ export async function browseServices(params: {
     },
     orderBy: [{ provider: { trustScore: "desc" } }, { createdAt: "desc" }],
   });
-  return attachEligibleProviderRatings(services);
+  return attachEligibleProviderRatings(await attachProviderWorkload(services));
 }
 
 // ── Get Single Service ─────────────────────────────────────────────────────────
@@ -191,21 +215,23 @@ export async function getServiceById(id: string) {
     throw err;
   }
 
-  return service;
+  return (await attachProviderWorkload([service]))[0];
 }
 
-// ── Create Listing (always starts PENDING_REVIEW) ─────────────────────────────
+// ── Create Listing (publish after validation; failures require revision) ─────
 
 export async function createService(providerId: string, input: CreateServiceInput) {
   let created;
   try {
     created = await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, providerId);
+      await assertActiveMarketplaceAccount(tx, providerId);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-listings:${providerId}`}))`;
       const activeCount = await tx.service.count({
-        where: { providerId, status: { in: ["ACTIVE", "PENDING_REVIEW"] } },
+        where: { providerId, status: "ACTIVE" },
       });
       if (activeCount >= MAX_ACTIVE_LISTINGS) {
-        const error = new Error(`You can have at most ${MAX_ACTIVE_LISTINGS} active or pending service listings at a time`) as Error & { status?: number };
+        const error = new Error(`You can have at most ${MAX_ACTIVE_LISTINGS} active service listings at a time`) as Error & { status?: number };
         error.status = 422;
         throw error;
       }
@@ -219,6 +245,14 @@ export async function createService(providerId: string, input: CreateServiceInpu
         throw error;
       }
 
+      const assessment = assessMarketplaceContent({
+        kind: "SERVICE_LISTING", categoryName: category.name,
+        title: input.title, description: input.description,
+      });
+      if (assessment.outcome === "REVISE") {
+        throw Object.assign(new Error(assessment.message), { status: 422, code: "CONTENT_REVISION_REQUIRED", moderationDecision: assessment, field: assessment.field });
+      }
+
       const service = await tx.service.create({
         data: {
           providerId,
@@ -226,34 +260,45 @@ export async function createService(providerId: string, input: CreateServiceInpu
           title: input.title,
           titleNormalized: normalizeServiceTitle(input.title),
           description: input.description,
-          price: input.priceType === "CUSTOM" ? null : input.price!,
+          price: input.price,
           priceType: input.priceType,
           serviceType: input.serviceType,
           estimatedDurationMins: input.estimatedDurationMins,
           queueLimit: input.queueLimit,
           paymentMethods: input.paymentMethods,
-          status: "PENDING_REVIEW",
-          isAvailable: false,
+          status: "ACTIVE",
+          isAvailable: true,
+          publishedAt: new Date(),
+          moderationPolicyVersion: assessment.policyVersion,
+          moderationReasonCode: assessment.reasonCode,
         },
         include: { category: true, provider: { select: { id: true, name: true, email: true } } },
       });
 
+      await tx.contentModerationEvent.create({ data: {
+        actorId: providerId, contentType: "SERVICE_LISTING", resourceId: service.id,
+        outcome: assessment.outcome, reasonCode: assessment.reasonCode, policyVersion: assessment.policyVersion,
+      } });
+
       await tx.notification.create({
-        data: { userId: providerId, title: "Listing Submitted for Review", body: `Your service listing "${input.title}" was submitted and is pending admin review.`, link: "/provider/service-manager?status=pending" },
+        data: { userId: providerId,
+          title: "Listing Published",
+          body: `Your service "${input.title}" is now visible to customers.`,
+          link: "/provider/service-manager?status=active" },
       });
-      const admins = await tx.user.findMany({ where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" }, select: { id: true } });
-      if (admins.length) {
-        await tx.notification.createMany({ data: admins.map((admin) => ({ userId: admin.id, title: "New Service Listing Pending Review", body: `${service.provider.name} submitted a new listing: "${input.title}".`, link: "/admin/services?status=PENDING_REVIEW" })) });
-      }
-      return { service, admins };
+      return { service };
     });
   } catch (error) {
+    const rejectedDecision = (error as { moderationDecision?: ContentDecision }).moderationDecision;
+    if (rejectedDecision) await prisma.contentModerationEvent.create({ data: {
+      actorId: providerId, contentType: "SERVICE_LISTING", outcome: "REVISE",
+      reasonCode: rejectedDecision.reasonCode, policyVersion: rejectedDecision.policyVersion,
+    } });
     listingConflict(error);
   }
 
-  safeEmit(`user:${providerId}`, "notification", { title: "Listing Submitted for Review" });
-  created.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", { title: "New Service Listing Pending Review", link: "/admin/services?status=PENDING_REVIEW" }));
-  safeEmit("admin", "SERVICE_LISTING_SUBMITTED", { serviceId: created.service.id });
+  safeEmit(`user:${providerId}`, "notification", { title: "Listing Published" });
+  safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: created.service.id, status: "ACTIVE" });
   return created.service;
 }
 
@@ -261,6 +306,8 @@ export async function createService(providerId: string, input: CreateServiceInpu
 export async function updateService(serviceId: string, providerId: string, input: UpdateServiceInput) {
   try {
     const result = await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, providerId);
+      await assertActiveMarketplaceAccount(tx, providerId);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-listings:${providerId}`}))`;
       const service = await tx.service.findFirst({ where: { id: serviceId, providerId, status: { not: "DELETED" } } });
       if (!service) {
@@ -285,9 +332,14 @@ export async function updateService(serviceId: string, providerId: string, input
 
       const nextTitle = input.title ?? service.title;
       const nextPriceType = input.priceType ?? service.priceType;
-      const nextPrice = nextPriceType === "CUSTOM" ? null : input.price ?? service.price;
-      if (nextPriceType !== "CUSTOM" && nextPrice === null) {
-        const error = new Error("A price is required when changing from custom pricing") as Error & { status?: number };
+      const nextPrice = input.price ?? service.price;
+      if (["STARTS_AT", "CUSTOM"].includes(service.priceType) && (input.priceType === undefined || input.price === undefined)) {
+        const error = new Error("Choose an exact pricing type and enter a final price for this older listing") as Error & { status?: number };
+        error.status = 400;
+        throw error;
+      }
+      if (!["FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT"].includes(nextPriceType) || nextPrice === null) {
+        const error = new Error("Choose an exact pricing type and enter a price before publishing this listing") as Error & { status?: number };
         error.status = 400;
         throw error;
       }
@@ -295,12 +347,21 @@ export async function updateService(serviceId: string, providerId: string, input
       const materialChanged = normalizeServiceTitle(nextTitle) !== service.titleNormalized
         || categoryId !== service.categoryId
         || (input.description !== undefined && input.description !== service.description)
-        || service.status === "REJECTED";
+        || ["REJECTED", "PENDING_REVIEW"].includes(service.status);
 
-      if (materialChanged && !["ACTIVE", "PENDING_REVIEW"].includes(service.status)) {
-        const occupied = await tx.service.count({ where: { providerId, status: { in: ["ACTIVE", "PENDING_REVIEW"] } } });
+      const assessment = materialChanged ? assessMarketplaceContent({
+        kind: "SERVICE_LISTING",
+        categoryName: (await tx.category.findUniqueOrThrow({ where: { id: categoryId }, select: { name: true } })).name,
+        title: nextTitle, description: input.description ?? service.description,
+      }) : null;
+      if (assessment?.outcome === "REVISE") {
+        throw Object.assign(new Error(assessment.message), { status: 422, code: "CONTENT_REVISION_REQUIRED", moderationDecision: assessment, field: assessment.field });
+      }
+
+      if (materialChanged && service.status !== "ACTIVE" && service.status !== "INACTIVE") {
+        const occupied = await tx.service.count({ where: { providerId, status: "ACTIVE" } });
         if (occupied >= MAX_ACTIVE_LISTINGS) {
-          throw Object.assign(new Error("Archive a listing before resubmitting another for review"), { status: 422 });
+          throw Object.assign(new Error("Pause or archive a listing before publishing another"), { status: 422 });
         }
       }
 
@@ -312,45 +373,36 @@ export async function updateService(serviceId: string, providerId: string, input
           titleNormalized: normalizeServiceTitle(nextTitle),
           categoryId,
           price: nextPrice,
-          ...(materialChanged && { status: "PENDING_REVIEW", isAvailable: false, reviewedById: null, reviewedAt: null }),
+          ...(materialChanged && assessment && {
+            status: service.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
+            isAvailable: service.status !== "INACTIVE",
+            publishedAt: service.status === "INACTIVE" ? service.publishedAt : service.publishedAt ?? new Date(),
+            moderationPolicyVersion: assessment.policyVersion,
+            moderationReasonCode: assessment.reasonCode,
+            reviewedById: null, reviewedAt: null,
+          }),
         },
         include: { category: true },
       });
 
-      if (!materialChanged) return { service: updated, adminIds: [] as string[], submittedForReview: false };
+      if (!materialChanged) return { service: updated };
 
-      await tx.notification.create({
-        data: {
-          userId: providerId,
-          title: "Listing Changes Submitted",
-          body: `Your changes to "${nextTitle}" were submitted for administrator review. The listing is unavailable until a decision is recorded.`,
-          link: `/provider/service-manager?id=${serviceId}&status=pending`,
-        },
-      });
-      const admins = await tx.user.findMany({
-        where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" },
-        select: { id: true },
-      });
-      if (admins.length > 0) {
-        await tx.notification.createMany({
-          data: admins.map((admin) => ({
-            userId: admin.id,
-            title: "Service Listing Changes Pending Review",
-            body: `A provider submitted material changes to "${nextTitle}".`,
-            link: `/admin/services?status=PENDING_REVIEW&id=${serviceId}`,
-          })),
-        });
-      }
-      return { service: updated, adminIds: admins.map((admin) => admin.id), submittedForReview: true };
+      await tx.contentModerationEvent.create({ data: {
+        actorId: providerId, contentType: "SERVICE_LISTING", resourceId: serviceId,
+        outcome: assessment!.outcome, reasonCode: assessment!.reasonCode, policyVersion: assessment!.policyVersion,
+      } });
+
+      return { service: updated };
     });
 
-    if (result.submittedForReview) {
-      safeEmit(`user:${providerId}`, "notification", { title: "Listing Changes Submitted", link: "/provider/service-manager" });
-      result.adminIds.forEach((adminId) => safeEmit(`user:${adminId}`, "notification", { title: "Service Listing Changes Pending Review", link: "/admin/services?status=PENDING_REVIEW" }));
-      safeEmit("admin", "SERVICE_LISTING_SUBMITTED", { serviceId: result.service.id, source: "material_edit" });
-    }
+    safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: serviceId, status: result.service.status });
     return result.service;
   } catch (error) {
+    const rejectedDecision = (error as { moderationDecision?: ContentDecision }).moderationDecision;
+    if (rejectedDecision) await prisma.contentModerationEvent.create({ data: {
+      actorId: providerId, contentType: "SERVICE_LISTING", resourceId: serviceId,
+      outcome: "REVISE", reasonCode: rejectedDecision.reasonCode, policyVersion: rejectedDecision.policyVersion,
+    } });
     listingConflict(error);
   }
 }
@@ -359,15 +411,17 @@ export async function updateService(serviceId: string, providerId: string, input
 export async function toggleServiceAvailability(serviceId: string, providerId: string) {
   try {
     return await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, providerId);
+      await assertActiveMarketplaceAccount(tx, providerId);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-listings:${providerId}`}))`;
       const service = await tx.service.findFirst({ where: { id: serviceId, providerId, status: { in: ['ACTIVE', 'INACTIVE'] } } });
-      if (!service) throw Object.assign(new Error('Only an approved listing can be paused or resumed'), { status: 404 });
+      if (!service) throw Object.assign(new Error('Only an active or paused listing can be paused or resumed'), { status: 404 });
       const resume = service.status === 'INACTIVE' || !service.isAvailable;
       if (resume) {
-        const occupied = await tx.service.count({ where: { providerId, id: { not: serviceId }, status: { in: ['ACTIVE', 'PENDING_REVIEW'] } } });
+        const occupied = await tx.service.count({ where: { providerId, id: { not: serviceId }, status: 'ACTIVE' } });
         if (occupied >= MAX_ACTIVE_LISTINGS) throw Object.assign(new Error('Pause or archive another listing before resuming this one'), { status: 422 });
       }
-      return tx.service.update({ where: { id: serviceId }, data: { status: resume ? 'ACTIVE' : 'INACTIVE', isAvailable: resume } });
+      return tx.service.update({ where: { id: serviceId }, data: { status: resume ? 'ACTIVE' : 'INACTIVE', isAvailable: resume, ...(resume && { publishedAt: service.publishedAt ?? new Date() }) } });
     });
   } catch (error) { listingConflict(error); }
 }
@@ -430,13 +484,7 @@ export async function getMyServices(providerId: string) {
     },
     orderBy: { createdAt: "desc" },
   });
-  return attachEligibleProviderRatings(services);
-}
-
-// ── Admin: List Pending Services ───────────────────────────────────────────────
-
-export async function listPendingServices(page = 1, limit = 20) {
-  return listAdminServices(page, limit, "PENDING_REVIEW");
+  return attachEligibleProviderRatings(await attachProviderWorkload(services));
 }
 
 export async function listAdminServices(page = 1, limit = 20, status?: ServiceStatus | "LIVE") {
@@ -454,7 +502,7 @@ export async function listAdminServices(page = 1, limit = 20, status?: ServiceSt
         },
         category: true,
       },
-      orderBy: status === "PENDING_REVIEW" ? { updatedAt: "asc" } : { updatedAt: "desc" },
+      orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),

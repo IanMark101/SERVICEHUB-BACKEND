@@ -12,19 +12,18 @@ export {
   suspendUser,
   banUser,
   restoreUser,
-  restorePostingPrivilege,
-  promoteUserToAdmin
+  restorePostingPrivilege
 } from "./admin/users.controller";
 export {
   listServices,
-  listPendingServices,
-  reviewService,
   listCategories,
+  createCategory,
   updateCategory,
   listCategorySuggestions,
   resolveCategorySuggestion
 } from "./admin/marketplace-moderation.controller";
 export { listReports, resolveReport, accessReportEvidence } from "./admin/reports.controller";
+export { removeServiceContent, restoreServiceContent } from "./admin/marketplace-moderation.controller";
 export {
   resolveCancellationRequest,
   listEscalatedCancellations

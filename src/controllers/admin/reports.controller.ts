@@ -8,7 +8,8 @@ export async function listReports(req: Request, res: Response, next: NextFunctio
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Math.min(25, Number(req.query.limit) || 10));
-    const result = await listAdminReports(page, limit);
+    const userId = typeof req.query.userId === "string" ? req.query.userId : undefined;
+    const result = await listAdminReports(page, limit, userId);
     res.json({ success: true, data: result.items, pagination: result.pagination });
   } catch (error) {
     next(error);

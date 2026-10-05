@@ -27,7 +27,7 @@ if (globalForPrisma.prisma) {
   prismaInstance = new PrismaClient({
     adapter,
     log: env.PRISMA_LOG_QUERIES === "true" ? ["query", "error", "warn"] : ["error", "warn"],
-    // Queue lifecycle transactions may legitimately wait on a per-service
+    // Queue lifecycle transactions may legitimately wait on a provider-scoped
     // advisory lock. The five-second Prisma default is too short for a remote
     // database during concurrent payment webhooks.
     transactionOptions: {

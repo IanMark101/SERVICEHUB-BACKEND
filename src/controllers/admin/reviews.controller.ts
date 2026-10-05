@@ -2,7 +2,9 @@ import type { NextFunction, Request, Response } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { prisma } from "../../lib/prisma";
 import { ReviewModerationSchema } from "../../schema/marketplace.schema";
-import { invalidateProviderSummary } from "../../services/ai.service";
+import { invalidateReviewSummaries } from "../../services/ai.service";
+import { safeEmit } from "../../lib/socket";
+import { applyReviewContributionInTransaction } from "../../services/trust.service";
 
 export async function listAdminReviews(req: Request, res: Response, next: NextFunction) {
   try {
@@ -51,14 +53,24 @@ export async function moderateReview(req: Request, res: Response, next: NextFunc
         where: { id: current.id },
         data: { visibility, moderationReason: reason, moderatedById: adminId, moderatedAt: new Date(), contentVersion: { increment: 1 } },
       });
+      await applyReviewContributionInTransaction(tx, { userId: current.targetId, reviewId: current.id, rating: current.rating,
+        visible: action === "restore", reason: `Review ${action === "hide" ? "hidden" : "restored"} by administrator`,
+        actorAdminId: adminId, eventKey: `review:${current.id}:moderation:v${updated.contentVersion}` });
       const eligibleProviderReview = current.authorId === current.completedService.seekerId
         && current.targetId === current.completedService.providerId;
       await tx.adminAuditLog.create({
         data: { actorId: adminId, targetUserId: current.authorId, action: action === "hide" ? "REVIEW_HIDDEN" : "REVIEW_RESTORED", resourceType: "Review", resourceId: current.id, reason, metadata: { targetId: current.targetId } },
       });
-      return { updated, providerId: eligibleProviderReview ? current.completedService.providerId : null };
+      await tx.notification.createMany({ data: [
+        { userId: current.authorId, title: action === "hide" ? "Review hidden" : "Review restored", body: `An administrator ${action === "hide" ? "hid" : "restored"} your review. Reason: ${reason}` },
+        { userId: current.targetId, title: action === "hide" ? "Review hidden" : "Review restored", body: `An administrator ${action === "hide" ? "hid" : "restored"} a review on your profile.` },
+      ] });
+      return { updated, providerId: eligibleProviderReview ? current.completedService.providerId : null, authorId: current.authorId, targetId: current.targetId };
     });
-    if (review.providerId) invalidateProviderSummary(review.providerId);
+    invalidateReviewSummaries(review.targetId);
+    safeEmit(`user:${review.authorId}`, "notification", { title: action === "hide" ? "Review hidden" : "Review restored" });
+    safeEmit(`user:${review.targetId}`, "notification", { title: action === "hide" ? "Review hidden" : "Review restored" });
+    safeEmit(`user:${review.targetId}`, "accountStatusChanged", { trustChanged: true });
     res.json({ success: true, data: review.updated });
   } catch (error) {
     next(error);

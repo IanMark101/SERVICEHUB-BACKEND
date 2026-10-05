@@ -1,8 +1,9 @@
 import { prisma } from "../../lib/prisma";
 import { safeEmit } from "../../lib/socket";
 import { sendMessage } from "../messages.service";
-import { lockServiceQueue, recalculateQueueInTransaction } from "../queue.service";
+import { emitProviderQueueUpdates, lockProviderQueue, recalculateQueueInTransaction } from "../queue.service";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifecycle.service";
+import { paidStartBlockReason } from "./paid-start-readiness";
 
 export async function providerStartJob(id: string, providerId: string) {
   const result = await prisma.$transaction(async (tx) => {
@@ -57,10 +58,29 @@ export async function providerStartJob(id: string, providerId: string) {
       error.code = "START_JOB_NOT_ALLOWED";
       throw error;
     }
-    if (booking.status !== "ACCEPTED" || booking.started) {
+    if (!queueEntry && booking.paymentMethod !== "On-site Cash") {
+      throw Object.assign(new Error("This paid booking has no active queue entry. Refresh your workload and contact support if it remains listed."), { status: 409, code: "START_PAID_QUEUE_MISSING" });
+    }
+    if (!queueEntry && (booking.status !== "ACCEPTED" || booking.started)) {
       const error = new Error("Only an accepted booking can be started.") as Error & { status?: number };
       error.status = 400;
       throw error;
+    }
+    if (!queueEntry && (booking.paymentMethod !== "On-site Cash" || booking.paymentStatus !== "UNPAID")) {
+      throw Object.assign(new Error("This booking has no valid cash arrangement or confirmed paid queue entry."), { status: 409, code: "START_PAYMENT_STATE_INVALID" });
+    }
+    if (queueEntry) {
+      if (booking.paymentMethod === "On-site Cash") {
+        throw Object.assign(new Error("Cash bookings cannot enter the paid queue."), { status: 409, code: "START_PAYMENT_STATE_INVALID" });
+      }
+      const blocked = paidStartBlockReason({
+        bookingStatus: booking.status,
+        bookingStarted: booking.started,
+        bookingPaymentStatus: booking.paymentStatus,
+        queueStatus: queueEntry.status,
+        queuePaymentStatus: queueEntry.paymentStatus,
+      });
+      if (blocked) throw Object.assign(new Error(blocked), { status: 409, code: "PAID_JOB_NOT_READY" });
     }
 
     const otherOngoing = await tx.booking.count({
@@ -84,15 +104,25 @@ export async function providerStartJob(id: string, providerId: string) {
       throw error;
     }
 
+    if (!queueEntry) {
+      await lockProviderQueue(tx, providerId);
+      const paidWaiting = await tx.queue.count({ where: { providerId, status: "WAITING" } });
+      if (paidWaiting > 0) {
+        const error = new Error("Start the next paid booking before starting a cash arrangement.") as Error & { status?: number; code?: string };
+        error.status = 409;
+        error.code = "PAID_WORK_WAITING";
+        throw error;
+      }
+    }
     if (queueEntry) {
-      await lockServiceQueue(tx, queueEntry.serviceId);
+      await lockProviderQueue(tx, providerId);
       const firstWaiting = await tx.queue.findFirst({
-        where: { serviceId: queueEntry.serviceId, status: "WAITING" },
+        where: { providerId, status: "WAITING" },
         orderBy: { position: "asc" },
         select: { id: true },
       });
       const serving = await tx.queue.count({
-        where: { serviceId: queueEntry.serviceId, status: "SERVING" },
+        where: { providerId, status: "SERVING" },
       });
       if (firstWaiting?.id !== queueEntry.id || serving > 0) {
         const error = new Error("Start the first waiting booking after the current job is completed.") as Error & {
@@ -108,20 +138,19 @@ export async function providerStartJob(id: string, providerId: string) {
     }
 
     const updatedBooking = await tx.booking.update({
-      where: { id: booking.id, status: "ACCEPTED", started: false },
+      where: { id: booking.id, status: { in: queueEntry ? ["ACCEPTED", "WAITING"] : ["ACCEPTED"] }, started: false },
       data: {
         status: "ONGOING",
         started: true,
         ...(queueEntry ? { queuePosition: 1 } : {}),
       },
     });
-    if (queueEntry) {
-      await recalculateQueueInTransaction(tx, queueEntry.serviceId);
-    }
+    await recalculateQueueInTransaction(tx, providerId);
     return { booking: updatedBooking, queueEntry };
   });
 
   const { booking } = result;
+  await emitProviderQueueUpdates(providerId).catch((error) => console.error("Queue refresh event failed", error));
 
   await prisma.notification.create({
     data: {

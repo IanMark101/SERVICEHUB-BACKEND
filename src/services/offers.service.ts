@@ -1,57 +1,86 @@
 import { prisma } from "../lib/prisma";
 import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
+import { lockAccountLifecycle } from "./account-lifecycle.service";
+import { assertOfferParticipant, assertOfferTarget } from './offer-eligibility';
 
 export async function submitOffer(providerId: string, params: {
   requestId: string;
-  serviceId: string;
+  serviceId?: string;
   offeredPrice: number;
   estimatedDuration: number;
   availability?: string;
   message?: string;
 }) {
   const { requestId, serviceId, offeredPrice, estimatedDuration, availability, message } = params;
-
+  return prisma.$transaction(async (tx) => {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${requestId}`}))`;
   // Check request is open and accepting offers
-  const request = await prisma.serviceRequest.findUnique({
+  const request = await tx.serviceRequest.findUnique({
     where: { id: requestId },
-    select: { status: true, seekerId: true, categoryId: true },
+    select: { status: true, seekerId: true, categoryId: true, targetProviderId: true, targetServiceId: true },
   });
 
-  if (!request || request.status !== "OPEN") {
-    const err = new Error("This service request is currently paused or closed by the seeker and is no longer accepting new offers.") as any;
-    err.status = 400;
+  if (!request) {
+    const err = new Error("This service request is no longer available.") as Error & { status?: number };
+    err.status = 404;
     throw err;
   }
 
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
   assertDistinctAccounts(providerId, request.seekerId, "submit offer");
-
-  const service = await prisma.service.findUnique({
-    where: { id: serviceId },
-    select: { providerId: true, categoryId: true, status: true, isAvailable: true, priceType: true },
+  await lockAccountLifecycle(tx, providerId, request.seekerId);
+  await assertOfferParticipant(tx, providerId, 'provider');
+  await assertOfferParticipant(tx, request.seekerId, 'seeker');
+  assertOfferTarget(request, providerId, serviceId);
+  // An old request may incorrectly remain OPEN after a booking was completed.
+  // The booking, not that stale request flag, is authoritative for fulfillment.
+  const existingBooking = await tx.booking.findFirst({
+    where: { offer: { requestId }, status: { notIn: ["DECLINED", "CANCELED", "REMOVED"] } },
+    select: { id: true },
   });
-  if (!service || service.providerId !== providerId || service.categoryId !== request.categoryId || service.status !== "ACTIVE" || !service.isAvailable) {
-    const err = new Error("Select one of your active listings in the request category before submitting an offer") as any;
+  if (existingBooking) {
+    const err = new Error("This request already led to a booking. Ask the seeker to post a new request for more work.") as Error & { status?: number; code?: string };
+    err.status = 409;
+    err.code = "REQUEST_ALREADY_MATCHED";
+    throw err;
+  }
+
+  if (request.status !== "OPEN") {
+    const err = new Error("This service request is currently paused or closed by the seeker and is no longer accepting new offers.") as Error & { status?: number };
     err.status = 400;
     throw err;
   }
+
+  if (serviceId) {
+    const service = await tx.service.findUnique({
+      where: { id: serviceId },
+      select: { providerId: true, categoryId: true, status: true, isAvailable: true },
+    });
+    if (!service || service.providerId !== providerId || service.categoryId !== request.categoryId || service.status !== "ACTIVE" || !service.isAvailable) {
+      throw Object.assign(new Error(request.targetServiceId
+        ? 'The requested listing is no longer available. Ask the seeker to choose an available listing or post a new request.'
+        : 'That listing is unavailable or does not match this request. Choose an active listing in this category, or select “No listing” to send a custom offer.'), { status: 400, code: 'OFFER_LISTING_UNAVAILABLE' });
+    }
+  }
+
   // Prevent duplicate offer from same provider
-  const existing = await prisma.offer.findFirst({
-    where: { requestId, providerId, status: { in: ["PENDING", "PENDING_PAYMENT"] } },
+  const existing = await tx.offer.findFirst({
+    where: { requestId, providerId, status: { in: ["PENDING", "PENDING_PAYMENT", "ACCEPTED"] } },
   });
 
   if (existing) {
     const err = new Error("You have already submitted an offer for this request") as any;
     err.status = 409;
+    err.code = 'DUPLICATE_OFFER';
     throw err;
   }
 
-  const offer = await prisma.offer.create({
+  const offer = await tx.offer.create({
     data: {
       requestId,
       providerId,
-      serviceId,
+      serviceId: serviceId || null,
       offeredPrice,
       estimatedDuration,
       availability,
@@ -72,7 +101,7 @@ export async function submitOffer(providerId: string, params: {
   });
 
   // Notify seeker
-  await prisma.notification.create({
+  await tx.notification.create({
     data: {
       userId: request.seekerId,
       title: "New Offer Received",
@@ -80,9 +109,13 @@ export async function submitOffer(providerId: string, params: {
       link: `/seeker/incoming-offers?offer=${offer.id}`,
     },
   });
-  safeEmit(`user:${request.seekerId}`, "notification", { title: "New Offer Received" });
-
-  return offer;
+  return { offer, seekerId: request.seekerId };
+  }).then(({ offer, seekerId }) => {
+    safeEmit(`user:${seekerId}`, "notification", { title: "New Offer Received" });
+    safeEmit(`user:${seekerId}`, "OFFERS_CHANGED", { offerId: offer.id });
+    safeEmit(`user:${providerId}`, "OFFERS_CHANGED", { offerId: offer.id, status: offer.status });
+    return offer;
+  });
 }
 
 export async function listReceivedOffers(seekerId: string) {
@@ -107,8 +140,11 @@ export async function listReceivedOffers(seekerId: string) {
       request: {
         select: {
           id: true,
+          seekerId: true,
           title: true,
           status: true,
+          paymentMethods: true,
+          preferredPaymentMethod: true,
         },
       },
     },
@@ -192,20 +228,39 @@ export async function rejectOffer(offerId: string, userId: string) {
     throw err;
   }
 
-  if (offer.status !== "PENDING") {
-    const err = new Error("Only a pending unpaid offer can be withdrawn or rejected") as any;
-    err.status = 409;
-    throw err;
-  }
-
-  const updatedOffer = await prisma.offer.update({
-    where: { id: offerId },
-    data: { status: isProvider ? "WITHDRAWN" : "REJECTED" },
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${offer.requestId}`}))`;
+    const current = await tx.offer.findUniqueOrThrow({ where: { id: offerId }, include: { request: { select: { title: true, status: true } } } });
+    const nextStatus = isProvider ? 'WITHDRAWN' : 'REJECTED';
+    // Only repeat this actor's established decision. A sibling rejection must
+    // never be reinterpreted as an explicit decline or produce its notification.
+    if (current.status === nextStatus && (isProvider || await tx.notification.findUnique({ where: { id: `offer-declined:${offerId}` } }))) {
+      return { updatedOffer: current, changed: false };
+    }
+    const changed = await tx.offer.updateMany({
+      where: { id: offerId, status: "PENDING", request: { status: "OPEN" } },
+      data: { status: nextStatus },
+    });
+    if (changed.count !== 1) {
+      const err = new Error("Only an open, pending unpaid offer can be withdrawn or rejected") as Error & { status?: number };
+      err.status = 409;
+      throw err;
+    }
+    if (!isProvider) await tx.notification.create({ data: {
+      id: `offer-declined:${offerId}`,
+      userId: offer.providerId,
+      title: 'Offer declined',
+      body: `The seeker declined your offer for "${current.request.title}".`,
+      link: `/provider/provider-activity?tab=all&offer=${encodeURIComponent(offerId)}`,
+    } });
+    return { updatedOffer: await tx.offer.findUniqueOrThrow({ where: { id: offerId } }), changed: true };
   });
 
-  // Real-time socket notification
-  safeEmit(`user:${offer.request.seekerId}`, "ENGAGEMENT_CHANGED", { type: "offer_rejected", offerId });
-  safeEmit(`user:${offer.providerId}`, "ENGAGEMENT_CHANGED", { type: "offer_rejected", offerId });
-
-  return updatedOffer;
+  if (result.changed) {
+    const event = { type: isProvider ? 'offer_withdrawn' : 'offer_declined', offerId, status: result.updatedOffer.status };
+    safeEmit(`user:${offer.request.seekerId}`, 'OFFERS_CHANGED', event);
+    safeEmit(`user:${offer.providerId}`, 'OFFERS_CHANGED', event);
+    if (!isProvider) safeEmit(`user:${offer.providerId}`, 'notification', { id: `offer-declined:${offerId}`, title: 'Offer declined', offerId });
+  }
+  return result.updatedOffer;
 }

@@ -49,9 +49,9 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
   // H1 + H5: both participants can report, outsiders cannot, identical
   // incidents dedupe, separate incidents coexist, and Queue stays canonical.
   const servingBooking = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: provider.id, serviceId: service.id, originType: "DIRECT_LISTING", paymentMethod: "GCash", agreedAmount: 500, paymentStatus: "PAID_HELD", status: "ONGOING", started: true, queuePosition: 1 } });
-  await prisma.queue.create({ data: { serviceId: service.id, seekerId: seeker.id, bookingId: servingBooking.id, paymentId: `pi-serving-${suffix}`, paymentStatus: "PAID_HELD", position: 1, status: "SERVING", estimatedWait: 0 } });
+  await prisma.queue.create({ data: { providerId: provider.id, serviceId: service.id, seekerId: seeker.id, bookingId: servingBooking.id, paymentId: `pi-serving-${suffix}`, paymentStatus: "PAID_HELD", position: 1, status: "SERVING", estimatedWait: 0 } });
   const waitingBooking = await prisma.booking.create({ data: { seekerId: secondSeeker.id, providerId: provider.id, serviceId: service.id, originType: "DIRECT_LISTING", paymentMethod: "GCash", agreedAmount: 500, paymentStatus: "PAID_HELD", status: "WAITING", queuePosition: 2 } });
-  await prisma.queue.create({ data: { serviceId: service.id, seekerId: secondSeeker.id, bookingId: waitingBooking.id, paymentId: `pi-waiting-${suffix}`, paymentStatus: "PAID_HELD", position: 2, status: "WAITING", estimatedWait: 30 } });
+  await prisma.queue.create({ data: { providerId: provider.id, serviceId: service.id, seekerId: secondSeeker.id, bookingId: waitingBooking.id, paymentId: `pi-waiting-${suffix}`, paymentStatus: "PAID_HELD", position: 2, status: "WAITING", estimatedWait: 30 } });
 
   const first = await createSafetyReport({ bookingId: servingBooking.id, reporterId: seeker.id, reason: "INAPPROPRIATE_BEHAVIOR", description: "The provider threatened me during the active appointment." });
   const duplicate = await createSafetyReport({ bookingId: servingBooking.id, reporterId: seeker.id, reason: "INAPPROPRIATE_BEHAVIOR", description: "  The provider threatened me during the active appointment.  " });
@@ -63,7 +63,7 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
   assert.notEqual(separate.id, first.id);
   assert.notEqual(reciprocal.id, first.id);
   await assert.rejects(createSafetyReport({ bookingId: servingBooking.id, reporterId: outsider.id, reason: "NO_SHOW", description: "An unrelated person must not report this booking." }), /access denied/i);
-  await recalculateQueue(service.id);
+  await recalculateQueue(provider.id);
   assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: servingBooking.id } })).status, "DISPUTED");
   assert.equal((await prisma.queue.findUniqueOrThrow({ where: { bookingId: servingBooking.id } })).status, "SERVING");
   assert.equal((await prisma.queue.findUniqueOrThrow({ where: { bookingId: waitingBooking.id } })).position, 2);
@@ -136,6 +136,17 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
   assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: cancelBooking.id } })).status === "CANCELED", decidedRequest.status === "APPROVED");
   if (decidedRequest.status === "DECLINED") await prisma.booking.update({ where: { id: cancelBooking.id }, data: { status: "CANCELED" } });
 
+  const providerCancelBooking = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 360, paymentStatus: "UNPAID", status: "ONGOING", started: true } });
+  const providerRequest = await requestCancellation(providerCancelBooking.id, secondProvider.id, "The provider cannot safely continue this active visit.");
+  await assert.rejects(
+    respondToCancellationRequest(providerRequest.request!.id, seeker.id, false),
+    (error: any) => error?.code === "CANCELLATION_DECLINE_REASON_REQUIRED",
+  );
+  assert.equal((await prisma.cancellationRequest.findUniqueOrThrow({ where: { id: providerRequest.request!.id } })).status, "PENDING");
+  await respondToCancellationRequest(providerRequest.request!.id, seeker.id, true);
+  assert.equal((await prisma.cancellationRequest.findUniqueOrThrow({ where: { id: providerRequest.request!.id } })).status, "APPROVED");
+  assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: providerCancelBooking.id } })).status, "CANCELED");
+
   const adminCancelBooking = await prisma.booking.create({ data: { seekerId: outsider.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 525, paymentStatus: "UNPAID", status: "ONGOING", started: true } });
   const adminRequest = await requestCancellation(adminCancelBooking.id, outsider.id, "I need to stop this booking and request administrator review.");
   await respondToCancellationRequest(adminRequest.request!.id, secondProvider.id, false, "I believe the service should continue.");
@@ -149,14 +160,15 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
   assert.equal((await prisma.report.findUniqueOrThrow({ where: { id: overlappingSafety.id } })).status, "PENDING");
   assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: adminCancelBooking.id } })).status, "DISPUTED");
 
-  const refundFailureService = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: `Refund retry ${suffix}`, titleNormalized: `refund retry ${suffix}`, description: "Failed refund recovery test", price: 575, estimatedDurationMins: 30, queueLimit: 2, paymentMethods: { cash: false, gcash: true }, status: "ACTIVE", isAvailable: true } });
-  const refundFailureBooking = await prisma.booking.create({ data: { seekerId: outsider.id, providerId: provider.id, serviceId: refundFailureService.id, originType: "DIRECT_LISTING", paymentMethod: "GCash", agreedAmount: 575, paymentStatus: "PAID_HELD", status: "ONGOING", started: true, queuePosition: 1 } });
-  await prisma.queue.create({ data: { serviceId: refundFailureService.id, seekerId: outsider.id, bookingId: refundFailureBooking.id, paymentId: `pi-refund-failure-${suffix}`, paymongoPaymentId: `pay-refund-failure-${suffix}`, paymentStatus: "PAID_HELD", position: 1, status: "SERVING", estimatedWait: 0 } });
+  const refundProvider = await makeUser("High Refund Provider");
+  const refundFailureService = await prisma.service.create({ data: { providerId: refundProvider.id, categoryId: category.id, title: `Refund retry ${suffix}`, titleNormalized: `refund retry ${suffix}`, description: "Failed refund recovery test", price: 575, estimatedDurationMins: 30, queueLimit: 2, paymentMethods: { cash: false, gcash: true }, status: "ACTIVE", isAvailable: true } });
+  const refundFailureBooking = await prisma.booking.create({ data: { seekerId: outsider.id, providerId: refundProvider.id, serviceId: refundFailureService.id, originType: "DIRECT_LISTING", paymentMethod: "GCash", agreedAmount: 575, paymentStatus: "PAID_HELD", status: "ONGOING", started: true, queuePosition: 1 } });
+  await prisma.queue.create({ data: { providerId: refundProvider.id, serviceId: refundFailureService.id, seekerId: outsider.id, bookingId: refundFailureBooking.id, paymentId: `pi-refund-failure-${suffix}`, paymongoPaymentId: `pay-refund-failure-${suffix}`, paymentStatus: "PAID_HELD", position: 1, status: "SERVING", estimatedWait: 0 } });
   const failedRefundRequest = await requestCancellation(refundFailureBooking.id, outsider.id, "The active paid booking must be cancelled.");
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => { throw new Error("Simulated PayMongo outage"); }) as typeof fetch;
   try {
-    await assert.rejects(respondToCancellationRequest(failedRefundRequest.request!.id, provider.id, true), /PayMongo is unavailable/i);
+    await assert.rejects(respondToCancellationRequest(failedRefundRequest.request!.id, refundProvider.id, true), /PayMongo is unavailable/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -169,7 +181,7 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
     throw new Error(`Unexpected mocked PayMongo request: ${url}`);
   }) as typeof fetch;
   try {
-    await respondToCancellationRequest(failedRefundRequest.request!.id, provider.id, true);
+    await respondToCancellationRequest(failedRefundRequest.request!.id, refundProvider.id, true);
   } finally {
     globalThis.fetch = originalFetch;
   }

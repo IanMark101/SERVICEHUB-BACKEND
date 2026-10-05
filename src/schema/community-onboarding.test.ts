@@ -15,7 +15,7 @@ test('onboarding accepts only terminal user choices', () => {
 test('onboarding preference is protected and scoped to the authenticated user', () => {
   const routes = source('../routes/users.routes.ts');
   const controller = source('../controllers/users.controller.ts');
-  assert.match(routes, /router\.patch\("\/me\/onboarding", requireAuth, requireMarketplaceUser, updateOnboardingStatus\)/);
+  assert.match(routes, /router\.patch\("\/me\/onboarding", requireAuth, requireMarketplaceUser, requireEmailVerified, updateOnboardingStatus\)/);
   assert.match(controller, /\(req as AuthenticatedRequest\)\.user\.id/);
   assert.doesNotMatch(controller, /req\.body\.userId/);
 });
@@ -26,12 +26,12 @@ test('onboarding migration preserves existing users and prompts new users', () =
   assert.match(migration, /SET DEFAULT 'PENDING'/);
 });
 
-test('community recent content uses approval dates and public field selection', () => {
+test('community recent content uses first-publication dates and public field selection', () => {
   const community = source('../controllers/community.controller.ts');
   const services = source('../services/services.service.ts');
   assert.match(community, /RECENT_CONTENT_WINDOW_DAYS = 30/);
   assert.match(community, /recentServices:/);
-  assert.match(services, /reviewedAt: \{ not: null/);
-  assert.match(services, /orderBy: \{ reviewedAt: "desc" \}/);
+  assert.match(services, /publishedAt: \{ not: null/);
+  assert.match(services, /orderBy: \{ publishedAt: "desc" \}/);
   assert.match(services, /select: \{[\s\S]*id: true,[\s\S]*provider:/);
 });

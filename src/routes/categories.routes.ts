@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireMarketplaceUser, requireVerification } from "../middlewares/auth.middleware";
+import { requireAuth, requireEmailVerified, requireMarketplaceUser, requireVerification } from "../middlewares/auth.middleware";
 import {
   getCategories,
   suggestCategory,
@@ -15,6 +15,6 @@ router.get("/", getCategories);
 router.post("/suggest", requireAuth, requireMarketplaceUser, requireVerification, suggestCategory);
 
 // GET /categories/suggestions/mine — user's suggestions list (requires auth)
-router.get("/suggestions/mine", requireAuth, requireMarketplaceUser, getMySuggestions);
+router.get("/suggestions/mine", requireAuth, requireMarketplaceUser, requireEmailVerified, getMySuggestions);
 
 export default router;

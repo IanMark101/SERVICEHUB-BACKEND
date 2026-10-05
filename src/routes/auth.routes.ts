@@ -17,8 +17,10 @@ import {
   getTrustHistoryHandler,
   getUserTrustHistoryHandler,
 } from "../controllers/auth.controller";
-import { requireAuth, requireTrustedOrigin } from "../middlewares/auth.middleware";
-import { authLimiter } from "../middlewares/rateLimiter.middleware";
+import { requireAuth, requireAccountIdentity, requireTrustedOrigin } from "../middlewares/auth.middleware";
+import { getMyBanAppeal, submitBanAppeal } from "../controllers/ban-appeals.controller";
+import { authLimiter, passwordMutationLimiter } from "../middlewares/rateLimiter.middleware";
+import { securityMethods, passwordSetupChallenge, passwordSetupVerification, setPassword } from "../controllers/password-management.controller";
 
 const router = Router();
 
@@ -36,9 +38,15 @@ router.post("/resend-verification", authLimiter, resendVerificationHandler);
 router.get("/profile/:id", requireAuth, getPublicProfileHandler);
 
 // Protected routes
-router.get("/me", requireAuth, getMe);
+router.get("/me", requireAccountIdentity, getMe);
+router.get("/ban-appeal", requireAccountIdentity, getMyBanAppeal);
+router.post("/ban-appeal", requireAccountIdentity, authLimiter, submitBanAppeal);
 router.put("/profile", requireAuth, updateProfileHandler);
-router.post("/change-password", requireAuth, changePasswordHandler);
+router.get("/security", requireAuth, securityMethods);
+router.post("/password-setup/challenge", requireAuth, passwordMutationLimiter, passwordSetupChallenge);
+router.post("/password-setup/verify", requireAuth, passwordMutationLimiter, passwordSetupVerification);
+router.post("/set-password", requireAuth, passwordMutationLimiter, setPassword);
+router.post("/change-password", requireAuth, passwordMutationLimiter, changePasswordHandler);
 router.get("/trust-history", requireAuth, getTrustHistoryHandler);
 router.get("/trust-history/:id", requireAuth, getUserTrustHistoryHandler);
 

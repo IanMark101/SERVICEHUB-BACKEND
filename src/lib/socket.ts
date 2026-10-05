@@ -6,6 +6,10 @@ import { prisma } from "./prisma";
 
 let io: SocketIOServer | null = null;
 
+function socketAuthError(code: "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION_DENIED" | "ACCOUNT_BANNED") {
+  return Object.assign(new Error("Socket authentication failed"), { data: { code } });
+}
+
 /**
  * Initialize Socket.io with the HTTP server.
  * Should be called once in server.ts before app.listen().
@@ -27,24 +31,35 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         socket.handshake.headers?.authorization?.replace("Bearer ", "");
 
       if (!token) {
-        return next(new Error("Authentication error: no token provided"));
+        return next(socketAuthError("SESSION_REVOKED"));
       }
-
-      const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as { sub: string; role: string };
+      let payload: { sub: string; role: string; sid?: string };
+      try {
+        payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as { sub: string; role: string; sid?: string };
+      } catch (error) {
+        return next(socketAuthError(error instanceof jwt.TokenExpiredError ? "TOKEN_EXPIRED" : "SESSION_REVOKED"));
+      }
+      // Access JWTs issued before session IDs were added can recover through
+      // the still-valid refresh cookie instead of forcing a logout on deploy.
+      if (!payload.sid) return next(socketAuthError("TOKEN_EXPIRED"));
+      const session = await prisma.refreshToken.findUnique({ where: { id: payload.sid }, select: { userId: true, expiresAt: true } });
+      if (!session || session.userId !== payload.sub || session.expiresAt <= new Date()) return next(socketAuthError("SESSION_REVOKED"));
       const user = await prisma.user.findUnique({
         where: { id: payload.sub },
         select: { id: true, role: true, isActive: true, emailVerified: true, moderationStatus: true },
       });
+      if (user?.moderationStatus === "BANNED") return next(socketAuthError("ACCOUNT_BANNED"));
       if (!user || !user.isActive || !user.emailVerified) {
-        return next(new Error("Authentication error: account unavailable"));
+        return next(socketAuthError("PERMISSION_DENIED"));
       }
       // Roles and suspension status are read from the database, not from a
       // potentially stale JWT claim.
       (socket as any).userId = user.id;
       (socket as any).role = user.role;
+      (socket as any).sessionId = payload.sid;
       next();
     } catch {
-      next(new Error("Authentication error: invalid token"));
+      next(new Error("Socket authentication temporarily unavailable"));
     }
   });
 
@@ -55,6 +70,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
     // Each user joins their own personal room so they can receive targeted events
     socket.join(`user:${userId}`);
+    socket.join(`session:${(socket as any).sessionId}`);
 
     // Admin users join the global admin room for real-time moderation alerts
     const role = (socket as any).role as string;
@@ -94,7 +110,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // Join a service queue room on demand (for real-time queue counter updates)
+    // Listing viewers join a service room for provider-wide paid workload updates.
     socket.on("join_service", (serviceId: string, acknowledge?: (result: { ok: boolean; error?: string }) => void) => {
       if (typeof serviceId !== "string" || !/^[a-z0-9_-]{10,64}$/i.test(serviceId)) {
         acknowledge?.({ ok: false, error: "Invalid service ID" });
@@ -151,9 +167,38 @@ export function safeBroadcast(event: string, data: unknown): void {
 }
 
 /** Notify and immediately disconnect every active socket for a moderated user. */
-export async function disconnectUserSockets(userId: string, reason: string): Promise<void> {
+export async function disconnectUserSockets(userId: string, reason: string, code?: "ACCOUNT_BANNED" | "ACCOUNT_DELETED" | "PASSWORD_CHANGED"): Promise<void> {
   if (!io) return;
-  const room = `user:${userId}`;
+  try {
+    const room = `user:${userId}`;
+    io.to(room).emit("forceLogout", { reason, code });
+    // Give the client a brief chance to receive the account notice before
+    // closing the transport. HTTP and socket guards enforce the state meanwhile.
+    await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    const sockets = await io.in(room).fetchSockets();
+    sockets.forEach((socket) => socket.disconnect(true));
+  } catch (error) {
+    // The account state is already committed. The HTTP/socket auth guards still
+    // deny future activity if a transport disconnect fails temporarily.
+    console.error("[Socket.io] Unable to disconnect moderated account", error);
+  }
+}
+
+export async function disconnectOtherUserSessions(userId: string, currentSessionId: string): Promise<void> {
+  if (!io) return;
+  try {
+    const sockets = await io.in(`user:${userId}`).fetchSockets();
+    for (const socket of sockets) {
+      if (socket.rooms.has(`session:${currentSessionId}`)) continue;
+      socket.emit("forceLogout", { reason: "Your account security changed. Sign in again." });
+      socket.disconnect(true);
+    }
+  } catch (error) { console.error("[Socket.io] Unable to disconnect revoked sessions", error); }
+}
+
+export async function disconnectSessionSockets(sessionId: string, reason: string): Promise<void> {
+  if (!io) return;
+  const room = `session:${sessionId}`;
   io.to(room).emit("forceLogout", { reason });
   const sockets = await io.in(room).fetchSockets();
   sockets.forEach((socket) => socket.disconnect(true));

@@ -1,9 +1,9 @@
 # Safety and Administrator Moderation Policy
 
-Last updated: September 4, 2026
+Last updated: October 4, 2026
 
 This document defines the implemented Tier 0 rules for booking safety reports,
-review moderation, administrator promotion, and final account deactivation.
+review moderation, administrator provisioning, and final account deactivation.
 
 ## Booking safety reports
 
@@ -38,28 +38,37 @@ review moderation, administrator promotion, and final account deactivation.
 - The moderation state, administrator, timestamp, and reason are retained on the
   review, and each action creates a separate immutable audit event.
 
-## Administrator promotion
+## Administrator provisioning
 
-- Promotion requires the acting administrator's current password. The password
-  is checked against that administrator's stored password hash and is never
-  written to an audit record.
-- The target must be an active non-administrator and must have no nonterminal
-  booking, held payment, active cancellation, active report, or active completion
-  escalation.
-- Successful promotion creates an administrator audit event.
+- User Management has no Make Admin action or promotion dialog, and the API has
+  no administrator-promotion endpoint.
+- Authorized database maintainers manage the existing `user` and `admin` roles
+  directly. Public signup and OAuth cannot assign administrator access.
+- Before a database role change, resolve active bookings, held payments, and
+  unresolved cases, record the reason in the administrator audit log, and revoke
+  the target's sessions. Preserve historical marketplace records.
 
-## Final account deactivation
+## Self-service account deletion
 
-- Final deactivation is available only for a persisted pending deletion request
-  and cannot target an administrator.
-- Active marketplace and case blockers are recalculated inside the guarded
-  transaction. If any exist, the request becomes `BLOCKED` and no account state
-  is changed.
-- A clear request deactivates the account, records `deactivatedAt`, revokes all
-  refresh sessions, completes the deletion request, writes an administrator
-  audit event, and disconnects active sockets.
-- Transaction, moderation, and audit records subject to retention are preserved;
-  deactivation is not presented as immediate physical erasure.
+- Account Settings shows a checklist for published service listings, open
+  requests, unfinished bookings and queue jobs, payments and refunds, and
+  unresolved moderation cases. Users pause listings in Service Manager and
+  pause or close requests in Request Manager before continuing.
+- The owner types `DELETE`, then verifies their current password or completes
+  a fresh Google verification bound to that account and authenticated session.
+  An existing signed-in session alone cannot authorize deletion.
+- Eligibility is checked again inside the account lifecycle transaction. New
+  bookings, publication, payments, or cases cannot bypass this check. Blocked
+  deletion returns the updated checklist without changing account state.
+- Successful deletion physically removes the User row and associated database
+  content, credentials, verification records, closed bookings, payments, chats,
+  reviews, cases, audit/trust history, caches, and old deletion receipts. It
+  revokes every session and disconnects sockets. No placeholder row remains.
+- Shared closed-booking history is removed for both participants; unrelated
+  accounts and engagements remain. This consequence is shown before confirmation.
+  Explicit document holds and retryable case-resolution operations still block
+  deletion. SQL deletion does not erase external storage files or backups. See
+  [Verification document retention](VERIFICATION_DOCUMENT_RETENTION.md).
 
 ## Administrator collection limits
 
@@ -67,5 +76,5 @@ Administrator queues and history endpoints use page/limit parameters with a
 server-side maximum. This includes announcements, users, verification requests,
 service and category review queues, reports, reviews, completion escalations,
 payment reconciliation, bookings, payment attempts, escalated cancellations,
-account-deletion requests, and audit logs. Overview widgets are intentionally
+and audit logs. Overview widgets are intentionally
 bounded summaries.

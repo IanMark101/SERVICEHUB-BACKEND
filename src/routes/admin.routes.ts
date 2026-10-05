@@ -8,11 +8,11 @@ import {
   banUser,
   restoreUser,
   restorePostingPrivilege,
-  promoteUserToAdmin,
   listServices,
-  listPendingServices,
-  reviewService,
+  removeServiceContent,
+  restoreServiceContent,
   listCategories,
+  createCategory,
   updateCategory,
   listCategorySuggestions,
   resolveCategorySuggestion,
@@ -34,10 +34,14 @@ import { adminViewMessages } from "../controllers/messages.controller";
 import { adminMutationLimiter } from "../middlewares/rateLimiter.middleware";
 import { listAdminCompletionEscalations, resolveAdminCompletionEscalation } from "../controllers/admin/completion-escalations.controller";
 import { listPaymentReconciliation, retryPaymentReconciliation } from "../controllers/admin/payments.controller";
-import { adminCancelUnstartedBooking, listAdminBookings, listAdminPaymentAttempts } from "../controllers/admin/booking-operations.controller";
+import { adminCancelUnstartedBooking, listAdminBookings, listAdminPaymentAttempts, resolveBannedParticipantBooking } from "../controllers/admin/booking-operations.controller";
 import { listAdminReviews, moderateReview } from "../controllers/admin/reviews.controller";
-import { finalizeAccountDeletion, listAccountDeletionRequests } from "../controllers/admin/account-deletions.controller";
 import { listAdminAuditLogs } from "../controllers/admin/audit-log.controller";
+import { listPublicRequestContent, removeRequestContent } from "../controllers/admin/request-moderation.controller";
+import { listCases as listContentCases, resolveCase as resolveContentCase, getContentCase, listMarketplaceContent, getMarketplaceContent, actOnMarketplaceContent } from "../controllers/admin/content-cases.controller";
+import { listBanAppeals, decideBanAppeal, getBanAppealSummary } from "../controllers/admin/ban-appeals.controller";
+import { getAdminUserProfile, getAdminUserRecords } from "../controllers/admin/user-profile.controller";
+import { listCases as listModerationCases, getCase, reviewCase } from "../controllers/admin/case-workspace.controller";
 
 const router = Router();
 
@@ -61,33 +65,47 @@ router.patch("/announcements/:id", updateAnnouncement);
 
 // Users & Trust
 router.get("/users", listUsers);
+router.get("/users/:id", getAdminUserProfile);
+router.get("/users/:id/records", getAdminUserRecords);
+router.get("/ban-appeals", listBanAppeals);
+router.get("/ban-appeals/summary", getBanAppealSummary);
+router.patch("/ban-appeals/:id", decideBanAppeal);
 router.patch("/users/:id/trust", updateTrustScore);
 router.patch("/users/:id/suspend", suspendUser);
 router.patch("/users/:id/ban", banUser);
 router.patch("/users/:id/restore", restoreUser);
 router.patch("/users/:id/posting-restore", restorePostingPrivilege);
-router.patch("/users/:id/promote", promoteUserToAdmin);
-router.get("/account-deletions", listAccountDeletionRequests);
-router.post("/account-deletions/:userId/finalize", finalizeAccountDeletion);
 
 // Verification Queue
 router.get("/verifications", listPendingVerifications);
 router.get("/verifications/:id/proofs/:proofId/access", adminAccessProof);
 router.patch("/verifications/:id", reviewVerification);
 
-// Service Listing Review
+// Published listing moderation
 router.get("/services", listServices);
-router.get("/services/pending", listPendingServices);
-router.patch("/services/:id/review", reviewService);
+router.post("/services/:id/remove-content", removeServiceContent);
+router.post("/services/:id/restore-content", restoreServiceContent);
+router.get("/content/requests", listPublicRequestContent);
+router.post("/content/requests/:id/remove", removeRequestContent);
+router.get("/content/cases", listContentCases);
+router.get("/content/cases/:id", getContentCase);
+router.patch("/content/cases/:id", resolveContentCase);
+router.get("/content/marketplace", listMarketplaceContent);
+router.get("/content/marketplace/:type/:id", getMarketplaceContent);
+router.post("/content/marketplace/:type/:id/action", actOnMarketplaceContent);
 
 // Category Suggestions
 router.get("/categories", listCategories);
+router.post("/categories", createCategory);
 router.patch("/categories/:id", updateCategory);
 router.get("/categories/suggestions", listCategorySuggestions);
 router.patch("/categories/suggestions/:id", resolveCategorySuggestion);
 
 // Reports / Moderation
 router.get("/reports", listReports);
+router.get("/moderation-cases", listModerationCases);
+router.get("/moderation-cases/:source/:id", getCase);
+router.patch("/moderation-cases/:source/:id/review", reviewCase);
 router.get("/reports/:id/evidence/access", accessReportEvidence);
 router.patch("/reports/:id/resolve", resolveReport);
 router.get("/reviews", listAdminReviews);
@@ -98,6 +116,7 @@ router.get("/payments/reconciliation", listPaymentReconciliation);
 router.post("/payments/reconciliation/:id/retry", retryPaymentReconciliation);
 router.get("/bookings", listAdminBookings);
 router.post("/bookings/:bookingId/cancel", adminCancelUnstartedBooking);
+router.post("/bookings/:bookingId/resolve-banned", resolveBannedParticipantBooking);
 router.get("/payment-attempts", listAdminPaymentAttempts);
 
 // Resolve escalated cancellation requests

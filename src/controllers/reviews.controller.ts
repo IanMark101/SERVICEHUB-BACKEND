@@ -5,12 +5,12 @@ import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
 import { ReviewSchema, ReviewUpdateSchema } from "../schema/marketplace.schema";
-import { invalidateProviderSummary, summarizeProviderReviews } from "../services/ai.service";
-import { applyTrustEventInTransaction, reviewTrustDelta } from "../services/trust.service";
+import { invalidateReviewSummaries, summarizeProviderReviews, summarizeSeekerReviews } from "../services/ai.service";
+import { applyReviewContributionInTransaction } from "../services/trust.service";
 
-function refreshProviderSummary(providerId: string) {
-  invalidateProviderSummary(providerId);
-  void summarizeProviderReviews(providerId, undefined, true).catch(() => undefined);
+function refreshReviewSummary(targetId: string, asProvider: boolean) {
+  invalidateReviewSummaries(targetId);
+  void (asProvider ? summarizeProviderReviews(targetId, undefined, true) : summarizeSeekerReviews(targetId, true)).catch(() => undefined);
 }
 
 export async function submitReview(req: Request, res: Response, next: NextFunction) {
@@ -45,17 +45,14 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
         },
       });
 
-      {
-        const delta = reviewTrustDelta(input.rating);
-        if (delta) {
-          await applyTrustEventInTransaction(tx, {
-            userId: targetId,
-            delta,
-            reason: `Received ${input.rating}-star ${isSeeker ? 'provider' : 'seeker'} review`,
-            eventKey: `review:${review.id}:rating:v1`,
-          });
-        }
-      }
+      await applyReviewContributionInTransaction(tx, {
+        userId: targetId,
+        reviewId: review.id,
+        rating: input.rating,
+        visible: true,
+        reason: `Received ${input.rating}-star ${isSeeker ? 'provider' : 'seeker'} review`,
+        eventKey: `review:${review.id}:rating:v1`,
+      });
       await tx.notification.create({
         data: {
           userId: targetId,
@@ -68,7 +65,7 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
     });
 
     safeEmit(`user:${result.targetId}`, "notification", { title: "New Review Received" });
-    if (result.providerId) refreshProviderSummary(result.providerId);
+    refreshReviewSummary(result.targetId, !!result.providerId);
     res.status(201).json({ success: true, data: result.review });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -128,21 +125,21 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
       const eligibleProviderReview = existing.authorId === existing.completedService.seekerId
         && existing.targetId === existing.completedService.providerId
         && existing.visibility === "VISIBLE";
-      if (nextRating !== existing.rating) {
-        const delta = reviewTrustDelta(nextRating) - reviewTrustDelta(existing.rating);
-        if (delta) {
-          await applyTrustEventInTransaction(tx, {
-            userId: existing.targetId,
-            delta,
-            reason: `Review rating updated from ${existing.rating} to ${nextRating}`,
-            eventKey: `review:${reviewId}:rating:v${nextVersion}`,
-          });
-        }
+      if (nextRating !== existing.rating && existing.visibility === "VISIBLE") {
+        await applyReviewContributionInTransaction(tx, {
+          userId: existing.targetId,
+          reviewId,
+          rating: nextRating,
+          visible: true,
+          reason: `Review rating updated from ${existing.rating} to ${nextRating}`,
+          eventKey: `review:${reviewId}:rating:v${nextVersion}`,
+        });
       }
-      return { updated, providerId: eligibleProviderReview ? existing.completedService.providerId : null };
+      return { updated, targetId: existing.targetId, providerId: eligibleProviderReview ? existing.completedService.providerId : null };
     });
 
-    if (result.providerId) refreshProviderSummary(result.providerId);
+    refreshReviewSummary(result.targetId, !!result.providerId);
+    safeEmit(`user:${result.targetId}`, 'accountStatusChanged', { reviewsChanged: true });
     res.json({ success: true, message: "Review updated successfully", data: result.updated });
   } catch (error) {
     next(error);

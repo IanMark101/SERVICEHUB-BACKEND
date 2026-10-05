@@ -16,7 +16,13 @@ isolatedUrl.searchParams.set('schema', schemaName);
 // transaction pooling can move sequential migration statements between
 // sessions, so the disposable harness uses the matching direct endpoint.
 isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
+const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
+isolatedDirectUrl.searchParams.set('schema', schemaName);
+isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
 const admin = new Client({ connectionString: databaseUrl });
+// Long integration suites may outlive an idle pooled connection. Keep cleanup
+// independent of this inspection client so the disposable schema is removed.
+admin.on('error', () => console.error('Migration inspection connection closed; cleanup will reconnect.'));
 
 function runNpm(args: string[], env: NodeJS.ProcessEnv) {
   const npmCli = process.env.npm_execpath;
@@ -52,9 +58,15 @@ async function main() {
     const isolatedEnv = {
       ...process.env,
       DATABASE_URL: isolatedUrl.toString(),
+      DIRECT_URL: isolatedDirectUrl.toString(),
       NODE_ENV: 'test',
       PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: '1',
     };
+    // The Prisma CLI prefers DIRECT_URL. Confirm its resolved datasource before
+    // any migration write; a forgotten override must never touch public.
+    const target = runNpm(['exec', '--', 'prisma', 'migrate', 'status'], isolatedEnv);
+    assert.match(`${target.stdout}\n${target.stderr}`, new RegExp(`schema "${schemaName}"`),
+      'Prisma CLI did not target the disposable schema');
     const migration = runNpm(['exec', '--', 'prisma', 'migrate', 'deploy'], isolatedEnv);
     assert.equal(migration.status, 0, 'fresh migration deployment failed');
 
@@ -76,16 +88,65 @@ async function main() {
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
 
-    const highPriorityFlow = runNpm(['run', 'test:high-priority-integration'], isolatedEnv);
-    assert.equal(highPriorityFlow.status, 0, 'fresh-schema H1-H5 integration failed');
+    if (process.env.SERVICEHUB_REQUEST_PAYMENT_ONLY === '1') {
+      for (const file of ['post-request-flow.test.ts', 'request-payment-selection.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `fresh-schema ${file} failed`);
+      }
+      return;
+    }
 
-    if (process.env.SERVICEHUB_ONLY_HIGH !== '1') {
+    if (process.env.SERVICEHUB_CONTENT_ONLY === '1') {
+      for (const file of ['content-workspace.test.ts', 'automated-content-moderation.test.ts', 'self-service-deletion.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `fresh-schema ${file} failed`);
+      }
+      return;
+    }
+
+    const workloadOnly = process.env.SERVICEHUB_WORKLOAD_ONLY === '1';
+    const paymentOnly = process.env.SERVICEHUB_PAYMENT_ONLY === '1';
+    const queueOnly = process.env.SERVICEHUB_QUEUE_ONLY === '1';
+    if (!workloadOnly && !paymentOnly && !queueOnly) {
+      const moderation = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/automated-content-moderation.test.ts'], isolatedEnv);
+      assert.equal(moderation.status, 0, 'fresh-schema automated moderation integration failed');
+
+      const listingRegression = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/listing-correctness.test.ts'], isolatedEnv);
+      assert.equal(listingRegression.status, 0, 'fresh-schema listing regression failed');
+
+      const requestRegression = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/post-request-flow.test.ts'], isolatedEnv);
+      assert.equal(requestRegression.status, 0, 'fresh-schema request posting regression failed');
+
+    }
+
+    if (!workloadOnly && !paymentOnly && !queueOnly && process.env.SERVICEHUB_MODERATION_ONLY !== '1') {
+      const highPriorityFlow = runNpm(['run', 'test:high-priority-integration'], isolatedEnv);
+      assert.equal(highPriorityFlow.status, 0, 'fresh-schema H1-H5 integration failed');
+
+      const paymentReturn = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/payment-return-reconciliation.test.ts'], isolatedEnv);
+      assert.equal(paymentReturn.status, 0, 'fresh-schema GCash return reconciliation failed');
+
+    }
+    if (workloadOnly || paymentOnly || (!queueOnly && process.env.SERVICEHUB_MODERATION_ONLY !== '1' && process.env.SERVICEHUB_ONLY_HIGH !== '1')) {
+      const paymentFailure = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/payment-failure-return.test.ts'], isolatedEnv);
+      assert.equal(paymentFailure.status, 0, 'fresh-schema GCash failure and retry integration failed');
+    }
+    if (workloadOnly || (!paymentOnly && !queueOnly && process.env.SERVICEHUB_MODERATION_ONLY !== '1' && process.env.SERVICEHUB_ONLY_HIGH !== '1')) {
+      const providerWorkload = runNpm(['run', 'test:provider-workload'], isolatedEnv);
+      assert.equal(providerWorkload.status, 0, 'fresh-schema provider-wide workload integration failed');
       const bookingFlow = runNpm(['run', 'test:booking-integration'], isolatedEnv);
       assert.equal(bookingFlow.status, 0, 'fresh-schema booking integration failed');
     }
+    if (workloadOnly || queueOnly || (!paymentOnly && process.env.SERVICEHUB_MODERATION_ONLY !== '1' && process.env.SERVICEHUB_ONLY_HIGH !== '1')) {
+      const queueConcurrency = runNpm(['run', 'test:phase2-integration'], isolatedEnv);
+      assert.equal(queueConcurrency.status, 0, 'fresh-schema queue concurrency integration failed');
+    }
   } finally {
     assert.match(schemaName, /^servicehub_migration_test_[a-f0-9]{32}$/);
-    await admin.query(`DROP SCHEMA "${schemaName}" CASCADE`);
+    const cleanup = new Client({ connectionString: process.env.DIRECT_URL || databaseUrl });
+    await cleanup.connect();
+    try { await cleanup.query(`DROP SCHEMA "${schemaName}" CASCADE`); }
+    finally { await cleanup.end(); }
   }
 }
 
@@ -94,4 +155,4 @@ main()
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   })
-  .finally(() => admin.end());
+  .finally(() => admin.end().catch(() => undefined));

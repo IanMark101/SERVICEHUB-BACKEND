@@ -1,123 +1,15 @@
 import { prisma } from "../lib/prisma";
 import { safeEmit, safeBroadcast } from "../lib/socket";
-import { applyTrustEventInTransaction } from "./trust.service";
-
-export async function reviewServiceListing(
-  serviceId: string,
-  adminId: string,
-  approve: boolean,
-  adminNotes?: string,
-) {
-  const result = await prisma.$transaction(async (tx) => {
-    const owner = await tx.service.findUnique({ where: { id: serviceId }, select: { providerId: true } });
-    if (owner) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-listings:${owner.providerId}`}))`;
-    const service = await tx.service.findUnique({
-      where: { id: serviceId },
-      include: { provider: true },
-    });
-    if (!service) {
-      const error = new Error("Service not found") as Error & { status?: number };
-      error.status = 404;
-      throw error;
-    }
-    if (service.status !== "PENDING_REVIEW") {
-      const error = new Error("Service listing has already been reviewed") as Error & { status?: number };
-      error.status = 409;
-      throw error;
-    }
-    if (approve && service.provider.verificationStatus !== "APPROVED") {
-      const error = new Error("Provider must be a Verified Resident before approval") as Error & { status?: number };
-      error.status = 422;
-      throw error;
-    }
-
-    let notificationBody: string;
-    if (approve) {
-      const claimed = await tx.service.updateMany({
-        where: { id: serviceId, status: "PENDING_REVIEW" },
-        data: {
-          status: "ACTIVE",
-          isAvailable: true,
-          adminNotes: adminNotes || null,
-          reviewedById: adminId,
-          reviewedAt: new Date(),
-        },
-      });
-      if (claimed.count !== 1) {
-        const error = new Error("Service listing has already been reviewed") as Error & { status?: number };
-        error.status = 409;
-        throw error;
-      }
-      notificationBody = `Your service "${service.title}" is now live and visible to seekers. Administrator note: ${adminNotes}`;
-    } else {
-      const rejectionCount = service.rejectionCount + 1;
-      const claimed = await tx.service.updateMany({
-        where: { id: serviceId, status: "PENDING_REVIEW" },
-        data: {
-          status: "REJECTED",
-          isAvailable: false,
-          rejectionCount,
-          adminNotes,
-          reviewedById: adminId,
-          reviewedAt: new Date(),
-        },
-      });
-      if (claimed.count !== 1) {
-        const error = new Error("Service listing has already been reviewed") as Error & { status?: number };
-        error.status = 409;
-        throw error;
-      }
-      notificationBody = `Your service "${service.title}" was not approved. Reason: ${adminNotes}`;
-
-      if (rejectionCount === 2) {
-        await applyTrustEventInTransaction(tx, {
-          userId: service.providerId,
-          delta: -5,
-          reason: "Second repeated service listing rejection",
-          actorAdminId: adminId,
-          eventKey: `listing-rejection:${service.id}:2`,
-        });
-        notificationBody += " Your trust score was reduced by 5 points.";
-      }
-
-      if (rejectionCount >= 3) {
-        await tx.user.update({
-          where: { id: service.providerId },
-          data: {
-            postingSuspended: true,
-            postingSuspendedAt: new Date(),
-            postingSuspendReason: "Three or more rejected service listings",
-          },
-        });
-        notificationBody += " Your service-listing privilege is suspended pending administrator review.";
-      }
-    }
-
-    await tx.notification.create({
-      data: {
-        userId: service.providerId,
-        title: approve ? "Listing Approved" : "Listing Rejected",
-        body: notificationBody,
-        link: `/provider/service-manager?id=${service.id}&status=${approve ? "active" : "rejected"}`,
-      },
-    });
-    await tx.adminAuditLog.create({
-      data: {
-        actorId: adminId,
-        targetUserId: service.providerId,
-        action: approve ? "SERVICE_APPROVED" : "SERVICE_REJECTED",
-        resourceType: "Service",
-        resourceId: service.id,
-        reason: adminNotes || "Listing meets marketplace requirements",
-        metadata: { rejectionCount: approve ? service.rejectionCount : service.rejectionCount + 1 },
-      },
-    });
-    return service;
-  });
-
-  safeEmit(`user:${result.providerId}`, "notification", { title: approve ? "Listing Approved" : "Listing Rejected" });
-  safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: serviceId, status: approve ? "ACTIVE" : "REJECTED" });
-  return { approved: approve };
+import { applyPublicContentAction, emitPublicContentAction } from "./public-content-actions.service";
+export async function removePublishedService(id: string, adminId: string, reason: string) {
+  const result = await prisma.$transaction(tx => applyPublicContentAction(tx, "SERVICE_LISTING", id, adminId, "REMOVE", reason));
+  emitPublicContentAction(result);
+  return prisma.service.findUniqueOrThrow({ where: { id } });
+}
+export async function restoreRemovedService(id: string, adminId: string, reason: string) {
+  const result = await prisma.$transaction(tx => applyPublicContentAction(tx, "SERVICE_LISTING", id, adminId, "RESTORE", reason));
+  emitPublicContentAction(result);
+  return prisma.service.findUniqueOrThrow({ where: { id } });
 }
 
 export async function resolveCategory(
@@ -324,4 +216,18 @@ export async function updateManagedCategory(
   safeBroadcast("COMMUNITY_CATEGORIES_CHANGED", { id: result.id, updated: true });
   safeBroadcast("SERVICE_LISTINGS_CHANGED", { categoryId: result.id, categoryUpdated: true });
   return result;
+}
+
+export async function createManagedCategory(adminId: string, input: { name: string; reason: string }) {
+  const name = input.name.trim().replace(/\s+/g, " ");
+  const category = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(lower(${name})))`;
+    const existing = await tx.category.findFirst({ where: { name: { equals: name, mode: "insensitive" } }, select: { id: true } });
+    if (existing) throw Object.assign(new Error("An equivalent category already exists"), { status: 409 });
+    const created = await tx.category.create({ data: { name, isActive: true } });
+    await tx.adminAuditLog.create({ data: { actorId: adminId, action: "CATEGORY_CREATED", resourceType: "Category", resourceId: created.id, reason: input.reason } });
+    return created;
+  });
+  safeBroadcast("COMMUNITY_CATEGORIES_CHANGED", { id: category.id, created: true });
+  return category;
 }

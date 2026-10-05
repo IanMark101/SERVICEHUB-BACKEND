@@ -26,7 +26,7 @@ test("all existing-booking terminal mutations use the shared lifecycle lock", ()
 
 test("report resolution requires a booking outcome separate from an optional penalty", () => {
   const schema = source("src/schema/marketplace.schema.ts");
-  assert.match(schema, /outcome: z\.enum\(\["dismiss", "cancel_booking", "release_provider_and_complete"\]\)/);
+  assert.match(schema, /outcome: z\.enum\(\["dismiss", "resolve_safety", "cancel_booking", "release_provider_and_complete"\]\)/);
   assert.match(schema, /penaltyAction: z\.enum\(\["none", "warn", "trust_deduct", "suspend", "ban"\]\)/);
   assert.doesNotMatch(schema, /action: z\.enum\(\["warn"/);
   assert.match(source("src/services/cancellation.service.ts"), /reportType: "CANCELLATION_ESCALATION"/);

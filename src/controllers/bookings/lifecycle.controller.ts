@@ -50,9 +50,9 @@ export async function providerRemoveFromQueue(req: Request, res: Response, next:
     const { reason } = CancellationRequestSchema.parse(req.body);
     const queueEntry = await prisma.queue.findUnique({
       where: { id: id as string },
-      select: { bookingId: true, service: { select: { providerId: true } } },
+      select: { bookingId: true, providerId: true },
     });
-    if (!queueEntry?.bookingId || queueEntry.service.providerId !== user.id) {
+    if (!queueEntry?.bookingId || queueEntry.providerId !== user.id) {
       const error = new Error("Queue entry not found or access denied") as Error & { status?: number };
       error.status = 404;
       throw error;

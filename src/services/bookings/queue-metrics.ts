@@ -2,23 +2,22 @@ import { prisma } from "../../lib/prisma";
 
 // ── FCFS Queue Logic ──────────────────────────────────────────────────────────
 
-export async function getNextQueuePosition(serviceId: string): Promise<number> {
+export async function getNextQueuePosition(providerId: string): Promise<number> {
   const lastEntry = await prisma.queue.findFirst({
-    where: { serviceId, status: { in: ["SERVING", "WAITING"] } },
+    where: { providerId, status: { in: ["SERVING", "WAITING"] } },
     orderBy: { position: "desc" },
   });
   return lastEntry ? lastEntry.position + 1 : 1;
 }
 export async function calculateEstimatedWait(
-  serviceId: string,
+  providerId: string,
   position: number
 ): Promise<number> {
-  const service = await prisma.service.findUnique({
-    where: { id: serviceId },
-    select: { estimatedDurationMins: true },
+  const ahead = await prisma.queue.findMany({
+    where: { providerId, status: { in: ["SERVING", "WAITING"] }, position: { lt: position } },
+    include: { booking: { select: { estimatedDurationMins: true } } },
   });
-  if (!service) return 0;
-  return service.estimatedDurationMins * (position - 1);
+  return ahead.reduce((sum, entry) => sum + (entry.booking?.estimatedDurationMins ?? 60), 0);
 }
 
 export async function resolveFinalPrice(booking: any): Promise<number> {

@@ -1,0 +1,4 @@
+-- Reserved migration slot from the prior offer-only scope work.
+-- The optional Offer/PaymentAttempt/Queue service relationship and the
+-- provider-wide queue are migrated together in 20260928180000 so existing
+-- paid queue rows can be backfilled and reindexed atomically.

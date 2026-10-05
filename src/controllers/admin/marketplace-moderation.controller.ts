@@ -1,23 +1,12 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { prisma } from "../../lib/prisma";
-import { listAdminServices, listPendingServices as adminListPendingServices } from "../../services/services.service";
-import { listManagedCategories, reviewServiceListing, resolveCategory, updateManagedCategory } from "../../services/admin-moderation.service";
+import { listAdminServices } from "../../services/services.service";
+import { createManagedCategory, listManagedCategories, removePublishedService, restoreRemovedService, resolveCategory, updateManagedCategory } from "../../services/admin-moderation.service";
 import { safeEmit } from "../../lib/socket";
-import { AdminCategoryUpdateSchema, BooleanDecisionSchema } from "../../schema/marketplace.schema";
+import { AdminCategoryCreateSchema, AdminCategoryUpdateSchema, BooleanDecisionSchema } from "../../schema/marketplace.schema";
 
-export async function listPendingServices(req: Request, res: Response, next: NextFunction) {
-  try {
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
-    const result = await adminListPendingServices(page, limit);
-    res.json({ success: true, data: result.items, pagination: result.pagination });
-  } catch (err) {
-    next(err);
-  }
-}
-
-const ADMIN_SERVICE_STATUSES = ["LIVE", "PENDING_REVIEW", "ACTIVE", "INACTIVE", "SUSPENDED", "REJECTED"] as const;
+const ADMIN_SERVICE_STATUSES = ["LIVE", "ACTIVE", "INACTIVE", "SUSPENDED", "REJECTED"] as const;
 
 export async function listServices(req: Request, res: Response, next: NextFunction) {
   try {
@@ -38,18 +27,22 @@ export async function listServices(req: Request, res: Response, next: NextFuncti
   }
 }
 
-// ── PATCH /admin/services/:id/review ──────────────────────────────────────────
-export async function reviewService(req: Request, res: Response, next: NextFunction) {
+export async function removeServiceContent(req: Request, res: Response, next: NextFunction) {
   try {
-    const { approve, adminNotes } = BooleanDecisionSchema.parse(req.body);
-    if (!adminNotes || adminNotes.trim().length < 3) {
-      return res.status(400).json({ success: false, error: "An administrator message of at least 3 characters is required for every listing decision" });
-    }
-    const result = await reviewServiceListing(req.params.id as string, (req as AuthenticatedRequest).user.id, approve, adminNotes);
-    res.json({ success: true, data: result });
-  } catch (err) {
-    next(err);
-  }
+    const reason = String(req.body?.reason ?? "").trim();
+    if (reason.length < 3 || reason.length > 1000) return res.status(400).json({ success: false, error: "An Admin reason of 3–1000 characters is required." });
+    const service = await removePublishedService(req.params.id as string, (req as AuthenticatedRequest).user.id, reason);
+    res.json({ success: true, data: service });
+  } catch (error) { next(error); }
+}
+
+export async function restoreServiceContent(req: Request, res: Response, next: NextFunction) {
+  try {
+    const reason = String(req.body?.reason ?? "").trim();
+    if (reason.length < 3 || reason.length > 1000) return res.status(400).json({ success: false, error: "An Admin reason of 3–1000 characters is required." });
+    const service = await restoreRemovedService(req.params.id as string, (req as AuthenticatedRequest).user.id, reason);
+    res.json({ success: true, data: service });
+  } catch (error) { next(error); }
 }
 
 // ── GET /admin/categories/suggestions ─────────────────────────────────────────
@@ -149,6 +142,14 @@ export async function listCategories(req: Request, res: Response, next: NextFunc
   } catch (error) {
     next(error);
   }
+}
+
+export async function createCategory(req: Request, res: Response, next: NextFunction) {
+  try {
+    const input = AdminCategoryCreateSchema.parse(req.body);
+    const category = await createManagedCategory((req as AuthenticatedRequest).user.id, input);
+    res.status(201).json({ success: true, data: category });
+  } catch (error) { next(error); }
 }
 
 export async function updateCategory(req: Request, res: Response, next: NextFunction) {

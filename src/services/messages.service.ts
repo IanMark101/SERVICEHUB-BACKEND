@@ -115,6 +115,124 @@ export async function getConversations(userId: string, page = 1, limit = 20) {
   return { items, total, unread };
 }
 
+function visibleConversationWhere(userId: string): Prisma.BookingWhereInput {
+  return {
+    OR: [
+      { seekerId: userId, hiddenBySeeker: false },
+      { providerId: userId, hiddenByProvider: false },
+    ],
+    status: { notIn: ["PENDING_APPROVAL", "DECLINED"] },
+  };
+}
+
+function loadContactBookings(userId: string, otherPartyIds: string[]) {
+  return prisma.booking.findMany({
+    where: {
+      AND: [visibleConversationWhere(userId), { OR: [
+        { seekerId: userId, providerId: { in: otherPartyIds } },
+        { providerId: userId, seekerId: { in: otherPartyIds } },
+      ] }],
+    },
+    include: {
+      seeker: { select: { id: true, name: true, avatarUrl: true } },
+      provider: { select: { id: true, name: true, avatarUrl: true } },
+      service: { select: { title: true } },
+      offer: { include: { request: { select: { title: true } } } },
+      directRequest: { include: { service: { select: { title: true } } } },
+      messages: { orderBy: { createdAt: "desc" }, take: 1, include: { sender: { select: { name: true } } } },
+      _count: { select: { messages: { where: { receiverId: userId, isRead: false } } } },
+    },
+    orderBy: { updatedAt: "desc" },
+  }).then((bookings) => bookings.sort((left, right) => {
+    const leftActivity = Math.max(left.updatedAt.getTime(), left.messages[0]?.createdAt.getTime() ?? 0);
+    const rightActivity = Math.max(right.updatedAt.getTime(), right.messages[0]?.createdAt.getTime() ?? 0);
+    return rightActivity - leftActivity;
+  }));
+}
+
+type ContactBooking = Awaited<ReturnType<typeof loadContactBookings>>[number];
+
+function makeContactGroup(bookings: ContactBooking[], userId: string) {
+  if (bookings.length === 0) return null;
+  const threads = bookings.map((booking) => {
+    const isSeeker = booking.seekerId === userId;
+    const otherParty = isSeeker ? booking.provider : booking.seeker;
+    const latestMessage = booking.messages[0];
+    const lastMessage = latestMessage
+      ? latestMessage.isSystem
+        ? latestMessage.content
+        : `${latestMessage.sender?.name || (latestMessage.senderId === userId ? "You" : "User")}: ${latestMessage.content || "Image attachment"}`
+      : undefined;
+    return {
+      bookingId: booking.id,
+      title: booking.service?.title || booking.offer?.request?.title || booking.directRequest?.service?.title || "Job Engagement",
+      otherPartyId: otherParty.id,
+      otherPartyName: otherParty.name,
+      otherPartyAvatar: otherParty.avatarUrl,
+      otherPartyRole: isSeeker ? "Provider" as const : "Seeker" as const,
+      status: booking.status,
+      lastMessage,
+      lastMessageTime: latestMessage?.createdAt ?? booking.updatedAt,
+      unreadCount: booking._count.messages,
+    };
+  });
+  const latest = threads[0];
+  return {
+    otherPartyId: latest.otherPartyId,
+    otherPartyName: latest.otherPartyName,
+    otherPartyAvatar: latest.otherPartyAvatar,
+    lastMessage: latest.lastMessage,
+    lastMessageTime: latest.lastMessageTime,
+    unreadCount: threads.reduce((total, thread) => total + thread.unreadCount, 0),
+    bookings: threads,
+  };
+}
+
+export async function getConversationGroups(userId: string, page = 1, limit = 20) {
+  const [contacts, count] = await Promise.all([
+    prisma.$queryRaw<Array<{ otherPartyId: string }>>`
+      SELECT CASE WHEN "seekerId" = ${userId} THEN "providerId" ELSE "seekerId" END AS "otherPartyId"
+      FROM "bookings"
+      WHERE (("seekerId" = ${userId} AND "hiddenBySeeker" = false)
+          OR ("providerId" = ${userId} AND "hiddenByProvider" = false))
+        AND "status"::text NOT IN ('PENDING_APPROVAL', 'DECLINED')
+      GROUP BY 1
+      ORDER BY MAX(GREATEST("updatedAt", COALESCE(
+        (SELECT MAX(message."createdAt") FROM "messages" message WHERE message."bookingId" = "bookings"."id"),
+        "updatedAt"
+      ))) DESC, 1
+      LIMIT ${limit} OFFSET ${(page - 1) * limit}
+    `,
+    prisma.$queryRaw<Array<{ total: number }>>`
+      SELECT COUNT(DISTINCT CASE WHEN "seekerId" = ${userId} THEN "providerId" ELSE "seekerId" END)::integer AS total
+      FROM "bookings"
+      WHERE (("seekerId" = ${userId} AND "hiddenBySeeker" = false)
+          OR ("providerId" = ${userId} AND "hiddenByProvider" = false))
+        AND "status"::text NOT IN ('PENDING_APPROVAL', 'DECLINED')
+    `,
+  ]);
+  const otherPartyIds = contacts.map((contact) => contact.otherPartyId);
+  if (otherPartyIds.length === 0) return { items: [], total: count[0]?.total ?? 0 };
+  const bookings = await loadContactBookings(userId, otherPartyIds);
+  const items = contacts.flatMap((contact) => {
+    const group = makeContactGroup(bookings.filter((booking) =>
+      (booking.seekerId === userId ? booking.providerId : booking.seekerId) === contact.otherPartyId
+    ), userId);
+    return group ? [group] : [];
+  });
+  return { items, total: count[0]?.total ?? 0 };
+}
+
+export async function getConversationGroupForBooking(userId: string, bookingId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { AND: [visibleConversationWhere(userId), { id: bookingId }] },
+    select: { seekerId: true, providerId: true },
+  });
+  if (!booking) return null;
+  const otherPartyId = booking.seekerId === userId ? booking.providerId : booking.seekerId;
+  return makeContactGroup(await loadContactBookings(userId, [otherPartyId]), userId);
+}
+
 export async function getMessages(bookingId: string, userId: string, userRole?: string) {
   // Validate basic access (seeker or provider check, admin bypass)
   const booking = await checkMessagingAccess(bookingId, userId, userRole);

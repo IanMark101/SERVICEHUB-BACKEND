@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { NextFunction, Request, Response } from "express";
-import { requireAdmin, requireEmailVerified, requireVerification } from "../middlewares/auth.middleware";
+import { accountAccessDecision, requireAdmin, requireEmailVerified, requireVerification } from "../middlewares/auth.middleware";
 import {
   AdminCategoryUpdateSchema,
+  AdminCancellationDecisionSchema,
   BooleanDecisionSchema,
   ReportResolutionSchema,
+  RestoreUserSchema,
   SuspendUserSchema,
   TrustAdjustmentSchema,
   VerificationSubmissionSchema,
@@ -35,13 +37,37 @@ test("report resolution always records an administrator rationale", () => {
 test("trust changes cannot be zero or anonymous", () => {
   assert.equal(TrustAdjustmentSchema.safeParse({ delta: 0, reason: "Manual review" }).success, false);
   assert.equal(TrustAdjustmentSchema.safeParse({ delta: -5, reason: "" }).success, false);
-  assert.equal(TrustAdjustmentSchema.safeParse({ delta: -5, reason: "Confirmed policy violation" }).success, true);
+  assert.equal(TrustAdjustmentSchema.safeParse({ delta: -5, reason: "Confirmed policy violation" }).success, false);
+  assert.equal(TrustAdjustmentSchema.safeParse({ delta: -5, reason: "Confirmed policy violation", currentPassword: "current-secret", operationId: "a40cd2da-685e-44a2-bef2-42f1aa0c198f" }).success, true);
+});
+
+test("cancellation fault findings require a reason, an approval and one valid participant role", () => {
+  assert.equal(AdminCancellationDecisionSchema.safeParse({ approve: true, fault: 'provider' }).success, false);
+  assert.equal(AdminCancellationDecisionSchema.safeParse({ approve: true, adminNotes: 'Supported fault finding', fault: 'provider' }).success, true);
+  assert.equal(AdminCancellationDecisionSchema.safeParse({ approve: true, adminNotes: 'Mutual cancellation', fault: 'none' }).success, true);
+  assert.equal(AdminCancellationDecisionSchema.safeParse({ approve: false, adminNotes: 'Cancellation denied', fault: 'seeker' }).success, false);
+  assert.equal(AdminCancellationDecisionSchema.safeParse({ approve: true, adminNotes: 'Invalid target', fault: 'both' }).success, false);
 });
 
 test("temporary suspensions are bounded", () => {
   assert.equal(SuspendUserSchema.safeParse({ reason: "Repeated abuse", durationDays: 0 }).success, false);
   assert.equal(SuspendUserSchema.safeParse({ reason: "Repeated abuse", durationDays: 366 }).success, false);
   assert.equal(SuspendUserSchema.safeParse({ reason: "Repeated abuse", durationDays: 30 }).success, true);
+});
+
+test("restoring or unbanning requires an administrator reason", () => {
+  assert.equal(RestoreUserSchema.safeParse({}).success, false);
+  assert.equal(RestoreUserSchema.safeParse({ reason: "Reviewed and approved" }).success, true);
+});
+
+test("banned accounts retain appeal identity but never normal API access even with isActive=true", () => {
+  for (const isActive of [true, false]) {
+    assert.equal(accountAccessDecision({ isActive, moderationStatus: "BANNED" }), "ACCOUNT_BANNED");
+    assert.equal(accountAccessDecision({ isActive, moderationStatus: "BANNED" }, true), "ALLOW");
+  }
+  assert.equal(accountAccessDecision({ isActive: true, moderationStatus: "SUSPENDED" }), "ALLOW");
+  assert.equal(accountAccessDecision({ isActive: false, moderationStatus: "ACTIVE" }), "ACCOUNT_INACTIVE");
+  assert.equal(accountAccessDecision({ isActive: false, moderationStatus: "BANNED", deactivatedAt: new Date() }, true), "ACCOUNT_INACTIVE");
 });
 
 test("verification accepts only private managed proof references and approved document types", () => {

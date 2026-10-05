@@ -2,7 +2,8 @@ import { prisma } from "../lib/prisma";
 import { createRefund, getPaymentIntent } from "./paymongo.service";
 import {
   emitWaitlistNotification,
-  lockServiceQueue,
+  emitProviderQueueUpdates,
+  lockProviderQueue,
   notifyWaitlistInTransaction,
   recalculateQueueInTransaction,
 } from "./queue.service";
@@ -139,7 +140,7 @@ export async function refundBookingPayment(
     if (!refundRecord || (!reservation.resumed && refundRecord.status !== "PROCESSING")) {
       throw httpError("Refund reservation is no longer valid", 409);
     }
-    await lockServiceQueue(tx, booking.queue.serviceId);
+    await lockProviderQueue(tx, booking.providerId);
     await tx.paymentRefund.update({
       where: { bookingId },
       data: {
@@ -177,10 +178,11 @@ export async function refundBookingPayment(
     if (booking.offer?.requestId) {
       await tx.serviceRequest.updateMany({ where: { id: booking.offer.requestId }, data: { status: "CANCELED" } });
     }
-    await recalculateQueueInTransaction(tx, booking.queue.serviceId);
-    return notifyWaitlistInTransaction(tx, booking.queue.serviceId);
+    await recalculateQueueInTransaction(tx, booking.providerId);
+    return notifyWaitlistInTransaction(tx, booking.providerId);
   });
   emitWaitlistNotification(waitlistNotification);
+  await emitProviderQueueUpdates(initialBooking.providerId).catch((error) => console.error("Queue refresh event failed", error));
 
   return {
     refundId: gatewayRefund.id,

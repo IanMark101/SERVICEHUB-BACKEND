@@ -10,6 +10,7 @@ import {
   markAdminResolutionFailed,
   markAdminResolutionStage,
   markAdminResolutionStageInTransaction,
+  reconcileReservedFinancialEffect,
 } from "./admin-resolution-operation.service";
 import { assertNoFinancialResolutionReserved, assertNoOtherBlockingCases } from "./case-resolution.service";
 
@@ -41,13 +42,14 @@ export async function createCompletionEscalation(bookingId: string, providerId: 
     if (!booking || booking.providerId !== providerId) throw httpError("Booking not found or access denied", 404);
     await assertNoFinancialResolutionReserved(tx, bookingId);
     if (booking.status !== "AWAITING_CONFIRMATION") throw httpError("Only a booking awaiting seeker confirmation can be escalated", 409);
-    if (booking.updatedAt.getTime() + WAIT_MS > Date.now()) throw httpError("Completion can be escalated after 72 hours without a seeker response", 409, "ESCALATION_WAIT_PERIOD");
-
     const previous = await tx.completionEscalation.findFirst({ where: { bookingId }, orderBy: { createdAt: "desc" } });
+    // Repeating an already-submitted escalation is idempotent even if the
+    // booking's update timestamp changed since the original request.
     if (previous && ["PENDING", "UNDER_REVIEW"].includes(previous.status)) return { escalation: previous, created: false, adminIds: [] as string[] };
     if (previous?.resolution === "KEEP_AWAITING" && previous.resolvedAt && previous.resolvedAt.getTime() + RETRY_COOLDOWN_MS > Date.now()) {
       throw httpError("Wait 72 hours before submitting another completion escalation", 409, "ESCALATION_COOLDOWN");
     }
+    if (booking.updatedAt.getTime() + WAIT_MS > Date.now()) throw httpError("Completion can be escalated after 72 hours without a seeker response", 409, "ESCALATION_WAIT_PERIOD");
 
     const escalation = await tx.completionEscalation.create({ data: { bookingId, requestedBy: providerId, reason: reason.trim() } });
     const admins = await tx.user.findMany({ where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" }, select: { id: true } });
@@ -97,10 +99,13 @@ export async function resolveCompletionEscalation(params: {
       if (existingOperation?.status === "COMPLETED") return { operation: existingOperation, completed: existingOperation.result };
       throw httpError("This escalation was superseded or already resolved", 409, "STALE_ESCALATION");
     }
-    const operation = await beginAdminResolution(tx, {
+    let operation = await beginAdminResolution(tx, {
       caseType: "COMPLETION_ESCALATION", caseId: escalation.id, bookingId: escalation.bookingId,
       adminId: params.adminId, outcome: params.action, notes: params.resolution,
     });
+    if (params.action !== "keep_awaiting") {
+      operation = await reconcileReservedFinancialEffect(tx, operation, params.action === "refund_seeker" ? "refund_seeker" : "release_provider_and_complete");
+    }
     const completed = completedResolutionResult(operation);
     if (completed) return { operation, completed };
     const effectEstablished = hasEstablishedFinancialEffect(operation);

@@ -6,7 +6,8 @@ import { assertDistinctAccounts } from "../../utils/security";
 import { sendMessage } from "../messages.service";
 import {
   emitWaitlistNotification,
-  lockServiceQueue,
+  emitProviderQueueUpdates,
+  lockProviderQueue,
   notifyWaitlistInTransaction,
   recalculateQueueInTransaction,
   type WaitlistNotification,
@@ -44,15 +45,18 @@ export async function markJobComplete(id: string, providerId: string) {
     });
     let waitlistNotification: WaitlistNotification | null = null;
     if (fresh.queue) {
-      await lockServiceQueue(tx, fresh.queue.serviceId);
+      await lockProviderQueue(tx, fresh.providerId);
       await tx.queue.update({ where: { id: fresh.queue.id }, data: { status: "DONE" } });
-      await recalculateQueueInTransaction(tx, fresh.queue.serviceId);
-      waitlistNotification = await notifyWaitlistInTransaction(tx, fresh.queue.serviceId);
+      await recalculateQueueInTransaction(tx, fresh.providerId);
+      waitlistNotification = await notifyWaitlistInTransaction(tx, fresh.providerId);
+    } else {
+      await recalculateQueueInTransaction(tx, fresh.providerId);
     }
     return { booking: updated, queue: fresh.queue, changed: true, waitlistNotification };
   });
 
   emitWaitlistNotification(result.waitlistNotification ?? null);
+  if (result.changed) await emitProviderQueueUpdates(result.booking.providerId).catch((error) => console.error("Queue refresh event failed", error));
   if (result.changed) {
     await prisma.notification.create({
       data: {
@@ -117,9 +121,9 @@ export async function settleCompletedBooking(
       data: { status: "COMPLETED", paymentStatus: settlementStatus, statusBeforeDispute: null },
     });
     if (booking.queue) {
-      await lockServiceQueue(tx, booking.queue.serviceId);
+      await lockProviderQueue(tx, booking.providerId);
       await tx.queue.update({ where: { id: booking.queue.id }, data: { status: "DONE", paymentStatus: settlementStatus } });
-      await recalculateQueueInTransaction(tx, booking.queue.serviceId);
+      await recalculateQueueInTransaction(tx, booking.providerId);
     }
     if (booking.offer?.requestId) {
       await tx.serviceRequest.update({ where: { id: booking.offer.requestId }, data: { status: "CLOSED" } });
@@ -172,7 +176,7 @@ export async function settleCompletedBooking(
           userId: result.booking.providerId,
           title: "Completion confirmed",
           body: actor.type === "ADMIN"
-            ? "An administrator resolved the dispute and confirmed completion."
+            ? "An administrator reviewed the booking and confirmed completion."
             : result.isCash
               ? "The seeker confirmed completion of the on-site cash booking."
               : "The seeker confirmed completion and the internal payment hold was released.",

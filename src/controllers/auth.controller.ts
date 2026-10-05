@@ -11,7 +11,7 @@ import {
 import {
   registerUser,
   loginUser,
-  recoverAccessToken,
+  recoverSession,
   refreshAccessToken,
   logoutUser,
   verifyEmail,
@@ -66,14 +66,14 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     res.status(201).json({
       success: true,
       message: verificationEmailSent
-        ? "Account created. Please verify your email to unlock full access."
+        ? "Account created. Please verify your email before entering your workspace."
         : "Account created, but the verification email could not be delivered. Sign in and request a new verification link.",
       data: { user, accessToken: tokens.accessToken, verificationEmailSent },
     });
   } catch (err: any) {
     // Zod validation errors
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, errors: err.errors });
+      return res.status(400).json({ success: false, errors: err.issues ?? err.errors });
     }
     next(err);
   }
@@ -94,7 +94,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, errors: err.errors });
+      return res.status(400).json({ success: false, errors: err.issues ?? err.errors });
     }
     next(err);
   }
@@ -135,10 +135,10 @@ export async function session(req: Request, res: Response, next: NextFunction) {
   try {
     // Session probing must not rotate the one-time refresh token. A rapid
     // reload can abandon the response before a replacement cookie is stored.
-    const accessToken = await recoverAccessToken(incomingToken);
+    const { accessToken, user } = await recoverSession(incomingToken);
     return res.json({
       success: true,
-      data: { authenticated: true, accessToken },
+      data: { authenticated: true, accessToken, user },
     });
   } catch (err: any) {
     if (err?.status === 401) {
@@ -210,7 +210,7 @@ export async function forgotPasswordHandler(req: Request, res: Response, next: N
     });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, errors: err.errors });
+      return res.status(400).json({ success: false, errors: err.issues ?? err.errors });
     }
     next(err);
   }
@@ -228,7 +228,7 @@ export async function resetPasswordHandler(req: Request, res: Response, next: Ne
     res.json({ success: true, message: "Password reset successfully. Please log in again." });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, errors: err.errors });
+      return res.status(400).json({ success: false, errors: err.issues ?? err.errors });
     }
     next(err);
   }
@@ -289,11 +289,12 @@ export async function changePasswordHandler(req: Request, res: Response, next: N
   try {
     const userId = (req as any).user?.id;
     const { currentPassword, newPassword } = ChangePasswordSchema.parse(req.body);
-    await changeUserPassword(userId, currentPassword, newPassword);
-    res.json({ success: true, message: "Password updated successfully" });
+    await changeUserPassword(userId, currentPassword, newPassword, (req as AuthenticatedRequest).sessionId);
+    res.clearCookie("refreshToken", REFRESH_COOKIE_CLEAR_OPTIONS);
+    res.json({ success: true, message: "Password changed successfully. Sign in again on your devices." });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, errors: err.errors });
+      return res.status(400).json({ success: false, errors: err.issues ?? err.errors });
     }
     next(err);
   }

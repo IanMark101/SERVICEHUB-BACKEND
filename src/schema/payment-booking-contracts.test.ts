@@ -40,13 +40,13 @@ test("Test Mode refund is an explicit internal reversal and never calls the prov
   }
 });
 
-test("Flow B offers require an exact provider listing", () => {
+test("Flow B offers allow a listing-free proposal and an optional listing shortcut", () => {
   const base = {
     requestId: "cm12345678901234567890123",
     offeredPrice: 500,
     estimatedDuration: 60,
   };
-  assert.equal(OfferSchema.safeParse(base).success, false);
+  assert.equal(OfferSchema.safeParse(base).success, true);
   assert.equal(OfferSchema.safeParse({ ...base, serviceId: "cm22345678901234567890123" }).success, true);
 });
 
@@ -58,24 +58,30 @@ test("administrator can explicitly release a disputed provider payment", () => {
   }).success, true);
 });
 
-test("browser payment return is status-only, never booking fulfillment", () => {
-  const source = fs.readFileSync(path.join(process.cwd(), "src/controllers/bookings/payment-v2.controller.ts"), "utf8");
-  assert.doesNotMatch(source, /getPaymentIntent|addToQueue|booking\.create|queue\.create/);
-  assert.match(source, /getPaymentAttemptStatus/);
+test("browser payment return delegates to owned server-side verification, never trusts the redirect", () => {
+  const controller = fs.readFileSync(path.join(process.cwd(), "src/controllers/bookings/payment-v2.controller.ts"), "utf8");
+  const service = fs.readFileSync(path.join(process.cwd(), "src/services/payment-attempt.service.ts"), "utf8");
+  assert.doesNotMatch(controller, /getPaymentIntent|addToQueue|booking\.create|queue\.create/);
+  assert.match(controller, /reconcileOnlinePaymentReturn\(user\.id, paymentIntentId\)/);
+  assert.match(service, /getPaymentAttemptStatus\(seekerId, paymentIntentId\)/);
+  assert.match(service, /const intent = await getPaymentIntent\(paymentIntentId\)/);
+  assert.match(service, /if \(intent\.status === "succeeded"\)/);
+  assert.match(service, /const finalized = await finalizeSuccessfulPayment\(/);
 });
 
-test("online initiation derives its fixed listing price", () => {
+test("online initiation derives the exact listing total on the server", () => {
   const source = fs.readFileSync(path.join(process.cwd(), "src/services/payment-attempt.service.ts"), "utf8");
   const initiationContract = source.match(/initiateOnlinePayment\(params: \{[\s\S]*?\n\}\) \{/);
   assert.ok(initiationContract, "initiateOnlinePayment input contract should be present");
   assert.match(source, /PAYMENT_NOT_CONFIGURED/);
   assert.match(source, /price: true/);
-  assert.match(source, /Number\(service\.price\)/);
-  assert.match(source, /!params\.offerId && !\["FIXED", "PER_SESSION"\]\.includes\(service\.priceType\)/);
+  assert.match(source, /calculateDirectListingTerms\(service\.priceType, service\.price, quantity, service\.estimatedDurationMins\)/);
+  assert.match(source, /Number\(directTerms\.amount\)/);
+  assert.match(source, /onlineQueueLimit/);
   assert.doesNotMatch(initiationContract[0], /amount\s*:/);
 });
 
-test("new listings are reusable one-time engagements and advanced pricing requires an exact offer", () => {
+test("new listings are reusable one-time engagements with exact prices", () => {
   const directSource = fs.readFileSync(path.join(process.cwd(), "src/services/bookings/direct-bookings.service.ts"), "utf8");
   assert.match(directSource, /agreedAmount: offer\.offeredPrice/);
   assert.doesNotMatch(directSource, /SESSION_SCHEDULING_NOT_AVAILABLE/);
@@ -91,6 +97,9 @@ test("new listings are reusable one-time engagements and advanced pricing requir
   assert.equal(CreateServiceSchema.safeParse({ ...base, serviceType: "ONE_TIME" }).success, true);
   assert.equal(CreateServiceSchema.safeParse({ ...base, serviceType: "SESSION_BASED" }).success, false);
   assert.equal(CreateServiceSchema.safeParse({ ...base, priceType: "PER_SESSION" }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...base, priceType: "STARTS_AT" }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...base, priceType: "CUSTOM" }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...base, price: undefined }).success, false);
   assert.equal(UpdateServiceSchema.safeParse({ serviceType: "SESSION_BASED" }).success, false);
   assert.match(directSource, /status: \{\s*in: \["PENDING_APPROVAL", "WAITING", "ONGOING", "ACCEPTED", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED"\]/);
   assert.doesNotMatch(directSource, /status: \{\s*in: \[[^\]]*"COMPLETED"/);

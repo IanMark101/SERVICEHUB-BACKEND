@@ -1,7 +1,7 @@
 # SERVICEHUB MASTER PROMPT
 
-**Specification version:** 2.5
-**Effective date:** September 10, 2026
+**Specification version:** 2.6
+**Effective date:** September 28, 2026
 **Status:** Authoritative capstone specification
 
 This is the single source of truth for **ServiceHub Cordova** — a hyperlocal two-sided service marketplace and queue-management system for Cordova, Cebu, Philippines. Read this document before changing application behavior.
@@ -25,9 +25,9 @@ This is the single source of truth for **ServiceHub Cordova** — a hyperlocal t
 - **Expansion boundary:** ServiceHub Cordova is a Cordova-focused pilot deployment of a hyperlocal marketplace. Multi-area or multi-city operation is a future enhancement, not an implemented capability and not a capstone acceptance criterion. Current documentation and UI MUST NOT imply that users can transact outside Cordova.
 - **Future service-area direction:** A future approved expansion MAY introduce configurable service areas and area-scoped discovery/moderation. It would require an explicit schema migration, authorization and residency-policy review, data migration, UI changes, and regression tests. Do not simulate scalability by hardcoding additional cities, relabeling the current free-text location field as a service-area model, or claiming multi-area support before those changes exist.
 - **Core purpose:** A community-based marketplace where people can browse local services and verified Cordova residents can transact, with fair queue management, a simulated online-payment hold in PayMongo Test Mode, and visible trust scoring.
-- **One-sentence description:** ServiceHub Cordova lets verified residents offer and request services, coordinate online-paid one-time work through listing-specific First-Come-First-Served queues, arrange onsite-cash work directly, and build trust through verification, completed work, and reviews.
+- **One-sentence description:** ServiceHub Cordova lets verified residents offer and request services, coordinate online-paid one-time work through each provider's First-Come-First-Served work queue, arrange onsite-cash work directly, and build trust through verification, completed work, and reviews.
 - **Account roles:** `USER` and `ADMIN`. A normal `USER` can switch between the Seeker and Provider workspaces; these are operating modes, not separate database roles or accounts. `ADMIN` is elevated and cannot switch into marketplace workspaces while acting as admin.
-- **FCFS product rule:** FCFS order is guaranteed within each individual service listing. It is not a single global FCFS order across all services offered by the provider.
+- **FCFS product rule:** online-paid bookings share one provider-wide waiting order across direct listings and accepted custom offers. A listing advertises a normal service; it does not own an operational queue.
 
 ---
 
@@ -48,13 +48,13 @@ This is the single source of truth for **ServiceHub Cordova** — a hyperlocal t
 
 - One `USER` account can act as both Seeker and Provider, switching via a workspace toggle in the UI. Switching workspaces resets the active tab to that workspace's default (Seeker → "Seek Services", Provider → "Browse Jobs").
 - Trust score, verification status, and profile data are shared across both roles — one identity, two dashboards, never two separate accounts.
-- Admin accounts are provisioned directly or promoted by an existing admin — never created through normal public signup. Promotion MUST require re-authentication, an audit-log reason, and confirmation that the target has no active booking, unresolved report, or held payment. Promotion changes account authority; it MUST NOT delete historical marketplace records.
+- Admin accounts are provisioned directly through controlled database administration, never through public signup or an in-app promotion API. User Management MUST NOT offer a Make Admin action. Before changing a role in the database, the maintainer must resolve active bookings, held payments, and unresolved cases, record the reason in the administrator audit log, and revoke existing sessions. Role changes MUST NOT delete historical marketplace records.
 - **Default state on account creation:** `verification_status: UNVERIFIED`, `trust_score: 50`, `moderation_status: ACTIVE`, `is_active: true`, `email_verified: false`.
 - **Canonical account moderation statuses:** `ACTIVE | SUSPENDED | BANNED`.
   - `ACTIVE` permits normal behavior subject to email/residency verification, role, ownership, availability, and lifecycle rules.
   - `SUSPENDED` blocks every new marketplace relationship and Start Job, but keeps narrowly restricted access to existing engagements that must be resolved safely.
-  - `BANNED` permanently blocks new marketplace activity. While nonterminal obligations or a held payment remain, the account retains only the same restricted case access as a suspended account. Final authentication deactivation occurs only after those records are resolved.
-- `moderation_status` controls marketplace restrictions. `is_active` controls whether authentication is finally permitted. Suspension normally keeps `is_active=true`; a banned account may be set to `is_active=false` only after no nonterminal Booking, held payment, unresolved cancellation, completion escalation, or dispute would be stranded.
+  - `BANNED` immediately blocks all normal authenticated ServiceHub access, including workspaces, messaging, payments, profile changes, and existing-engagement actions. The account may authenticate only into a banned-account notice with Appeal and Log Out.
+- `moderation_status` is the authoritative access gate on every authenticated API request and socket connection. `is_active` is separate account deactivation state; keeping it true to support the ban notice never grants normal access.
 - **Workspace Color & Theme Separation (UI Boundary):**
   - **Seeker Workspace:** Governed by **ServiceHub Terracotta (`#C86544` / `#D97757`)** across primary actions, active tabs, lifecycle steppers, and feedback modals. Green primary buttons should not appear in Seeker views.
   - **Provider Workspace:** Governed by **Emerald Green (`#059669` / `bg-emerald-600`)** for provider service offerings, offer submissions, and queue operations.
@@ -65,14 +65,14 @@ This is the single source of truth for **ServiceHub Cordova** — a hyperlocal t
 ## PART 4 — AUTHENTICATION AND ACCESS GATING (CRITICAL — IMPLEMENT EXACTLY AS SPECIFIED)
 
 ### Signup
-Fields: full name, email, phone number, password, location. Validate: email format, password strength (min 8 characters, at least 1 number), PH mobile phone format, duplicate email check. On success: create account with the default state above, send an email verification link.
+Fields: full name, email, phone number, password, location. Validate: email format, password strength (min 8 characters, uppercase, lowercase, number, special character, max 72 UTF-8 bytes), PH mobile phone format, duplicate email check. On success: create account with the default state above, send an email verification link.
 
 ### Login
-Always succeeds if credentials are correct and `is_active` is true — **login itself is never blocked by verification status.** Verification only gates specific *actions*, never login access itself. On success: issue a short-lived JWT access token plus a longer-lived refresh token (HTTP-only cookie, rotated on use). On failure: show a generic "invalid credentials" message — never reveal whether the email exists.
+Correct credentials may establish a session regardless of verification status; verification gates subsequent actions. A `BANNED` account receives only a restricted identity session for the notice, appeal, and logout, and must never reach a normal workspace. The notice explicitly states that the account is banned. On success: issue a short-lived JWT access token plus a longer-lived refresh token (HTTP-only cookie, rotated on use). On invalid credentials: show a generic "invalid credentials" message — never reveal whether the email exists.
 
 ### Authentication/session invariants
 
-- When `is_active=true`, account moderation still applies: `ACTIVE` receives normal access subject to all other gates; `SUSPENDED`, or `BANNED` pending safe obligation resolution, receives restricted marketplace mode only. Final deactivation sets `is_active=false` and ends authentication.
+- When `is_active=true`, account moderation still applies: `ACTIVE` receives normal access subject to other gates; `SUSPENDED` receives the existing restricted case mode; `BANNED` receives only the ban notice, appeal, and logout. Existing refresh sessions must recover into the same restricted experience.
 
 - Access tokens are short lived. Refresh tokens are hashed at rest, stored in `HttpOnly` cookies, rotated on every successful refresh, and revoked on logout/password reset. Cookie `Secure`, `SameSite`, domain, and path settings must match the deployed same-site/cross-site architecture.
 - CORS uses an exact environment allowlist with credentials enabled only for trusted origins. Never reflect arbitrary Origin values.
@@ -80,22 +80,57 @@ Always succeeds if credentials are correct and `is_active` is true — **login i
 - `401` means missing/expired/invalid authentication. `403` means authenticated but not authorized, unverified, suspended, or ownership-restricted. Clients must not attempt token refresh for ordinary `403` responses.
 - Rate-limit login, signup, OAuth, refresh, password-reset, and verification-email endpoints by an appropriate combination of IP and account identifier without revealing account existence.
 
+### Self-service account deletion
+
+- Account deletion belongs to the account owner in Account Settings. Admin must
+  not receive deletion approval requests or offer an account-finalization queue.
+- Show a server-authoritative checklist with counts and links to Service Manager,
+  Request Manager, both Activity pages, and Help Center. Published provider
+  listings must be paused; open seeker requests must be paused or closed.
+- Block deletion while either role has unfinished bookings, waiting/serving queue
+  jobs, held funds, pending payment or refund processing, failed refunds, or
+  unresolved booking/content reports, cancellations, completion reviews, appeals,
+  retryable case-resolution operations, or explicit verification-document holds.
+  A historical declined cancellation stops blocking once its booking is terminal.
+- After the checklist clears, the user types exact `DELETE`, then verifies the
+  current account password. If configured, fresh Google verification may be used
+  for the same verified email, with a short-lived nonce challenge bound to the
+  account and authenticated session. Neither the typed word nor the current
+  signed-in session alone authorizes deletion. Rate-limit verification attempts.
+- Recheck identity, session validity, credentials, and every blocker inside the
+  account lifecycle transaction. Concurrent publication or new engagements must
+  not escape this check. A blocked attempt returns an updated checklist.
+- Successful deletion physically deletes the User row and associated database
+  data in one transaction: credentials and sessions, verification/proof records,
+  listings, requests, offers, closed bookings, queues, payments/refunds, reviews,
+  chats, notifications, case records, trust/audit history, summaries, and previous
+  deletion receipts. Do not keep a `Deleted account` placeholder or create a new
+  user-linked deletion receipt. Remove legacy string references as well as FKs.
+- Deleting shared closed bookings also removes their history from the other
+  participant's views. Explain this permanent consequence before `DELETE`.
+  Other accounts and unrelated engagements must survive. Existing obligations
+  and explicit holds still block deletion. Storage-provider files and backups
+  are separate from live database records; do not claim they are erased by SQL.
+
 ### Restricted marketplace mode for moderation
 
-- A suspended or pending-deactivation banned user cannot create a listing, service request, offer, booking, payment, review, category suggestion, or any other new marketplace relationship.
-- They cannot Start Job on `PENDING_APPROVAL` or `ACCEPTED` work. They may view the details and booking-scoped messages of existing engagements, respond to a cancellation, file a legitimate report, confirm completed work, and respond to an Admin case.
+- A suspended user cannot create a listing, service request, offer, booking, payment, review, category suggestion, or any other new marketplace relationship.
+- Suspended users cannot Start Job on `PENDING_APPROVAL` or `ACCEPTED` work. They may view the details and booking-scoped messages of existing engagements, respond to a cancellation, file a legitimate report, confirm completed work, and respond to an Admin case.
 - A suspended provider may Mark Completed only for work already in `ONGOING`. Either participant may perform the required resolution actions for `AWAITING_CONFIRMATION`, `DISPUTED`, an active `CancellationRequest`, or an active `CompletionEscalation` when ownership and lifecycle checks allow it.
-- When suspension or banning affects `PENDING_APPROVAL` or `ACCEPTED` work that has not started, Admin MUST use an idempotent cancellation/reconciliation workflow. Canceling an online-paid booking refunds it, closes/reindexes its Queue row, and notifies both parties; cash creates no platform refund.
-- Existing `ONGOING`, `AWAITING_CONFIRMATION`, `DISPUTED`, CancellationRequest, CompletionEscalation, refund, and reconciliation records remain resolvable through restricted participant access or Admin action. Booking transfer is not part of the capstone; Admin uses the existing cancel, refund, release, complete, dismiss, or restore outcomes.
-- Suspension, banning, restoration, final deactivation, and related booking/payment decisions require a reason, server-side authorization, transactionally safe and idempotent effects, an immutable AdminAuditLog, and participant notifications. Historical records are never silently deleted.
+- When suspension or banning affects `PENDING_APPROVAL` or `ACCEPTED` work that has not started, Admin MUST use an idempotent cancellation/reconciliation workflow. Banning itself takes effect first; booking and payment records are preserved for Admin to resolve. Canceling an online-paid booking refunds it, closes/reindexes its Queue row, and notifies both parties; cash creates no platform refund.
+- Existing `ONGOING`, `AWAITING_CONFIRMATION`, `DISPUTED`, CancellationRequest, CompletionEscalation, refund, and reconciliation records remain resolvable through Admin action while either participant is banned. Suspended participants retain only the previously defined restricted resolution access. Booking transfer is not part of the capstone; Admin uses the existing cancel, refund, release, complete, dismiss, or restore outcomes.
+- For a banned participant's `ONGOING` or `AWAITING_CONFIRMATION` booking with no active case, Admin may cancel and refund held online funds with a reason. An online-paid `AWAITING_CONFIRMATION` booking may instead be completed and released after Admin reviews the work. Admin must not claim an on-site cash payment was confirmed without the seeker's confirmation. The decision reserves a durable booking resolution, rechecks conflicting cases, updates the queue, notifies both parties, and leaves an audit record; interrupted financial effects must be retryable without duplication.
+- A banned user may submit one appeal per ban decision. Admin reviews the appeal, current moderation state, relevant history, and open obligations; a reasoned approval restores `ACTIVE`, while rejection leaves `BANNED`. Manual unban requires an Admin reason and resolves a pending appeal. Neither path bypasses email or residency requirements.
+- Suspension, banning, restoration, appeal decisions, and related booking/payment decisions require a reason, server-side authorization, transactionally safe and idempotent effects, an immutable AdminAuditLog, and participant notifications. Historical records are never silently deleted.
 
 ### Email-verification gate
 
-- A user with `email_verified=false` may log in, browse public/marketplace read-only content, and request a new verification email.
+- A user with `email_verified=false` may authenticate, but is restricted to the dedicated Email Verification gate. They cannot enter the Seeker or Provider dashboard, including through a direct URL, browser history, or workspace switching. The gate shows the destination email and supports resend, server-authoritative status check, and logout.
+- After the backend confirms `email_verified=true`, the dashboard becomes available. Cordova residency status then determines Limited Mode versus full marketplace access; email and residency are separate gates.
 - They MUST NOT submit residency proofs or initiate new marketplace relationships: create a request/listing/offer/booking, accept an offer, initiate payment, or suggest a category.
 - If a legacy account or later email change leaves an existing engagement active, the user may still view/message it and perform the actions needed to resolve it safely (accept/decline an existing obligation, cancel, Start Job, Mark Completed, confirm, report, or respond to a cancellation). Never trap held funds merely because email verification changed. New engagements remain blocked.
-- This email-verification resolution exception does not override a stricter moderation rule: a suspended or banned provider still cannot Start Job.
-- Blocked frontend actions show **"Verify your email to continue"**. The backend returns `403 EMAIL_VERIFICATION_REQUIRED`; it never relies on the hidden button.
+- This email-verification resolution exception does not override moderation: a suspended provider cannot Start Job, and a banned user cannot access any normal engagement route.
+- The frontend redirects normal workspace entry to **"Verify your email to continue"**. Backend-gated actions return `403 EMAIL_NOT_VERIFIED`; authorization never relies on a hidden button.
 - Email verification is checked before residency verification. Marketplace transactions require both `email_verified=true` and `verification_status=APPROVED`, plus all normal account/ownership/status rules.
 - A Google identity whose ID token contains a verified email may set `email_verified=true` after successful backend token verification; it does not approve residency.
 
@@ -114,7 +149,7 @@ Always succeeds if credentials are correct and `is_active` is true — **login i
 - Help Center may reopen the orientation without resetting the persisted choice. Detailed rules remain in Help Center rather than being duplicated in the short first-time flow.
 - Existing users at the time this feature is introduced are migrated to `COMPLETED`; only accounts created afterward are automatically prompted.
 
-### The Access-Gating Rule (Hybrid Model — this is the locked decision, do not build a hard wall at login)
+### The Residency Access-Gating Rule (Hybrid Model — applies only after the email gate)
 
 ```
 verification_status: UNVERIFIED or REJECTED
@@ -136,7 +171,7 @@ verification_status: APPROVED
      self-transaction, and account-status rules still apply
 ```
 
-The diagram above assumes `email_verified=true`. When email is unverified, the email-verification gate applies first even if a legacy residency record says `APPROVED`. If email/residency status changes while an engagement is active, the user may still perform the minimum participant actions required to resolve that existing engagement safely; they cannot initiate a new one.
+The diagram above assumes `email_verified=true`. An email-unverified account stays at the Email Verification gate, even if a legacy residency record says `APPROVED`. Narrow existing-engagement resolution APIs remain available under participant ownership and lifecycle checks so held funds or disputes are not stranded; they do not grant normal dashboard access or permission to initiate new work.
 
 **Implementation requirement:** the email and residency gates must be enforced on BOTH frontend and backend for every route that initiates a new marketplace relationship or submission. Existing-engagement resolution routes must instead verify participant ownership, account safety, and allowed status while honoring the narrow resolution exception above. Do not attach one broad middleware in a way that traps an accepted obligation or held payment. The backend is authoritative. Authentication failures use `401`; authenticated users lacking email verification, residency verification, or permission use `403` with distinct stable machine-readable codes.
 
@@ -158,7 +193,17 @@ export const requireVerification = (req, res, next) => {
 ```
 
 ### Forgot Password
-User requests reset by email → if the account exists, send a reset link with a time-limited token (~30 min expiry) → user sets a new password → all existing sessions invalidated. If the account does not exist, show the same generic confirmation message regardless (never leak which emails are registered).
+Password-enabled user requests reset by email → send a time-limited link (~30 min expiry) → enter and confirm a strong new password → invalidate all sessions. Unknown emails and Google-only accounts receive the same generic acknowledgement. Google-only accounts create their first password in Settings after fresh Google verification.
+
+### Sign-in methods and password management
+
+- Password availability is explicit (`passwordState`: NONE, SET, or LEGACY_UNCONFIRMED); a stored hash alone never proves that the owner created a password. New email registrations are SET. New Google registrations are NONE and retain an unusable random hash only for storage compatibility.
+- Store the verified Google `sub` as a unique account identity. Google and email/password are separate sign-in methods on the same account. Google connection never approves residency or changes the account role.
+- Google-only: Settings → Password & Security → No password set → Set Password → fresh Google verification → New Password + Confirm New Password → password created; both Google and email/password then work. Never ask for Current Password in this path.
+- Password-enabled: Change Password → Current Password → New Password + Confirm New Password → password changed; revoke every session and display a success notice at sign-in. Incorrect current passwords appear on that field.
+- New passwords require at least 8 characters, uppercase, lowercase, number, and special character. Enforce the same Zod/regex rules on client and server, including bcrypt's 72-byte bound. Confirm password is required and must match.
+- Google setup challenges and grants last five minutes, are bound to the authenticated account/session and Google identity, use a nonce and a separate signing purpose, and cannot authenticate ordinary API calls. Password creation is atomic, rejects replay/concurrent creation, invalidates reset tokens, and revokes other sessions while retaining the freshly verified current session.
+- Migrate legacy accounts only using positive evidence (email registration verification records, used password resets, or established admin credentials). Ambiguous hashes remain unconfirmed. Successful existing-password comparison confirms SET without breaking older passwords; verified Google setup recovers older Google accounts directly in Settings. Do not infer signup origin from an avatar, email domain, profile completeness, or hash format.
 
 ---
 
@@ -208,7 +253,7 @@ States: UNVERIFIED → PENDING_REVIEW → APPROVED
 
 ### Flow A — Browse & Book (provider sets the price)
 
-The seeker browses "Seek Services," filters by category, and views an approved service listing. Direct booking is available only when the listing's price type is eligible under Part 7; otherwise the user is sent to Request a Quote/Flow B.
+The seeker browses "Seek Services," filters by category, and views a published `ACTIVE` service listing. Providers publish their own listings after the local checks pass; there is no listing approval queue. Every listing opens the same Book Service modal with the listing's accepted payment methods. Fixed, hourly, daily, and per-project prices use direct booking; hourly and daily totals are calculated server-side from the selected quantity. Starts-at and custom prices require a provider-confirmed exact offer; the seeker's selected payment method is retained through acceptance.
 
 For Flow A cash, a `DirectRequest` records the provider-approval request and is linked to the `PENDING_APPROVAL` Booking created by the same logical workflow. `Booking` remains authoritative for lifecycle, messaging, cancellation, payment state, and completion. Flow A online originates directly from the active service listing and verified payment success; it does not require a DirectRequest.
 
@@ -217,12 +262,18 @@ For Flow A cash, a `DirectRequest` records the provider-approval request and is 
 
 ### Flow B — Post Request & Receive Offers (seeker sets a budget)
 
-The seeker posts a request (`OPEN`). A provider submits one offer containing price, duration, availability, message, and an immutable `service_id` pointing to one of that provider's own `ACTIVE`, category-compatible listings. This service link is required so online work has a defined queue, duration, capacity, and payment-method policy.
+**Request urgency and Offer availability are separate fields.** Request urgency describes how soon the seeker needs help. New public requests and urgency edits must use the controlled values `ASAP / Today`, `Needs Tomorrow`, `Next 1-2 Days`, `This Week`, or `Flexible Schedule`, selected through a dropdown and enforced by backend enum validation. Exact dates/times can be described in the request description. Existing free-text urgency values remain readable and may be retained when unrelated details are edited; they are not new selectable options. Provider Offer availability describes when that provider can work. Preserve it in the saved Offer, API responses, Incoming Offers, provider offer details, and the resulting Booking details; never replace it with Request urgency.
+
+Activity must derive its outcome from the authoritative Booking or Offer state. Being terminal or appearing in History does not imply completion. A `CANCELED` Booking must say Canceled throughout its card, badge, situation, history, and workroom, with neutral gray status styling. `DECLINED`, `REMOVED`, withdrawn Offers and offers not selected retain their distinct outcomes. Only genuinely `COMPLETED` Bookings may use successful-completion presentation or a linked CompletedService; a stale completion record must not override another Booking state.
+
+After the existing backend gates and the local content checks below pass, a public Post Request becomes `OPEN` and is visible to eligible providers. A provider submits one offer containing price, expected duration, availability, and message. For public requests, `service_id` is optional: an active, category-compatible listing may prefill the offer form, but the provider may submit and customize an offer with zero listings. The accepted offer's price and duration are snapshotted for the booking. An optional listing link is not an acceptance or queue dependency; both On-site Cash and GCash Test Mode are available for public-request offers.
 
 The provider's offer is their commitment:
 
 - **Cash selection:** in one transaction, selected offer → `ACCEPTED`, sibling pending offers → `REJECTED`, request → `IN_PROGRESS`, and Booking → `ACCEPTED`. There is no second provider acceptance.
 - **Online selection:** selected offer → `PENDING_PAYMENT`, request → `PAYMENT_PENDING`, and an expiring payment attempt is created. Sibling offers remain unchanged until payment succeeds. On authoritative payment success, one transaction changes selected offer → `ACCEPTED`, sibling pending offers → `REJECTED`, request → `IN_PROGRESS`, and creates the paid Booking. On payment failure, cancellation, or expiry, the selected offer returns to `PENDING` and the request returns to `OPEN`; no Booking or Queue row is created.
+
+When sibling offers become `REJECTED`, create one durable, idempotent notification per losing offer in the same committed transaction, then emit realtime updates. Cash selection does this immediately on the committed booking; online selection does it only after verified payment success. Failed, expired, or abandoned payment attempts do not notify losing providers.
 
 The payment-pending hold SHOULD expire after 15 minutes. Only one offer on a request may be `PENDING_PAYMENT` or `ACCEPTED` at a time; enforce this transactionally.
 
@@ -233,6 +284,13 @@ The payment-pending hold SHOULD expire after 15 minutes. Only one offer on a req
 - Linked Booking completion: request becomes `CLOSED` in the same idempotent completion workflow.
 - Linked Booking cancellation after matching: request becomes `CANCELED`. Previously rejected sibling offers are never resurrected because their price and availability commitments may be stale. The seeker may create a new request, optionally referencing the canceled request for UI convenience.
 - A ServiceRequest may have at most one nonterminal Booking. Request, offer, payment, and booking transitions must be locked and committed atomically where they change together.
+
+### Local content checks for Seeker Post Requests
+
+- Posting remains a single submit action; there is no mandatory Gemini call or separate client-side "approved" step. Authentication, marketplace permissions, verified email/residency, active Admin-managed category, Zod field and budget validation, and abuse/duplicate controls remain authoritative backend gates. A category ID supplied by the client never defines or approves a new category.
+- Before creating an `OPEN` request or broadcasting it, the backend applies the shared, versioned ServiceHub local content policy to the submitted title and description. Its narrowly scoped profanity and prohibited-service rules may require revision or reject clearly disallowed content. A failed check creates no public request, offer, booking, payment, or queue row. Return a safe, understandable reason and let the seeker revise; never return the complete rule list or evasion patterns.
+- The same checks run before any edit to a published request's moderation-sensitive fields, including title, description, and category if category editing is later supported. An edit must not mutate public text first and check afterward. Existing matched/payment-pending request restrictions remain intact. A local check failure leaves the previously published content and status unchanged. Pause/reopen and retry paths must not bypass the checks.
+- An ambiguous match is not proof of a violation. Prefer a narrowly tuned rule that passes uncertain text for later reporting/Admin review over a broad automatic rejection; do not claim the local filter detects semantic category mismatch or every prohibited service. Admin must retain a path to inspect and remove reported public requests and review contested check failures, independent of booking-scoped reports.
 
 ### Naming rules
 
@@ -251,26 +309,28 @@ Supported capstone methods are:
 | GCash (online, Test Mode) | Yes | Yes | `PAID_HELD` after verified success, then `RELEASED`, `FROZEN_HELD`, or `REFUNDED` |
 | Onsite Cash | No | Never | `UNPAID` until seeker confirms completion, then `CASH_CONFIRMED`; no platform wallet credit |
 
-The FCFS queue is reserved for successfully paid online bookings. Cash never enters Queue. Every Booking is one independent engagement, while its Service listing remains reusable.
+These are the only accepted payment methods. Do not add or imply other online or offline payment options in product flows, checkout, or provider listings.
+
+The provider-wide FCFS queue is reserved for successfully paid online bookings. Cash never enters Queue or receives a numbered paid position. Every Booking is one independent engagement; a Service listing remains reusable and is optional for offer-based work.
 
 ### Price-type eligibility and exact amount
 
-- `FIXED` is the only Tier 0 price type eligible for direct Flow A cash or online booking. The exact listing price is snapshotted server-side into `Booking.agreedAmount`.
-- `STARTS_AT`, `PER_HOUR`, `PER_DAY`, `PER_PROJECT`, and `CUSTOM` require Flow B/provider quotation before booking. The selected Offer's exact `offeredPrice` becomes `Booking.agreedAmount`; descriptive units never determine a PayMongo charge by themselves.
-- Unsupported direct price types display **Request a Quote**, not an active direct Book/Pay button.
+- `FIXED` and `PER_PROJECT` use the exact listing price for direct cash or online booking. `PER_HOUR` and `PER_DAY` multiply the listed rate by a seeker-selected whole number of hours or days; the server calculates and snapshots the exact total into `Booking.agreedAmount` or `PaymentAttempt.amount`.
+- `STARTS_AT` and `CUSTOM` open a private listing-linked inquiry to the selected provider. The provider submits a listing-bound Offer; the seeker's acceptance creates the booking, and the Offer's exact `offeredPrice` becomes `Booking.agreedAmount`. The initial payment choice must match the listing's accepted methods and is enforced when the offer is accepted.
+- Every listing displays **Book Service** and the same payment selector. No online charge occurs for starts-at or custom listings before the provider's exact Offer is accepted.
 - `Booking.agreedAmount` is an immutable Decimal/integer-centavo snapshot after creation. Refund, release, transaction history, admin case files, and CompletedService use this snapshot—not the current listing price and never a client-submitted amount.
 
 ### Online payment invariants
 
 1. The server calculates the price from the service or accepted offer. Never trust a client amount.
-2. Payment initiation stores a `PaymentAttempt` bound to seeker, service, optional offer, amount, currency, method, and an idempotency key.
+2. Payment initiation stores a `PaymentAttempt` bound to seeker, provider, optional service, optional offer, amount, currency, method, and an idempotency key. Direct listing checkout has a service; a listing-free accepted offer does not.
 3. Only a server-to-server PayMongo verification or authenticated webhook may declare success. Browser redirects are informational, never authoritative.
 4. Signature verification MUST use the raw webhook body. Processing MUST be idempotent by PayMongo event/payment identifier.
-5. The payment confirmation must exactly match the stored seeker, service, offer, amount, currency, and method.
+5. The payment confirmation must exactly match the stored seeker, optional service, optional offer, amount, currency, and method.
 6. Only after verified success may the system create a `PAID_HELD` Booking and its Queue row.
 7. Work MUST NOT start automatically after payment. `started` remains false until the provider clicks Start Job.
 8. If payment fails or is abandoned, no Booking or Queue row is created. The durable PaymentAttempt records the failure without exposing sensitive provider data.
-9. Capacity is checked before payment and rechecked under the service lock during success handling. If a captured payment cannot safely become a booking, persist it as `REFUND_REQUIRED` and start an idempotent refund/reconciliation path; never lose the payment or silently exceed the configured capacity.
+9. Provider waiting capacity is checked before payment and rechecked under the provider queue lock during success handling. If a captured payment cannot safely become a booking, persist it as `REFUND_REQUIRED` and start an idempotent refund/reconciliation path; never lose the payment or silently exceed the configured capacity.
 10. A provider's profile phone number is contact information, not a PayMongo payout destination. Tier 0 creates an internal provider earning after completion and does not transfer money to a personal GCash number, bank account, or wallet.
 
 ### Cash invariants
@@ -278,6 +338,7 @@ The FCFS queue is reserved for successfully paid online bookings. Cash never ent
 - Cash creates no PayMongo intent, Queue row, held funds, refund record, or online-wallet credit.
 - The platform may create a non-wallet cash earning/history entry only after seeker confirmation; it must be labeled as externally settled cash.
 - Flow A cash requires provider acceptance. Flow B cash does not, because the selected offer was already the provider's commitment.
+- Cash arrangements remain visible in the provider workload but never consume a numbered paid waiting place. A provider may not start a cash job while paid jobs are waiting; the one-ongoing-job guard applies across payment methods. A cash job already underway can finish before the next paid job starts.
 - A Flow A cash request MAY include a plain-language preferred schedule. It is a proposal only: it does not reserve time, claim calendar availability, or become authoritative until the provider accepts and the parties coordinate through booking-scoped messaging.
 - A provider who is unavailable SHOULD pause the listing. Offline delivery uses durable database notifications; Socket.IO is only a realtime convenience.
 
@@ -285,32 +346,31 @@ The FCFS queue is reserved for successfully paid online bookings. Cash never ent
 
 ## PART 8 — FCFS QUEUE LOGIC
 
-Each `ACTIVE` service listing has its own independent online-payment queue with limit 1–10 and an estimated duration. Queue order/capacity are listing-specific, but work concurrency is provider-wide.
+Each Provider account represents one worker and has one online-paid waiting queue with a provider-level capacity of 1–10 waiting jobs. Flow A listings and Flow B offers enter the same order after verified GCash success. A service listing supplies normal/default price and duration, not another work queue.
 
-**Canonical fairness rule:** FCFS order is guaranteed within each individual service listing. It is not a single global FCFS order across all services offered by the provider.
+**Canonical fairness rule:** paid waiting order is FCFS across the provider's actual workload, independent of which listing or seeker request originated each booking.
 
-- When no job is ongoing, a provider may choose which service listing's eligible first customer to start next. Within the chosen listing, the provider may never skip an earlier eligible waiting customer.
-- The provider-global one-`ONGOING` guard still applies after that listing choice.
-- Queue positions from different service listings are not directly comparable. Demand in a provider's other listings can affect actual wait time, so every wait value is labeled as an estimate rather than a guarantee.
-- User-facing queue help MUST say: **“Your queue position is FCFS within this specific service. Providers can offer several services but may perform only one active job at a time.”**
+- When no job is ongoing, the provider may start only the first eligible paid waiting job. They cannot skip it to start another paid job or a new cash arrangement.
+- Queue positions are comparable across the same provider's paid jobs. A cash job that was already underway remains outside the numbered queue but contributes to approximate wait until it ends.
+- User-facing queue help MUST say: **“Your position is in this provider's paid work queue. The provider can perform only one job at a time.”**
 
 ### Provider-wide concurrency (Tier 0)
 
 - A provider may have at most one `ONGOING` Booking across all service listings.
-- Start Job MUST acquire a provider-scoped database/advisory lock as well as the applicable service lock, then recheck for another `ONGOING` Booking before changing any state.
+- Start Job MUST acquire a provider-scoped database/advisory lock as well as the provider queue lock, then recheck for another `ONGOING` Booking before changing any state.
 - Prefer a database-level partial unique index that permits only one `ONGOING` Booking per provider as a final race-condition backstop; the transactional check remains required for a clear domain error.
 - If another ongoing job exists, return `409 PROVIDER_ALREADY_SERVING` and leave Booking/Queue unchanged.
-- For queued work, Start Job must also verify that the target is the eligible first waiting row of its service. Provider-wide locking does not merge listing queues or allow skipping within a listing.
+- For paid queued work, Start Job must verify that the target is the eligible first waiting row of the provider's paid queue. For cash work, reject Start Job while paid jobs wait.
 - The UI must show the provider's current active job and disable other Start Job actions while it is ongoing. Frontend disabling is advisory; the transaction is authoritative.
 
 ### Authoritative queue model
 
 - Queue is the sole authoritative source of position. `Booking.queuePosition`, if retained for legacy compatibility, is a transactionally synchronized mirror and MUST NOT be independently edited or used as the locking authority.
-- At most one row per service may be `SERVING`. The next eligible `WAITING` row has the lowest position.
+- At most one row per provider may be `SERVING`. The next eligible `WAITING` row has the lowest provider-wide position.
 - When no row is serving, the first waiting row is position 1. When a row is serving at position 1, waiting rows begin at position 2.
-- `estimatedWait = estimatedDuration × (position − 1)`. It is explicitly an estimate, not a guaranteed appointment time.
-- Queue capacity counts rows in `SERVING` plus `WAITING`. Historical `DONE`, `CANCELLED`, and `REMOVED` rows do not consume capacity.
-- All join, start, cancel, complete, remove, and reindex operations MUST run server-side in a database transaction protected by a service-scoped lock. Positions must remain positive, contiguous, and unique among active rows.
+- `estimatedWait` sums the snapshotted durations of active jobs actually ahead, including a cash job already in progress when applicable. It is explicitly approximate, not a guaranteed appointment time.
+- Provider capacity counts `WAITING` paid rows. The currently `SERVING` job and historical `DONE`, `CANCELLED`, and `REMOVED` rows do not consume waiting places. Lowering capacity below existing occupancy blocks new admissions without ejecting already-paid jobs.
+- All join, start, cancel, complete, remove, and reindex operations MUST run server-side in a database transaction protected by a provider-scoped queue lock. Positions must remain positive, contiguous, and unique among active rows.
 
 ### Queue transitions
 
@@ -349,6 +409,7 @@ When active queue size reaches the limit, disable online booking and offer **Not
 - Approval cancels the booking. Online payment is fully refunded; cash requires the parties to settle externally and the platform records no PayMongo refund.
 - A decline may be escalated to Admin. Admin either approves cancellation/refund or rejects it and returns the Booking to `ONGOING`.
 - Trust penalties apply only to the party explicitly found at fault by an admin or an unambiguous policy rule; never penalize both parties merely because a cancellation occurred.
+- When approving an escalated cancellation of started work, Admin explicitly chooses no fault, seeker at fault, or provider at fault, with a required explanation. A supported fault finding deducts 5 from only that participant once. Mutual approval, denial, and pre-start cancellation do not deduct trust. Retries retain the same fault finding and cannot deduct again.
 - Every resolution is transactional, idempotent, notified to both parties, and audit logged when an admin acts.
 
 ### Data model
@@ -512,10 +573,12 @@ CompletedService = represents a GENUINELY FINISHED job. It is the anchor
 | 2-star review | review target | -3 |
 | 1-star review | review target | -5 |
 | Started booking canceled, user found at fault | at-fault user | -5 |
-| Report validated by admin | reported user | -10 |
-| Second moderated listing rejection | provider | -5 once for that threshold |
+| Report validated by admin with trust deduction selected | reported user | -10 once per report |
 
-- The completed-service `+3` event uses a unique key derived from the CompletedService and is created exactly once. Seeker-confirmed cash/online completion and Admin `RELEASE_PROVIDER_AND_COMPLETE` use the same event; retries cannot award it twice. Refund and cancellation outcomes never create it.
+- Listing checks that require revision and repeated failed publication attempts do not change trust. The old second-listing-rejection penalty is retired with listing pre-approval. A supported public-content report may receive the separately documented warning, suspension, or ban; it does not automatically apply a trust deduction.
+- Review edits and hiding reconcile the review's actual recorded contribution, including clamped events. Never reverse theoretical points that were not applied at a 0/100 boundary. Restoring a review reapplies its eligible rating contribution under the same boundary and retry rules.
+
+- The completed-service `+3` event uses the existing unique `booking-completion:<bookingId>:provider` key for the Booking linked one-to-one to its CompletedService and is created exactly once. Seeker-confirmed cash/online completion and Admin `RELEASE_PROVIDER_AND_COMPLETE` use the same event; retries cannot award it twice. Refund and cancellation outcomes never create it.
 - Do not add a separate “successful payment” bonus; completion already represents the successful undisputed transaction and a second bonus would double count it.
 - No-show penalties require an admin-confirmed report; do not infer a no-show from elapsed time alone.
 - Always visible: provider cards, offer cards, profile pages, admin views.
@@ -549,7 +612,7 @@ Apply this check to: direct bookings (Flow A), sending an offer (Flow B, provide
 ## PART 17 — SERVICE LISTINGS (PROVIDER SIDE) — CREATION, VALIDATION, MODERATION
 
 ### Fields
-Category (admin-approved list only), title, description, price, price type, estimated duration per service, max online queue capacity (1–10), and accepted methods (GCash and On-site Cash — at least one required). GCash is the only online Test Mode method; the UI and API must reject unsupported payment methods.
+Category (admin-approved list only), title, description, price, price type, normal estimated duration, and accepted methods (GCash and On-site Cash — at least one required). Provider paid waiting capacity (1–10) is configured once in Provider Activity and applies across listings and offers; any legacy `Service.queueLimit` value is not operational. GCash is the only online Test Mode method; the UI and API must reject unsupported payment methods.
 
 ### Reusable one-time booking model (Version 2.3)
 
@@ -573,7 +636,7 @@ Every service listing has a `priceType` field that controls how the price is dis
 
 Existing listings without an explicit `priceType` default to `FIXED` and are fully backward-compatible.
 
-Display units do not by themselves authorize direct payment. Apply Part 7's eligibility rules: direct booking is `FIXED`; every advanced type uses an exact provider Offer before booking/payment.
+Display units do not by themselves authorize direct payment. Apply Part 7's eligibility rules: fixed and per-project prices are exact; hourly and daily prices require a selected quantity and server-calculated total; starts-at and custom prices require an exact provider Offer before booking/payment.
 
 ### Validation (both frontend instant feedback AND backend Zod re-validation — never trust client input alone)
 ```
@@ -588,17 +651,27 @@ Preferred schedule:   optional free text on Flow A cash requests; never a reserv
 ```
 
 ### Duplicate and volume limits
-- No two nonterminal listings (`PENDING_REVIEW` or `ACTIVE`) from the same provider may have the same trimmed, case-folded title. Enforce this transactionally and preferably with a PostgreSQL partial unique index on `(provider_id, LOWER(title))` for those statuses. A normal `(provider_id, title)` constraint is not sufficient because it is case-sensitive and also blocks safe title reuse after archival.
-- **Standard volume limit:** Maximum **3 active listings** per provider at any time. This deliberate limit prevents listing clutter and spam in Cordova, keeps search results clean, and ensures providers do not overcommit beyond manageable queue capacities. To publish a new service, a provider simply pauses or archives an existing listing.
+- No two active listings (`ACTIVE`; indexes may retain legacy `PENDING_REVIEW` compatibility) from the same provider may have the same trimmed, case-folded title. Enforce this transactionally and preferably with a PostgreSQL partial unique index on `(provider_id, LOWER(title))` for those statuses. A normal `(provider_id, title)` constraint is not sufficient because it is case-sensitive and also blocks safe title reuse after archival.
+- **Standard volume limit:** Maximum **3 active listings** per provider at any time. This deliberate limit prevents listing clutter and spam in Cordova and keeps search results clean; it does not multiply or define the provider's paid waiting capacity. To publish a new service, a provider simply pauses or archives an existing listing.
 
-### Admin moderation gate (the system's primary content safeguard)
-**Every new listing defaults to `PENDING_REVIEW`, `isAvailable: false` — invisible to seekers until admin approves.** Admin checks: does title match category, is content appropriate, is the provider verified. Approve → `ACTIVE`, `isAvailable: true`. Reject → `REJECTED`, provider notified with a reason.
+### Provider-controlled publication and content checks
 
-- 1st rejection: warning notification.
-- 2nd rejection: `trust_score -5`.
-- 3rd rejection: account flagged for manual review, posting privilege suspended.
+**Provider service listings never require Admin pre-approval.** After authentication, posting privilege, residency/email verification, active category, exact pricing, duplicate, and volume checks, the backend runs the shared local content policy. A pass publishes immediately as `ACTIVE` with `isAvailable: true` and a first-publication `published_at`. Failed content returns an actionable revision error without creating a listing.
 
-Editing title, category, description, media, or proof re-triggers `PENDING_REVIEW` and hides the changed listing until approval. Price, pricing unit, duration, queue limit, payment methods, schedule availability, and pause/resume may remain live edits after backend validation. Admin rejection counts and penalties must be based on moderated rejection events, not repeated retries of the same request.
+The only publication outcomes are Published or Needs changes. Category mismatch requires correcting the category; unsupported high-risk services require revision. No submission or edit enters `PENDING_REVIEW`, and Admin has no approve/reject listing endpoint. Admin may investigate reports and appeals, remove public content with a recorded reason, or restore content previously removed by Admin. Local check failures do not deduct trust points or suspend posting.
+
+Local filtering does not prove category relevance, legality, or absence of abusive content. Do not advertise it as comprehensive moderation or rely on a profanity list alone. Maintain risk-based rules, provider-level submission limits, abuse monitoring, report handling, and review capacity appropriate to actual flag/report volumes; do not claim Admin workload savings without measurements. Gemini is not required in the publication path.
+
+Failed local content checks require revision and do not automatically warn, deduct trust, or suspend the owner. Reports require a separate, supported Admin finding before any account consequence.
+
+Edits rerun the applicable validation and local checks before committing. A failed edit preserves the last saved content and visibility. Passing edits remain live, while paused listings remain paused. The first-publication timestamp does not reset. Legacy unpublished records are shown as Needs changes and can be edited/saved by their provider to publish after validation. Existing Booking/Queue obligations remain intact. Price, unit, duration, payment methods, and pause/resume retain backend validation. Provider waiting capacity belongs in Activity, not individual listings.
+
+### Shared local content-policy requirements
+
+- Keep ServiceHub-owned prohibited-service rules centrally maintained, versioned, server-side, and covered by tests. Use precise whole terms, phrases, or context-dependent combinations rather than a blanket substring blacklist. A profanity library is optional and must be evaluated against local English, Cebuano, and Filipino wording, false positives, maintenance, TypeScript compatibility, and dependency risk before adoption; it is not itself the marketplace policy.
+- Apply bounded normalization for case, whitespace, punctuation separation, control/zero-width characters, and carefully selected character substitutions. Preserve the original submitted text for display and authorized review. Do not over-normalize ordinary names, trade terms, or non-English text, and do not claim complete resistance to obfuscation or semantic evasion.
+- Local checks are synchronous and do not depend on Gemini or another external moderation service. If the policy engine cannot run, do not silently mark unchecked content as passed; return a safe retryable error or hold it for authorized review without publishing. Limit repeated submissions, avoid duplicate records, and record a minimal policy version/outcome/reason-code audit without exposing the full rule set or unnecessary personal text in logs.
+- One failed content check is not an account offense. Only authorized Admins can decide contested cases, remove reported public content, and impose trust or account sanctions under the existing audit and moderation rules. Public-content reports and submission appeals must be available without misusing booking-scoped financial/safety dispute records.
 
 ---
 
@@ -620,7 +693,7 @@ Deliberately scoped out: no user photo posts, no public scrollable social feed, 
 - **Top Providers leaderboard** — auto-generated weekly, ranked by trust score (primary) + completed services + rating (tiebreakers), no manual curation.
 - **Community Stats** — auto-computed counters. “Active provider” means a verified user with at least one `ACTIVE` listing. “Active seeker” means a verified user who created a request or booking during the displayed reporting period. One user may count in both; label this clearly rather than pretending these are exclusive account roles.
 - **Newly Added Categories** — auto-posted the moment admin approves a suggestion (Part 18).
-- **Recently Added Services** — approved, currently public listings ordered by the service moderation `reviewed_at` publication timestamp. Availability changes or ordinary edits must not make an old listing appear newly published.
+- **Recently Added Services** — currently public listings ordered by the first-publication `published_at` timestamp, after providers publish them directly. Availability changes or ordinary edits must not make an old listing appear newly published.
 - “Recently added” content uses a defined recency window and displays only real database timestamps. An API failure must render an error state, never fabricated zero statistics or false empty-state content.
 
 ---
@@ -629,10 +702,25 @@ Deliberately scoped out: no user photo posts, no public scrollable social feed, 
 
 - **Overview** — platform-wide stats dashboard.
 - **Users & Trust** — verification queue (Part 5), manual trust score overrides, suspensions/bans.
-- **Marketplace** — category suggestion approvals (Part 18), service listing approvals (Part 17).
+- **Marketplace** — category suggestion approvals (Part 18), published service-listing oversight, public-content reports, appeals, and sampled quality review (Part 17). Admin does not approve service listings before publication.
 - **Moderation** — reports queue and dispute resolution (Part 12), escalated cancellation requests (Part 9), and CompletionEscalations (Part 10).
-- **Account moderation** — suspension, banning, restoration, and final deactivation use the Part 4 restricted-resolution rules. Admin cannot finalize deactivation while a nonterminal Booking, held payment, unresolved refund, report, cancellation, or completion escalation would be stranded.
-- Every mutation requires server-side admin authorization. High-impact actions (promotion, suspension, ban, trust adjustment, refund/release, verification-document access) require a reason and immutable audit log; destructive financial actions must be idempotent and display the resulting state rather than relying on an optimistic UI.
+- **Marketplace content** — review contested local-check failures and reports about public listings or requests, including requests with no Booking. Content review is distinct from booking-payment disputes; removal and any account-level consequence require an authorized, reasoned, audited Admin decision.
+
+### Unified public-content workspace
+
+The Admin sidebar has one **Content Reports & Appeals** entry for provider service listings, seeker public requests, content reports, and publication appeals. The former Service Listings and Public Requests pages redirect here, preserving exact content links. Booking **Disputes & Reports** remains separate.
+
+- **Needs review:** incoming reports and owner appeals, filterable by content type and case type. A report alone never removes content or bans the owner.
+- **All content:** searchable service listings and public requests, including content with no report. Show current visibility and allow reasoned removal or restoration when eligible. Private booking inquiries and engaged requests are handled through their booking/payment workflow.
+- **History:** completed cases with the actual content outcome, owner consequence, and explanation. Historical explanation-only resolutions must not be interpreted as applied actions.
+
+Case lifecycle: save original content and its owner when submitted → inspect the exact content, submitter, owner, current visibility, owner history, and outstanding obligations → select a content outcome → independently select a supported owner consequence → explain the finding → review impact and confirm → apply actions, notifications, and audit records in one database transaction → close the case only after success. Concurrent retries must not duplicate actions; stale content/account state requires reloading.
+
+Reports allow dismissal with no penalty, removal, or keeping already removed content hidden. Supported removal findings can independently warn, temporarily suspend (1–30 days), or ban the content owner. Penalties apply to the owner, never the reporting person. Unstarted provider bookings block temporary suspension until handled in Disputes & Reports. Banning preserves bookings and payment obligations for existing Admin reconciliation; it does not cancel work or settle money automatically.
+
+Owner appeals allow keeping a removal, restoring eligible content, or guidance without an account penalty. Restoration checks owner verification and access, active category, local policy, pricing, volume/duplicate limits, and linked obligations. A restored request returns to OPEN; previously rejected offers stay rejected. Voluntarily canceled requests are not eligible for Admin restoration. Guidance on a failed publication check explains revision and does not publish unsaved content.
+- **Account moderation** — suspension uses Part 4 restricted resolution; banning immediately removes all normal user access and requires Admin resolution of outstanding obligations. Admin cannot delete historical obligations or funds.
+- Every mutation requires server-side admin authorization. High-impact actions (suspension, ban, trust adjustment, refund/release, verification-document access) require a reason and immutable audit log; destructive financial actions must be idempotent and display the resulting state rather than relying on an optimistic UI.
 - Suspending or banning an account MUST surface its affected engagements and payment obligations to Admin. The system uses existing lifecycle outcomes to resolve them; it does not silently delete or transfer a Booking to another provider.
 - Admin list endpoints MUST paginate, filter, and select only required fields. Never return password hashes, refresh/reset tokens, private storage keys, raw payment secrets, or unnecessary verification-document URLs.
 
@@ -651,7 +739,7 @@ Defense data MUST include at least one provider with five realistic eligible wri
 Optional after the core system is stable. Trigger after Post Request. Input only the request and a server-generated shortlist of category-compatible active services. Output is an additive suggestion with a rationale; normal browsing and offers remain fully functional when Gemini is absent, slow, quota-limited, or wrong.
 
 ### Priority 3 (optional bonus) — AI Listing/Report Assist
-(a) Listing assist: flags title/category mismatches or likely policy-violating content before admin review (Part 17) — a hint only, admin still decides. (b) Report assist: gives admin a preliminary, clearly-labeled "AI-generated, not a final decision" assessment on a filed dispute (Part 12) — admin still makes the actual call.
+(a) Listing assist may provide a nonblocking, clearly labeled hint on a flagged listing or sampled public listing (Part 17); it is not required for automated publication and never overrides the backend or Admin. (b) Report assist gives Admin a preliminary, clearly-labeled "AI-generated, not a final decision" assessment on a filed dispute (Part 12) — Admin still makes the actual call.
 
 ### Priority 4 (optional bonus) — AI Category Suggestion Assist
 Trigger: a category suggestion is submitted (Part 18). Output: checks for overlap with existing categories, suggests cleaner naming if vague, flags if the suggestion doesn't fit the "local service" model at all.
@@ -690,7 +778,7 @@ Not required for the defense itself; describe as a future sustainability plan if
 
 Public, unauthenticated explainer page. Sections in order: Navbar → Hero (what/where/why-safe) → Problem section → How It Works for Seeker → How It Works for Provider → Queue Explainer → Trust & Safety → Comparison table → Community Hub preview (illustrative, not live data) → FAQ → Dual CTA → Footer. The queue explanation must say it applies only to successfully online-paid work; onsite cash requests do not join it.
 
-The Queue Explainer MUST include: **“Your queue position is FCFS within this specific service. Providers can offer several services but may perform only one active job at a time.”** It must label wait times as estimates and must not imply that positions in different service listings are comparable.
+The Queue Explainer MUST include: **“Your position is in this provider's paid work queue. The provider can perform only one job at a time.”** It must label wait times as estimates and explain that cash arrangements do not receive numbered paid positions.
 
 Copy rules: plain conversational language, no invented statistics, never say "bidding," always state "Cordova, Cebu" near the top and in the footer, never imply the queue is available for cash payments.
 
@@ -701,7 +789,7 @@ Copy rules: plain conversational language, no invented statistics, never say "bi
 - Two-account collusion for trust score farming — mitigated by self-transaction blocking (Part 16); full prevention needs admin pattern-monitoring, documented as future work.
 - Cold-start problem (marketplace needs both seekers and providers to have value) — addressed via a phased rollout plan (recruit verified providers in high-demand categories within specific barangays first), not a technical fix.
 - Creative/digital services stretch the onsite mental model. They may use project pricing, messaging, and file sharing, but the 15-minute–8-hour estimated-duration field remains a work estimate rather than a multi-day delivery guarantee. Longer turnaround expectations belong in the listing and agreed schedule; richer milestone delivery is future scope.
-- Queues remain per service listing, while provider-wide Start Job locking prevents simultaneous work. A provider chooses which listing's eligible first customer to serve next but cannot skip within that listing. Positions across listings are not comparable, and wait estimates remain approximate when the provider has demand across several listings; a future provider-wide scheduling forecast could improve estimates without weakening the one-ongoing-job rule.
+- The paid work queue is provider-wide. Approximate waits use job-specific duration snapshots, not a live listing duration; actual service time can still vary, and this is not a reserved appointment calendar.
 - Listings are reusable, but every Booking is independent. Repeat requests do not create subscriptions or guaranteed calendar reservations.
 
 ---
@@ -734,7 +822,8 @@ CATEGORIES_SUGGESTED — id, submitter_id, name, description, status, submitted_
 
 SERVICES — id, provider_id, category_id, title, description, price?,
         price_type, service_type, estimated_duration_mins, queue_limit,
-        payment_methods (json), status, is_available, created_at, updated_at
+        payment_methods (json), status, is_available, published_at?,
+        reviewed_at?, created_at, updated_at
 
 DIRECT_REQUESTS — id, seeker_id, provider_id, service_id, agreed_price,
         selected_payment_method (cash), schedule?, message?,
@@ -820,8 +909,8 @@ AI_REVIEW_SUMMARIES — id, provider_id, review_version, review_count,
 - Booking status: `PENDING_APPROVAL | ACCEPTED | ONGOING | AWAITING_CONFIRMATION | DISPUTED | COMPLETED | DECLINED | CANCELED | REMOVED`. Waiting position belongs to Queue, so `WAITING` is not a Booking lifecycle state in specification v2.3.
 - Queue status: `WAITING | SERVING | DONE | CANCELLED | REMOVED`.
 - Online payment status: `PAID_HELD | FROZEN_HELD | RELEASED | REFUNDED`. Cash uses `UNPAID | CASH_CONFIRMED` only.
-- A Booking has exactly one commercial origin: `DIRECT_LISTING` or `OFFER`. `service_id` is always present. Flow A uses `DIRECT_LISTING`, requires no `offer_id`, and may have one `direct_request_id` only for the cash provider-approval path. Flow B uses `OFFER`, requires `offer_id`, and has no `direct_request_id`. A DirectRequest never replaces the required service link or Booking lifecycle.
-- Account moderation is `ACTIVE | SUSPENDED | BANNED`. `moderation_status` enforces marketplace restrictions; `is_active=false` is permitted for final deactivation only when doing so cannot strand a nonterminal obligation or held payment.
+- A Booking has exactly one commercial origin: `DIRECT_LISTING` or `OFFER`. Flow A uses `DIRECT_LISTING`, requires a `service_id` but no `offer_id`, and may have one `direct_request_id` only for the cash provider-approval path. Flow B uses `OFFER`, requires `offer_id`, may have a null `service_id`, and has no `direct_request_id`. A DirectRequest never replaces the Flow A service link or Booking lifecycle.
+- Account moderation is `ACTIVE | SUSPENDED | BANNED`. `BANNED` denies every normal authenticated route and socket regardless of `is_active`; only identity status, appeal, and logout remain available. Admin retains ownership of unresolved obligations.
 - Every User must have either a password hash or at least one verified OAuthIdentity. OAuth-only accounts may set a password only through a re-authenticated verification/reset flow.
 - A Booking may have at most one active Queue row, CompletedService, and PaymentRefund. A PaymentAttempt/provider payment may produce at most one Booking.
 - A Booking may have at most one active CancellationRequest and one active CompletionEscalation. Only its provider may create the latter after the server-calculated 72-hour threshold. A duplicate active escalation returns the existing row; after `KEEP_AWAITING`, the next eligibility threshold is 72 hours from the previous `resolved_at`.
@@ -830,7 +919,7 @@ AI_REVIEW_SUMMARIES — id, provider_id, review_version, review_count,
 - Every new Booking is an independent `ONE_TIME` engagement. A listing remains reusable after a terminal Booking. Historical `SESSION_BASED`/`PER_SESSION` records are migration inputs, not supported product choices.
 - Direct Booking implies an eligible price type from Part 7. Every Booking has a positive immutable `agreed_amount`; `CUSTOM` and other quote-required listing values never become payment amounts without an accepted Offer.
 - `started=false` for `PENDING_APPROVAL` and `ACCEPTED`; only Start Job produces `ONGOING, started=true`.
-- A provider may have at most one `ONGOING` Booking globally. Enforce Start Job under a provider-scoped lock; service-scoped queue checks still apply.
+- A provider may have at most one `ONGOING` Booking globally. Enforce Start Job and the provider-wide paid FCFS order under provider-scoped locks; listing links do not create separate queue positions or capacities.
 - New marketplace relationships require `email_verified=true` and `verification_status=APPROVED`; existing engagements remain resolvable as defined in Part 4.
 - `COMPLETED` implies exactly one CompletedService. `DISPUTED` implies an unresolved Report. Online `DISPUTED` implies `FROZEN_HELD`.
 - Each CompletedService produces exactly one provider `+3` completed-service TrustScoreEvent. The unique event key prevents duplicate awards across seeker, Admin, cash, online, or retry paths; refunds/cancellations produce none.
@@ -842,10 +931,11 @@ AI_REVIEW_SUMMARIES — id, provider_id, review_version, review_count,
 | From | Admin event | To | Required side effects |
 |---|---|---|---|
 | `ACTIVE` | suspend with reason | `SUSPENDED`, `is_active=true` | enter restricted mode; block new relationships/Start Job; audit and notify; reconcile unstarted obligations safely |
-| `ACTIVE` or `SUSPENDED` | ban with reason | `BANNED`, temporarily `is_active=true` when required | permanently block new activity; retain restricted resolution access; audit and notify |
+| `ACTIVE` or `SUSPENDED` | ban with reason | `BANNED`, `is_active=true` for appeal login | immediately deny normal access and sockets; show ban notice; audit and notify; surface obligations for Admin |
 | `SUSPENDED` | restore with reason | `ACTIVE`, `is_active=true` | restore normal eligibility subject to all other gates; audit and notify |
-| `BANNED` with outstanding obligations | Admin/participants resolve cases | unchanged | cancel/refund/release/complete/dismiss/restore through existing idempotent outcomes; never transfer or delete history |
-| `BANNED` with no outstanding obligation or held payment | finalize deactivation | `BANNED`, `is_active=false` | revoke sessions, deny authentication, audit final decision |
+| `BANNED` with outstanding obligations | Admin resolves cases | unchanged | cancel/refund/release/complete/dismiss through existing idempotent outcomes; never transfer or delete history |
+| `BANNED` | approve appeal or manual unban with reason | `ACTIVE`, `is_active=true` | notify user and restore normal access subject to verification gates; preserve obligations and history |
+| `BANNED` | reject appeal with reason | `BANNED` | notify user of decision; normal access remains blocked |
 
 ### Booking lifecycle table
 
@@ -875,13 +965,13 @@ AI_REVIEW_SUMMARIES — id, provider_id, review_version, review_count,
 - Existing Booking `WAITING` rows with an active Queue `WAITING` row migrate to Booking `ACCEPTED`; the Queue retains `WAITING`.
 - Existing Booking `UNDER_REVIEW` rows tied to unresolved reports migrate to Booking `DISPUTED`; Report may be `UNDER_REVIEW`.
 - Existing cash completions recorded as payment `RELEASED` migrate to `CASH_CONFIRMED`, and cash earnings must not count toward online Available Balance.
-- Existing Flow B offers/bookings must be backfilled with a valid provider-owned service link before they can enter a queue or take a new payment.
+- Existing Flow B offers/bookings may retain a valid provider-owned service link when present, but listing-free offers and their paid bookings need no service backfill. Preserve historical links without making them a queue or payment precondition.
 - Reconcile any provider who currently has multiple `ONGOING` Bookings before enabling the provider-global Start Job guard.
 - Normalize legacy `SESSION_BASED` listings to `ONE_TIME` and `PER_SESSION` prices to `FIXED`; preserve existing Booking amounts and legacy schedule columns as immutable historical data.
 - Backfill Flow B terminal requests from their linked Booking where determinable; ambiguous records require an audited manual decision rather than automatic offer resurrection.
 - Add hashed auth-token records, processed-webhook deduplication, and CompletionEscalation with the uniqueness/expiry rules above.
 - Preserve the implemented DirectRequest relation for Flow A cash and document it consistently. Do not remove `direct_request_id` or its records without a separate audited migration that first replaces every active read/write path and preserves history.
-- Reconcile existing suspended/banned accounts before adopting restricted mode. Do not blindly reactivate an account: establish `moderation_status`, inspect outstanding obligations, and choose `is_active` through an audited administrative decision.
+- Reconcile existing suspended/banned accounts before adopting the ban notice. Do not blindly reactivate an account: establish `moderation_status`, inspect outstanding obligations, and preserve records for audited Admin resolution.
 - Existing verification submissions without recorded notice acknowledgement remain historical; do not fabricate consent timestamps. Require the current notice acknowledgement for every new or resubmitted verification after the v2.2 migration.
 - Add transactional/unique protections for one active CompletionEscalation, one unresolved completion dispute, and one completed-service trust event. Backfill or resolve duplicates through an audited reconciliation before enabling constraints.
 - Deploy enum/schema migrations, transactional service changes, and regression tests together. Do not partially deploy a new state machine.
@@ -895,12 +985,12 @@ The system already contains more surface area than a typical three-month capston
 
 ### Tier 0 — defense-critical and release-blocking
 
-1. Authentication, hashed refresh rotation, logout/session invalidation, enforced email-verification gate, password reset, and `ACTIVE|SUSPENDED|BANNED` restricted-resolution behavior that cannot strand obligations or funds.
+1. Authentication, hashed refresh rotation, logout/session invalidation, enforced email-verification gate, password reset, suspended restricted-resolution behavior, and banned notice/appeal with Admin-owned obligation resolution.
 2. Residency verification, private proof handling, current privacy-notice acknowledgement, limited-mode gating, retention/deletion handling, and admin decision/access audit logs.
-3. Service creation, validation, moderation, and safe browsing.
+3. Service creation, deterministic/local-policy checks, direct publication for passing listings, revision failures, post-publication reports, and safe browsing. Passing Seeker requests become `OPEN` only after the same checks.
 4. Flow A and Flow B, exact-price eligibility, immutable agreed amount, and complete ServiceRequest terminal behavior.
 5. PayMongo Test Mode webhook verification/deduplication, idempotency, simulated hold, release, refund, and reconciliation.
-6. Listing-specific `ONE_TIME` FCFS invariants, provider-global one-ongoing guard, Start Job, Mark Completed, cancellation, queue recalculation, and honest estimated-wait wording.
+6. Provider-wide paid `ONE_TIME` FCFS invariants, one-ongoing guard, Start Job, Mark Completed, cancellation, queue recalculation, and honest estimated-wait wording.
 7. Completion confirmation/report deduplication, no-response CompletionEscalation cooldown/idempotency, and all explicit admin settlement outcomes.
 8. Booking-scoped text messaging and durable notifications with secure realtime invalidation.
 9. CompletedService separation, bilateral reviews, and deterministic trust events.
@@ -942,7 +1032,7 @@ Before claiming “production ready” or using a release build for defense:
   2. a suspended participant can safely resolve an existing eligible engagement;
   3. a suspended provider cannot Start Job;
   4. suspension or banning cannot strand a `PAID_HELD` payment;
-  5. final deactivation cannot occur while a nonterminal Booking or held payment remains;
+  5. banning takes effect immediately while nonterminal Bookings and held payments remain preserved for Admin resolution;
   6. FCFS order cannot be skipped within a service listing;
   7. queue positions from different services are not treated as a global queue;
   8. duplicate CompletionEscalation requests return one active record;
@@ -978,12 +1068,12 @@ These are cross-cutting requirements, not optional features:
 ## INSTRUCTIONS FOR THE AI READING THIS DOCUMENT
 
 1. Read this entire document fully before writing or modifying any code.
-2. Treat specification version 2.5 as authoritative. Older comments or documents lose when they conflict with its state tables and invariants.
+2. Treat specification version 2.6 as authoritative. Older comments or documents lose when they conflict with its state tables and invariants.
 3. If the current codebase violates a rule above, report the affected flow and migration/test impact. When the user's request authorizes implementation, fix it without weakening another invariant. Schema/state-machine changes require migrations and regression tests; never silently reinterpret persisted states.
 4. If a request from the user conflicts with this document, point out the conflict. If the user confirms the new decision, update this document in the same change so it remains the source of truth.
 5. For new behavior, separate lifecycle stages, enforce authorization and invariants server-side, make external-event handling idempotent, and prefer the smallest approach that satisfies Tier 0.
 6. Do not claim “production ready” solely because builds pass. Use Part 27's defense release gate and report any unverified item honestly.
-7. Version 2.5 defines target product behavior; it does not prove the current code already implements every amendment. Audit the affected schema, authorization, lifecycle, and tests before claiming alignment, and preserve the implemented DirectRequest flow unless a separately authorized migration replaces it safely.
+7. Version 2.6 defines target product behavior; it does not prove the current code already implements every amendment. Audit the affected schema, authorization, lifecycle, and tests before claiming alignment, and preserve the implemented DirectRequest flow unless a separately authorized migration replaces it safely.
 
 ### Version 2.0 foundation decisions
 
@@ -994,13 +1084,13 @@ These are cross-cutting requirements, not optional features:
 - Made Queue status/position authoritative and retained historical rows for traceability.
 - Historically separated one-time queueing from scheduled session bookings; Version 2.3 supersedes that design with reusable one-time listings.
 - Added a safe Flow B payment-pending state so failed payments do not reject sibling offers.
-- Required offers to reference a service listing.
+- Historically required offers to reference a service listing; Version 2.6 removes that requirement.
 - Defined explicit dispute outcomes, money direction, cash settlement, and idempotency.
 - Defined bilateral reviews, private trust values, realtime fallback rules, sensitive-upload rules, and capstone scope tiers.
 
 ### Version 2.1 correctness amendments
 
-- Added a provider-global one-`ONGOING` guard while retaining listing-specific queue order/capacity.
+- Added a provider-global one-`ONGOING` guard; Version 2.6 also makes the queue and capacity provider-wide.
 - Defined which pricing types can produce an exact direct payment and made `Booking.agreedAmount` immutable.
 - Added an enforced email-verification gate without trapping existing engagements or held funds.
 - Defined Flow B request behavior after failed payment, booking creation, completion, and cancellation; rejected offers are never resurrected.
@@ -1011,8 +1101,8 @@ These are cross-cutting requirements, not optional features:
 
 ### Version 2.2 correctness amendments
 
-- Defined `ACTIVE|SUSPENDED|BANNED`, restricted engagement resolution, and safe final deactivation without booking transfer or trapped held funds.
-- Clarified that FCFS is guaranteed within each service listing while provider work concurrency remains global.
+- Defined `ACTIVE|SUSPENDED|BANNED`, suspended restricted resolution, banned notice/appeal, and Admin resolution without booking transfer or trapped held funds.
+- Historically scoped FCFS within each listing; Version 2.6 supersedes this with provider-wide paid FCFS.
 - Preserved and canonically documented the implemented DirectRequest relation for Flow A cash rather than removing it from the specification.
 - Defined CompletionEscalation duplicate behavior and the additional 72-hour cooldown after `KEEP_AWAITING`.
 - Prevented duplicate unresolved completion disputes while preserving genuinely distinct safety reports.
@@ -1023,7 +1113,7 @@ These are cross-cutting requirements, not optional features:
 ### Version 2.3 scope simplification
 
 - Removed session-based scheduling and `PER_SESSION` pricing from the supported product surface.
-- Defined every Booking as one independent engagement while keeping its approved Service listing reusable.
+- Defined every Booking as one independent engagement while keeping its published Service listing reusable.
 - Added repeat-request behavior after terminal bookings without introducing subscriptions or calendar reservations.
 - Defined provider acceptance and optional non-reserved schedule proposals for Flow A cash requests.
 - Retained legacy enum/column values only for backward-compatible migration and historical reads.
@@ -1039,3 +1129,23 @@ These are cross-cutting requirements, not optional features:
 - Confirmed Cordova, Cebu as the only implemented, tested, and defense-critical service area.
 - Defined ServiceHub Cordova as a hyperlocal pilot without claiming that multi-area operation already exists.
 - Classified configurable service areas, multi-city discovery, area-scoped moderation, regional administration, and geospatial search as future enhancements requiring a separately authorized implementation and validation effort.
+
+### Version 2.6 risk-based local content moderation
+
+- Replaced mandatory Admin pre-approval of every Provider listing with backend-controlled publication after existing gates and a versioned local policy pass. Superseded on September 30: listing exception approval was also retired; failed submissions require revision.
+- Added the same pre-publication and pre-edit local checks to Seeker requests while keeping passing requests immediately `OPEN` and offerable.
+- Kept Admin authority over flagged cases, reports, appeals, removals, sanctions, and categories; a local check failure alone never changes account trust or posting privilege.
+- Separated first-publication `published_at` from human-review `reviewed_at`. Gemini remains optional and nonblocking, not a required moderation dependency.
+
+### Version 2.6 provider-wide work queue and optional offer listings
+
+- Flow B providers may send a custom price, duration, and message with no Service listing. A category-compatible active listing is only an optional prefill shortcut.
+- `Queue.providerId` is authoritative for one provider-wide paid order; `Queue.serviceId` and `PaymentAttempt.serviceId` may be null for listing-free offers. Active positions are unique per provider, with at most one provider-wide `SERVING` row.
+- `User.onlineQueueLimit` controls paid **waiting** capacity across all listings and offers. The retained `Service.queueLimit` column is legacy compatibility data, not an operational cap.
+- `Booking.estimatedDurationMins` snapshots accepted terms. Estimated wait adds the expected durations of jobs ahead; the actual duration can differ.
+- Cash stays outside the numbered queue, but a provider cannot start new cash work while paid jobs wait. The one-active-job guard applies across both methods.
+- Verified GCash success creates an accepted, unstarted booking plus one waiting row. Provider Start Job alone begins service. Failed/expired attempts create neither; duplicate callbacks remain idempotent.
+
+### September 30, 2026 — service listing approval retired
+
+Provider listings publish after automatic validation or return a correction to make. Removed Admin pending-listing counters, listing approve/reject routes and UI, provider Under Review tabs, and obsolete socket events. Legacy unpublished pending listings become revision-required records and are never blindly published. Help, landing, onboarding, and community copy use plain wording and no longer describe listing pre-approval. Residency verification, category management, booking acceptance, reports, and disputes retain their own existing review workflows.

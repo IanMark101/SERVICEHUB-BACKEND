@@ -1,7 +1,7 @@
-import type { Prisma } from "@prisma/client";
+import type { AdminResolutionOperation, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
-export type ResolutionCaseType = "REPORT" | "COMPLETION_ESCALATION" | "CANCELLATION";
+export type ResolutionCaseType = "REPORT" | "COMPLETION_ESCALATION" | "CANCELLATION" | "ADMIN_BOOKING";
 
 export const ADMIN_RESOLUTION_STAGE_ORDER = {
   CLAIMED: 0,
@@ -59,6 +59,34 @@ export async function beginAdminResolution(
 
 export function hasEstablishedFinancialEffect(operation: { stage: string }) {
   return operation.stage === "FINANCIAL_EFFECT_ESTABLISHED" || operation.stage === "CASE_FINALIZED";
+}
+
+/** Recover a settlement that committed before its operation marker did. The
+ * caller holds the booking lifecycle lock and must still own the same case. */
+export async function reconcileReservedFinancialEffect(
+  tx: Prisma.TransactionClient,
+  operation: AdminResolutionOperation,
+  outcome: "release_provider_and_complete" | "cancel_booking" | "refund_seeker",
+) {
+  if (operation.stage !== "FINANCIAL_EFFECT_RESERVED") return operation;
+  const booking = await tx.booking.findUnique({
+    where: { id: operation.bookingId },
+    include: { completedService: true, refund: true },
+  });
+  if (!booking) throw conflict("Resolution booking not found");
+  const released = booking.status === "COMPLETED"
+    && ["RELEASED", "CASH_CONFIRMED"].includes(booking.paymentStatus)
+    && booking.completedService?.paymentStatus === booking.paymentStatus
+    && Number(booking.completedService.finalPrice) === Number(booking.agreedAmount);
+  const cancelled = booking.status === "CANCELED"
+    && (booking.paymentMethod === "On-site Cash"
+      ? booking.paymentStatus === "UNPAID"
+      : booking.paymentStatus === "REFUNDED" && Boolean(booking.refund?.paymongoRefundId));
+  if ((outcome === "release_provider_and_complete" && released)
+    || (outcome !== "release_provider_and_complete" && cancelled)) {
+    return markAdminResolutionStageInTransaction(tx, operation.id, "FINANCIAL_EFFECT_ESTABLISHED");
+  }
+  return operation;
 }
 
 export async function markAdminResolutionStageInTransaction(

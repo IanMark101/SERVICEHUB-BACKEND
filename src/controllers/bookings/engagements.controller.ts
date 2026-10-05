@@ -28,7 +28,8 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
   try {
     const user = (req as AuthenticatedRequest).user;
 
-    const bookings = await prisma.booking.findMany({
+    const [bookings, completedServices] = await Promise.all([
+      prisma.booking.findMany({
       where: {
         OR: [
           { seekerId: user.id, hiddenBySeeker: false },
@@ -57,6 +58,7 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
             message: true,
             schedule: true,
             agreedPrice: true,
+            quantity: true,
             service: {
               select: { title: true },
             },
@@ -67,15 +69,14 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         cancellationRequests: {
           orderBy: { createdAt: "desc" },
         },
-        messages: {
-          orderBy: { createdAt: "asc" },
-        },
       },
       orderBy: { createdAt: "desc" },
-    });
+      }),
 
-    const completedServices = await prisma.completedService.findMany({
+      prisma.completedService.findMany({
       where: {
+        // Linked Booking state is authoritative; canceled work is never completion history.
+        AND: [{ OR: [{ bookingId: null }, { booking: { status: 'COMPLETED' } }] }],
         OR: [
           {
             seekerId: user.id,
@@ -110,7 +111,8 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         },
       },
       orderBy: { completedAt: "desc" },
-    });
+      }),
+    ]);
 
     res.json({
       success: true,

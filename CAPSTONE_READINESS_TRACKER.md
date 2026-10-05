@@ -1,5 +1,7 @@
 # ServiceHub Cordova Capstone Readiness Tracker
 
+Current listing policy (September 30, 2026): new listings require an exact fixed, hourly, daily, or project price. Older Starts At/Custom listings remain in owner records but are hidden from public booking until their providers enter an exact price. Existing service inquiries and offers remain available for resolution. Earlier quotation entries below describe the previous implementation and are retained as audit history.
+
 Last audited: September 12, 2026
 
 Authoritative specification: `docs/SERVICEHUB_MASTER_PROMPT.md` Version 2.5
@@ -15,7 +17,7 @@ Current functional verdict: **READY FOR UI/UX POLISH WITH MINOR FUNCTIONAL/RELEA
 | Core marketplace flows | Ready for polish | Flow A cash, Flow B cash, reusable one-time bookings, signed online-payment finalization, queue lifecycle, completion, and review/trust integrations pass |
 | Authentication and session security | Ready after final fix | Final deactivation now remains enforced even when an old access token is presented; auth/role/verification contracts pass |
 | Payment and queue integrity | Ready with external validation condition | Database locks, constraints, signed webhook replay, rollback, capacity reconciliation, and Test Mode reversal tests pass; interactive PayMongo checkout is not re-run in this pass |
-| Admin operations | Ready for polish | Real database moderation, safety evidence, review visibility, promotion, account deletion, announcements, and audit-log workflows are guarded and tested |
+| Admin operations | Ready for polish | Real database moderation, safety evidence, review visibility, account deletion, announcements, and audit-log workflows are guarded and tested; administrator promotion is managed directly in the database |
 | Messaging, realtime, and notifications | Ready with deployment condition | Participant authorization, pre-acceptance message locking, pagination, durable notifications, and concurrency pass; multi-instance realtime delivery remains outside the capstone baseline |
 | Reviews, trust, community, and AI | Ready for polish | Role-correct review aggregates, private trust history, idempotent trust events, AI summary thresholds, and canonical Community/public-provider visibility are verified |
 | UX and code quality | Ready for dedicated polish | Functional labels and Help/landing lifecycle wording were corrected; broad visual work remains intentionally deferred |
@@ -102,15 +104,15 @@ Phase 3 verification evidence:
 - [x] Deduplicate active reports for the same booking/reporter/type. **DONE - an advisory lock plus a partial unique database index makes retries return the existing active report.**
 - [x] Add review visibility/moderation state. **DONE - reviews now retain visibility, reason, moderator, and moderation timestamp.**
 - [x] Add administrator review-hide/restore actions with reason and immutable audit log. **DONE - the API and Admin Review Moderation page support both actions, and public aggregates exclude hidden reviews.**
-- [x] Require current-administrator password reauthentication before promoting another administrator. **DONE - the acting administrator's current bcrypt password is required and verified.**
-- [x] Block administrator promotion when the target has active bookings, held payments, or unresolved cases. **DONE - promotion reuses the complete active-case guard and is transactionally rejected when blockers exist.**
+- [x] Remove in-app administrator promotion. **DONE October 4, 2026 - the Make Admin button, dialog, promotion API, controller, and schema were removed. Existing roles are provisioned directly through controlled database administration.**
+- [x] Verify promotion removal. **DONE - the actual admin router returns 404 for an authenticated administrator's legacy promotion request, with no database mutation; ordinary-user and anonymous requests remain blocked by authorization.**
 - [x] Implement guarded final account deactivation. **DONE - only pending deletion requests without recalculated blockers may be finalized; sessions are revoked, sockets disconnected, and the action audited.**
 - [x] Add a paginated administrator audit-log API and dashboard view. **DONE - filters, actor/target context, pagination, and a dedicated Admin page are implemented.**
 - [x] Paginate escalated cancellations, announcements, reconciliation results, and other remaining unbounded administrator lists. **DONE - all top-level administrator collections are bounded by server-side page limits; overview widgets remain intentionally bounded summaries.**
 
 Phase 4 verification evidence:
 
-- `npm run test:phase4-integration`: 1/1 passed, covering both participant directions, report deduplication, evidence ownership/redaction/audited access, review hide/restore, promotion reauthentication/blockers, and final deactivation.
+- `npm run test:phase4-integration`: 1/1 passed originally, covering both participant directions, report deduplication, evidence ownership/redaction/audited access, review hide/restore, promotion reauthentication/blockers, and final deactivation. The promotion assertions were retired on October 4, 2026; `src/schema/admin-promotion-removal.test.ts` now verifies the removed endpoint without database fixtures.
 - Backend `npm test`: 14/14 passed.
 - Backend `npm run test:phase2-integration`: 1/1 passed after the Phase 4 migration.
 - Backend `npm run test:phase3-integration`: 1/1 passed after the Phase 4 migration.
@@ -131,7 +133,7 @@ Phase 4 verification evidence:
 - [x] Do not store an authoritative direct-booking price for `CUSTOM` listings. **DONE - nullable database price and tested transition rules.**
 - [x] Require at least one payment method during listing updates. **DONE - shared validation, edit-form gate and negative test.**
 - [x] Align GCash and On-site Cash support between listing configuration and booking/payment APIs. **DONE - GCash Test Mode and direct cash are preserved end to end; unsupported payment methods are rejected.**
-- [x] Make advanced price types usable only through an exact provider Offer in both UI and API. **DONE - direct booking rejects advanced pricing, the UI routes to Request a Quote, and integration proves an exact Offer succeeds.**
+- [x] Require an exact amount before booking or payment. **DONE - fixed and per-project prices book directly, hourly and daily totals are calculated server-side from the selected quantity, and starts-at/custom prices require an exact provider Offer.**
 - [x] Replace the fake `cert_uploaded.jpg` skill proof with managed storage or remove the field. **DONE - removed the fake argument from the listing creation path.**
 - [x] Restrict provider rating, ranking, and AI aggregates to eligible reviews where the target participated as provider. **DONE - queries require visible reviews tied to a completed service where the target was provider.**
 - [x] Keep seeker-role reviews in profile history without affecting provider metrics. **DONE - profile integration asserts seeker context remains visible while provider average stays unchanged.**

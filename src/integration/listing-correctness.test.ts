@@ -3,7 +3,7 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../lib/prisma";
 import { CreateServiceSchema, UpdateServiceSchema } from "../schema/services.schema";
-import { createService, updateService, deleteService, toggleServiceAvailability } from "../services/services.service";
+import { createService, updateService, deleteService, toggleServiceAvailability, getServiceById } from "../services/services.service";
 import { applyTrustEvent } from "../services/trust.service";
 import { summarizeProviderReviews, invalidateProviderSummary } from "../services/ai.service";
 import { env } from "../config/env";
@@ -13,7 +13,7 @@ import { submitOffer } from "../services/offers.service";
 import { createDirectRequest } from "../services/bookings/direct-bookings.service";
 import { updateManagedCategory } from "../services/admin-moderation.service";
 
-test("listing concurrency, material edits, custom pricing and trust retries", async (t) => {
+test("listing concurrency, exact pricing and trust retries", async (t) => {
   const suffix = randomUUID();
   const provider = await prisma.user.create({ data: {
     name: `Listing Test ${suffix}`, email: `${suffix}@example.test`, passwordHash: "test-only-unusable-hash",
@@ -24,7 +24,7 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     phone: "test-only", location: "Cordova", role: "admin", emailVerified: true,
   } });
   const category = await prisma.category.create({ data: { name: `Listing Test ${suffix}` } });
-  const seeker = await prisma.user.create({ data: { name: `Seeker Test ${suffix}`, email: `seeker-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only', location: 'Cordova' } });
+  const seeker = await prisma.user.create({ data: { name: `Seeker Test ${suffix}`, email: `seeker-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only', location: 'Cordova', emailVerified: true, verificationStatus: 'APPROVED' } });
   t.after(async () => {
     await prisma.aiReviewSummary.deleteMany({ where: { providerId: provider.id } });
     await prisma.review.deleteMany({ where: { targetId: provider.id } });
@@ -62,20 +62,23 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
   assert.equal((await toggleServiceAvailability(listing.id, provider.id)).status, 'INACTIVE');
   assert.equal((await toggleServiceAvailability(listing.id, provider.id)).status, 'ACTIVE');
   const edited = await updateService(listing.id, provider.id, { description: "This changed description must be moderated before it becomes public." });
-  assert.equal(edited.status, "PENDING_REVIEW");
-  assert.equal(edited.isAvailable, false);
-  assert.equal(await prisma.notification.count({ where: { userId: provider.id, title: "Listing Changes Submitted" } }), 1);
-  assert.equal(await prisma.notification.count({ where: { userId: admin.id, title: "Service Listing Changes Pending Review" } }), 1);
-  const custom = await updateService(listing.id, provider.id, { priceType: "CUSTOM" });
-  assert.equal(custom.price, null);
-  await assert.rejects(updateService(listing.id, provider.id, { priceType: "FIXED" }));
+  assert.equal(edited.status, "ACTIVE");
+  assert.equal(edited.isAvailable, true);
+  assert.equal(await prisma.notification.count({ where: { userId: provider.id, title: "Listing Changes Submitted" } }), 0);
+  assert.equal(await prisma.notification.count({ where: { userId: admin.id, title: "Service Listing Changes Pending Review" } }), 0);
+  assert.equal(UpdateServiceSchema.safeParse({ priceType: "CUSTOM" }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...input(`Custom price ${suffix}`), priceType: "CUSTOM" }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...input(`Starts at ${suffix}`), priceType: "STARTS_AT" }).success, false);
+  assert.equal(CreateServiceSchema.safeParse({ ...input(`Missing price ${suffix}`), price: undefined }).success, false);
+  const hourly = await updateService(listing.id, provider.id, { priceType: "PER_HOUR", price: 500 });
+  assert.equal(hourly.priceType, "PER_HOUR");
   assert.equal(UpdateServiceSchema.safeParse({ paymentMethods: { cash: false, gcash: false } }).success, false);
   assert.equal(CreateServiceSchema.safeParse({ ...input(`Unsupported payment listing ${suffix}`), paymentMethods: { maya: true } }).success, false);
   assert.equal(CreateServiceSchema.safeParse({ ...input(`Unsupported card listing ${suffix}`), paymentMethods: { card: true } }).success, false);
   await deleteService(listing.id, provider.id);
   const reused = await createService(provider.id, input(listing.title.toUpperCase()));
   assert.notEqual(reused.id, listing.id);
-  const active = await prisma.service.findMany({ where: { providerId: provider.id, status: "PENDING_REVIEW" } });
+  const active = await prisma.service.findMany({ where: { providerId: provider.id, status: "ACTIVE" } });
   await assert.rejects(updateService(active.find((item) => item.id !== reused.id)!.id, provider.id, { title: `  ${reused.title.toLowerCase()}  ` }));
   await prisma.service.update({
     where: { id: reused.id },
@@ -93,6 +96,8 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     },
   });
   await assert.rejects(createDirectRequest({ seekerId: seeker.id, providerId: provider.id, serviceId: reused.id }));
+  await assert.rejects(updateService(reused.id, provider.id, { priceType: "FIXED" }), /enter a final price/);
+  await assert.rejects(getServiceById(reused.id), /Service not found/);
   const exactOffer = await submitOffer(provider.id, {
     requestId: request.id,
     serviceId: reused.id,
@@ -101,6 +106,9 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
     message: "This is the exact quoted price for the requested work.",
   });
   assert.equal(Number(exactOffer.offeredPrice), 650);
+  const repriced = await updateService(reused.id, provider.id, { priceType: "FIXED", price: 700 });
+  assert.equal(Number(repriced.price), 700);
+  assert.equal((await getServiceById(reused.id)).id, reused.id);
   const scoreBefore = (await prisma.user.findUniqueOrThrow({ where: { id: provider.id } })).trustScore;
   await Promise.all(Array.from({ length: 3 }, () => applyTrustEvent(provider.id, 3, "Duplicate business event test", undefined, `phase5:${suffix}`)));
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: provider.id } })).trustScore, scoreBefore + 3);
@@ -110,9 +118,11 @@ test("listing concurrency, material edits, custom pricing and trust retries", as
   const savedFetch = globalThis.fetch;
   let geminiCalls = 0;
   env.GEMINI_API_KEY = 'mock-key-used-only-with-intercepted-fetch';
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (_input, init) => {
     geminiCalls++;
-    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Test-generated summary.' }] } }] }), { status: 200 });
+    const prompt = JSON.parse(String(init?.body)).contents[0].parts[0].text as string;
+    const rows = JSON.parse(prompt.split('\n\n').at(-1)!);
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ reviewIds: [rows[0].reviewId] }) }] } }] }), { status: 200 });
   };
   try {
     const addReview = async () => {

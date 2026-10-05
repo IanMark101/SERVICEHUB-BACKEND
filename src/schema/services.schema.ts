@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const PriceTypeValues = [
-  "FIXED", "STARTS_AT", "PER_HOUR", "PER_DAY", "PER_PROJECT", "CUSTOM",
+  "FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT",
 ] as const;
 export type PriceTypeValue = typeof PriceTypeValues[number];
 
@@ -10,6 +10,7 @@ export type ServiceTypeValue = typeof ServiceTypeValues[number];
 
 const title = z.string()
   .trim()
+  .toUpperCase()
   .min(10, "Title must be at least 10 characters")
   .max(100, "Title must be at most 100 characters")
   .regex(/^[a-zA-Z0-9\s,.'&()-]+$/, "Title contains invalid characters");
@@ -36,16 +37,13 @@ export const CreateServiceSchema = z.object({
   categoryId: z.string().min(1, "Invalid category"),
   title,
   description,
-  price: price.optional(),
+  price,
   priceType: z.enum(PriceTypeValues).default("FIXED"),
   serviceType: z.enum(ServiceTypeValues).default("ONE_TIME"),
   estimatedDurationMins: z.number().min(15).max(480),
-  queueLimit: z.number().int().min(1).max(10),
+  // Legacy listing column; provider-wide onlineQueueLimit is operational.
+  queueLimit: z.number().int().min(1).max(10).default(3),
   paymentMethods,
-}).superRefine((value, context) => {
-  if (value.priceType !== "CUSTOM" && value.price === undefined) {
-    context.addIssue({ code: "custom", path: ["price"], message: "Price is required unless pricing is custom" });
-  }
 });
 
 export type CreateServiceInput = z.infer<typeof CreateServiceSchema>;
@@ -53,7 +51,7 @@ export type CreateServiceInput = z.infer<typeof CreateServiceSchema>;
 export const UpdateServiceSchema = z.object({
   title: title.optional(),
   description: description.optional(),
-  price: price.nullable().optional(),
+  price: price.optional(),
   priceType: z.enum(PriceTypeValues).optional(),
   serviceType: z.enum(ServiceTypeValues).optional(),
   estimatedDurationMins: z.number().min(15).max(480).optional(),

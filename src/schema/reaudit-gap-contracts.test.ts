@@ -50,8 +50,9 @@ test("request cancellation uses the same request lock and a conditional transiti
   const requests = source("src/services/requests.service.ts");
   assert.match(requests, /request:\$\{requestId\}/);
   assert.match(requests, /serviceRequest\.updateMany\(\{ where: \{ id: requestId, seekerId, status: "OPEN" \}/);
-  assert.match(requests, /activePaymentAttempt/);
-  assert.match(requests, /activeBooking/);
+  assert.match(requests, /requestDeletionEligibility\(\{ \.\.\.request, offers \}, payments\)/);
+  assert.match(requests, /status: \{ in: protectedRequestPaymentStatuses \}/);
+  assert.match(requests, /booking: \{ select: \{ status: true \} \}/);
 });
 
 test("post-settlement recovery is explicitly distinguished from pre-settlement validation", () => {

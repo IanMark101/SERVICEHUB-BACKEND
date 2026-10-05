@@ -21,7 +21,8 @@ import {
 import { requireAuth, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
 import { escalateCompletion } from "../controllers/bookings/completion-escalations.controller";
 import { reportBookingSafety } from "../controllers/bookings/safety-reports.controller";
-import { paymentInitiationLimiter, reportMutationLimiter, waitlistMutationLimiter } from "../middlewares/rateLimiter.middleware";
+import { paymentInitiationLimiter, paymentStatusLimiter, reportMutationLimiter, waitlistMutationLimiter } from "../middlewares/rateLimiter.middleware";
+import { getProviderWorkload, setProviderWorkloadCapacity } from "../controllers/bookings/workload.controller";
 
 const router = Router();
 
@@ -30,6 +31,8 @@ router.use(requireAuth, requireMarketplaceUser);
 
 // Get my engagements (active and completed)
 router.get("/my-engagements", getMyEngagements);
+router.get("/provider-workload", getProviderWorkload);
+router.patch("/provider-workload", requireVerification, setProviderWorkloadCapacity);
 
 // Hide / Dismiss a booking from user's view
 router.patch("/:id/hide", hideBooking);
@@ -45,7 +48,7 @@ router.post("/direct-from-offer", requireVerification, bookDirectFromOffer);
 
 // Online payment flow (two-step) — initiate-payment requires verification (Part 6)
 router.post("/initiate-payment", requireVerification, paymentInitiationLimiter, initiatePayment);
-router.post("/confirm-online", requireVerification, paymentInitiationLimiter, confirmOnlineBooking); // only call after PayMongo succeeds
+router.post("/confirm-online", requireVerification, paymentStatusLimiter, confirmOnlineBooking); // server verifies provider state; browser return is not proof
 
 // Queue management
 router.post("/waitlist", requireVerification, waitlistMutationLimiter, joinWaitlistHandler);

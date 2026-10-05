@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
-const NONTERMINAL_BOOKING_STATUSES = [
+export const NONTERMINAL_BOOKING_STATUSES = [
   "PENDING_APPROVAL",
   "WAITING",
   "ACCEPTED",
@@ -23,7 +23,10 @@ export async function getUserActiveCaseCounts(tx: Prisma.TransactionClient, user
     where: { ...bookingScope, paymentStatus: { in: ["PAID_HELD", "FROZEN_HELD"] } },
   });
   const cancellations = await tx.cancellationRequest.count({
-    where: { bookingId: { in: bookingIds }, status: { in: ["PENDING", "ESCALATED"] } },
+    where: { bookingId: { in: bookingIds }, OR: [
+      { status: { in: ["PENDING", "ESCALATED", "UNDER_REVIEW"] } },
+      { status: "DECLINED", booking: { status: { in: [...NONTERMINAL_BOOKING_STATUSES] } } },
+    ] },
   });
   const reports = await tx.report.count({
     where: {
@@ -34,7 +37,14 @@ export async function getUserActiveCaseCounts(tx: Prisma.TransactionClient, user
   const completionEscalations = await tx.completionEscalation.count({
     where: { bookingId: { in: bookingIds }, status: { in: ["PENDING", "UNDER_REVIEW"] } },
   });
-  return { nonterminalBookings, heldPayments, cancellations, reports, completionEscalations };
+  const paymentAttempts = await tx.paymentAttempt.count({
+    where: { OR: [{ seekerId: userId }, { providerId: userId }], status: { in: ["PENDING", "REFUND_REQUIRED"] } },
+  });
+  const unresolvedRefunds = await tx.paymentRefund.count({
+    where: { bookingId: { in: bookingIds }, status: { in: ["PROCESSING", "FAILED"] } },
+  });
+  const banAppeals = await tx.banAppeal.count({ where: { userId, status: "PENDING" } });
+  return { nonterminalBookings, heldPayments, cancellations, reports, completionEscalations, paymentAttempts, unresolvedRefunds, banAppeals };
 }
 
 export async function getVerificationRetentionState(verificationId: string) {

@@ -5,6 +5,7 @@ import { settleCompletedBooking } from "./bookings/completion.service";
 import { applyTrustEventInTransaction } from "./trust.service";
 import { performImmediateCancel } from "./cancellation.service";
 import { lockBookingLifecycle } from "./booking-lifecycle.service";
+import { lockAccountLifecycle } from "./account-lifecycle.service";
 import {
   beginAdminResolution,
   completedResolutionResult,
@@ -12,20 +13,22 @@ import {
   markAdminResolutionFailed,
   markAdminResolutionStage,
   markAdminResolutionStageInTransaction,
+  reconcileReservedFinancialEffect,
 } from "./admin-resolution-operation.service";
 import { assertNoOtherBlockingCases, restoreBookingIfNoBlockingCases } from "./case-resolution.service";
+import { assertReportDecision } from "./report-decision-policy";
 
-export type ReportBookingOutcome = "dismiss" | "cancel_booking" | "release_provider_and_complete";
+export type ReportBookingOutcome = "dismiss" | "resolve_safety" | "cancel_booking" | "release_provider_and_complete";
 export type ReportPenaltyAction = "none" | "warn" | "trust_deduct" | "suspend" | "ban";
 export type ReportAction = ReportBookingOutcome | ReportPenaltyAction | "approve_refund";
 
-const reportInclude = {
-  reporter: { select: { id: true, name: true, trustScore: true, verificationStatus: true } },
-  reportedUser: { select: { id: true, name: true, trustScore: true, verificationStatus: true } },
+export const reportInclude = {
+  reporter: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true } },
+  reportedUser: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true } },
   cancellationRequest: true,
   booking: { include: {
-    seeker: { select: { id: true, name: true, trustScore: true, verificationStatus: true } },
-    provider: { select: { id: true, name: true, trustScore: true, verificationStatus: true } },
+    seeker: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true } },
+    provider: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true } },
     service: { select: { id: true, title: true, price: true } },
     offer: { include: { request: { select: { id: true, title: true } } } },
     directRequest: { include: { service: { select: { id: true, title: true } } } },
@@ -38,8 +41,8 @@ function httpError(message: string, status: number, code?: string) {
   return Object.assign(new Error(message), { status, code });
 }
 
-export async function listAdminReports(page = 1, limit = 10) {
-  const where = { status: { in: [ReportStatus.PENDING, ReportStatus.UNDER_REVIEW] } };
+export async function listAdminReports(page = 1, limit = 10, userId?: string) {
+  const where = { status: { in: [ReportStatus.PENDING, ReportStatus.UNDER_REVIEW] }, ...(userId ? { OR: [{ reporterId: userId }, { reportedUserId: userId }, { booking: { seekerId: userId } }, { booking: { providerId: userId } }] } : {}) };
   const [reports, total] = await Promise.all([
     prisma.report.findMany({ where, include: reportInclude, orderBy: { createdAt: "asc" }, skip: (page - 1) * limit, take: limit }),
     prisma.report.count({ where }),
@@ -76,9 +79,17 @@ async function applyReportPenalty(tx: Prisma.TransactionClient, report: { id: st
   if (penalty === "trust_deduct") {
     await applyTrustEventInTransaction(tx, { userId: report.reportedUserId, delta: -10, reason: "Valid report confirmed by administrator", actorAdminId: adminId, eventKey: `report:${report.id}:trust-penalty` });
   } else if (penalty === "suspend" || penalty === "ban") {
-    const blockers = await tx.booking.count({ where: { providerId: report.reportedUserId, started: false, status: { in: ["PENDING_APPROVAL", "WAITING", "ACCEPTED"] } } });
-    if (blockers > 0) throw httpError(`Resolve or administratively cancel the provider's ${blockers} unstarted booking(s) before suspension or banning`, 409);
+    // Booking creation holds this provider lock through its eligibility read
+    // and commit. Recheck blockers only after that transaction completes.
+    await lockAccountLifecycle(tx, report.reportedUserId);
+    if (penalty === "suspend") {
+      const blockers = await tx.booking.count({ where: { providerId: report.reportedUserId, started: false, status: { in: ["PENDING_APPROVAL", "WAITING", "ACCEPTED"] } } });
+      if (blockers > 0) throw httpError(`Resolve or administratively cancel the provider's ${blockers} unstarted booking(s) before suspension`, 409);
+    }
     await tx.user.update({ where: { id: report.reportedUserId }, data: { isActive: true, moderationStatus: penalty === "ban" ? "BANNED" : "SUSPENDED", suspendedUntil: penalty === "suspend" ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) : null, moderationReason: notes } });
+    if (penalty === "ban") {
+      await tx.adminAuditLog.create({ data: { actorId: adminId, targetUserId: report.reportedUserId, action: "USER_BANNED", resourceType: "User", resourceId: report.reportedUserId, reason: notes, metadata: { sourceReportId: report.id } } });
+    }
   }
 }
 
@@ -114,12 +125,19 @@ export async function resolveAdminReport(reportId: string, adminId: string, acti
       if (existingOperation?.status === "COMPLETED") return { report, operation: existingOperation, completed: existingOperation.result };
       throw httpError("Report has already been resolved", 409);
     }
-    const operation = await beginAdminResolution(tx, { caseType: "REPORT", caseId: report.id, bookingId: report.bookingId, adminId, outcome, penalty: requestedPenalty, notes: adminNotes });
+    // Validate before persisting a decision/reservation. A stale terminal booking
+    // must never strand the case with an impossible refund operation.
+    const financialRetry = existingOperation && ["FINANCIAL_EFFECT_RESERVED", "FINANCIAL_EFFECT_ESTABLISHED"].includes(existingOperation.stage)
+      && existingOperation.requestedOutcome === outcome;
+    if (!financialRetry) assertReportDecision(report, outcome, requestedPenalty);
+    if (outcome === "dismiss" && requestedPenalty !== "none") assertReportDecision(report, outcome, requestedPenalty);
+    let operation = await beginAdminResolution(tx, { caseType: "REPORT", caseId: report.id, bookingId: report.bookingId, adminId, outcome, penalty: requestedPenalty, notes: adminNotes });
+    if (outcome === "cancel_booking" || outcome === "release_provider_and_complete") operation = await reconcileReservedFinancialEffect(tx, operation, outcome);
     const completed = completedResolutionResult(operation);
     if (completed) return { report, operation, completed };
     const effectEstablished = hasEstablishedFinancialEffect(operation);
     if (!effectEstablished && outcome === "release_provider_and_complete" && (report.reportType !== "COMPLETION_DISPUTE" || report.booking.statusBeforeDispute !== "AWAITING_CONFIRMATION")) throw httpError("Only a completion dispute awaiting seeker confirmation can be released to the provider", 422, "INVALID_REPORT_OUTCOME");
-    if (!effectEstablished && outcome !== "dismiss") {
+    if (!effectEstablished && (outcome === "cancel_booking" || outcome === "release_provider_and_complete")) {
       await assertNoOtherBlockingCases(tx, report.bookingId, { reportId: report.id });
     }
     await tx.report.update({ where: { id: report.id }, data: { status: "UNDER_REVIEW", adminId, adminNotes } });
@@ -159,21 +177,27 @@ export async function resolveAdminReport(reportId: string, adminId: string, acti
       await applyReportPenalty(tx, report, adminId, requestedPenalty, adminNotes);
       const finalStatus = outcome === "dismiss" ? "DISMISSED" : "RESOLVED";
       await tx.report.update({ where: { id: report.id }, data: { status: finalStatus, adminId, adminNotes, resolvedAt: new Date() } });
-      if (outcome === "dismiss") await restoreBookingIfNoBlockingCases(tx, report.bookingId);
-      const outcomeLabel = outcome.replace(/_/g, " ");
-      const penaltyLabel = requestedPenalty === "none" ? "No additional account penalty." : `Additional action: ${requestedPenalty.replace(/_/g, " ")}.`;
+      if (outcome === "dismiss" || outcome === "resolve_safety") await restoreBookingIfNoBlockingCases(tx, report.bookingId);
+      const outcomeLabel = {
+        dismiss: "Report dismissed.",
+        resolve_safety: "A supported safety finding was recorded.",
+        cancel_booking: report.booking.paymentMethod === "On-site Cash" ? "Booking cancelled." : "Booking cancelled and the held online payment refunded.",
+        release_provider_and_complete: "Booking completed and payment settled.",
+      }[outcome];
+      const penaltyLabel = { none: "No additional account penalty.", warn: "A formal warning was issued.", trust_deduct: "10 trust points were deducted from the reported account.", suspend: "The reported account was suspended for 7 days.", ban: "The reported account was banned." }[requestedPenalty];
       await tx.notification.createMany({ data: [
-        { userId: report.reporterId, title: "Report resolved", body: `Booking outcome: ${outcomeLabel}. ${penaltyLabel} ${adminNotes}`, link: `${activityLink(report, report.reporterId)}&booking=${report.bookingId}` },
-        { userId: report.reportedUserId, title: requestedPenalty === "warn" ? "Official administrator warning" : "Report resolved", body: `Booking outcome: ${outcomeLabel}. ${penaltyLabel} ${adminNotes}`, link: `${activityLink(report, report.reportedUserId)}&booking=${report.bookingId}` },
+        { userId: report.reporterId, title: "Report resolved", body: `${outcomeLabel} ${penaltyLabel} ${adminNotes}`, link: `${activityLink(report, report.reporterId)}&booking=${report.bookingId}` },
+        { userId: report.reportedUserId, title: requestedPenalty === "warn" ? "Official administrator warning" : "Report resolved", body: `${outcomeLabel} ${penaltyLabel} ${adminNotes}`, link: `${activityLink(report, report.reportedUserId)}&booking=${report.bookingId}` },
       ] });
       await tx.adminAuditLog.create({ data: { actorId: adminId, targetUserId: report.reportedUserId, action: `REPORT_${outcome.toUpperCase()}`, resourceType: "Report", resourceId: report.id, reason: adminNotes, metadata: { bookingId: report.bookingId, outcome, penaltyAction: requestedPenalty, operationId: operation.id } } });
       const result = { resolved: true, outcome, penaltyAction: requestedPenalty, operationId: operation.id };
       await tx.adminResolutionOperation.update({ where: { id: operation.id }, data: { status: "COMPLETED", stage: "CASE_FINALIZED", result, completedAt: new Date(), lastError: null } });
       return { result, reportedUserId: report.reportedUserId, reporterId: report.reporterId };
     });
-    if (["suspend", "ban"].includes(requestedPenalty)) await disconnectUserSockets(finalized.reportedUserId, "Your account moderation status changed.");
+    if (["suspend", "ban"].includes(requestedPenalty)) await disconnectUserSockets(finalized.reportedUserId, requestedPenalty === "ban" ? "Your ServiceHub account has been banned by an administrator." : "Your account moderation status changed.", requestedPenalty === "ban" ? "ACCOUNT_BANNED" : undefined);
     safeEmit(`user:${finalized.reporterId}`, "notification", { title: "Report resolved" });
     safeEmit(`user:${finalized.reportedUserId}`, "notification", { title: "Report resolved" });
+    for (const userId of [claim.report.booking.seekerId, claim.report.booking.providerId]) safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId: claim.report.bookingId });
     safeBroadcast("ADMIN_MODERATION_CHANGED", { reportId, outcome, penaltyAction: requestedPenalty });
     return finalized.result;
   } catch (cause) {

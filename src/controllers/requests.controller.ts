@@ -13,7 +13,7 @@ import { ServiceRequestSchema, ServiceRequestUpdateSchema } from "../schema/mark
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { categoryId, title, description, budgetMin, budgetMax, urgency } = ServiceRequestSchema.parse(req.body);
+    const { categoryId, title, description, budgetMin, budgetMax, urgency, paymentMethods } = ServiceRequestSchema.parse(req.body);
 
     const request = await createRequest(user.id, {
       categoryId,
@@ -22,6 +22,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
       budgetMin,
       budgetMax,
       urgency,
+      paymentMethods,
     });
 
     safeBroadcast("SERVICE_REQUEST_CREATED", request);
@@ -30,7 +31,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
     res.status(201).json({ success: true, data: request });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+      return res.status(400).json({ success: false, error: "Validation failed", errors: err.issues });
     }
     next(err);
   }
@@ -39,7 +40,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
 export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     const { categoryId } = req.query;
-    const requests = await listRequests(categoryId as string | undefined);
+    const requests = await listRequests(categoryId as string | undefined, (req as AuthenticatedRequest).user.id);
     res.json({ success: true, data: requests });
   } catch (err) {
     next(err);
@@ -59,7 +60,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { title, description, budgetMin, budgetMax, status } = ServiceRequestUpdateSchema.parse(req.body);
+    const { title, description, budgetMin, budgetMax, status, paymentMethods, urgency } = ServiceRequestUpdateSchema.parse(req.body);
 
     const request = await updateRequest(req.params.id as string, user.id, {
       ...(title !== undefined && { title }),
@@ -67,6 +68,8 @@ export async function update(req: Request, res: Response, next: NextFunction) {
       ...(budgetMin !== undefined && { budgetMin }),
       ...(budgetMax !== undefined && { budgetMax }),
       ...(status !== undefined && { status }),
+      ...(paymentMethods !== undefined && { paymentMethods }),
+      ...(urgency !== undefined && { urgency }),
     });
 
     safeBroadcast("SERVICE_REQUEST_UPDATED", request);
@@ -75,7 +78,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
     res.json({ success: true, data: request });
   } catch (err: any) {
     if (err.name === "ZodError") {
-      return res.status(400).json({ success: false, error: "Validation failed", errors: err.errors });
+      return res.status(400).json({ success: false, error: err.issues[0]?.message || "Validation failed", errors: err.issues });
     }
     next(err);
   }
@@ -84,7 +87,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
 export async function remove(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    await cancelRequest(req.params.id as string, user.id);
+    const request = await cancelRequest(req.params.id as string, user.id);
 
     safeBroadcast("SERVICE_REQUEST_DELETED", { id: req.params.id });
     safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: req.params.id });

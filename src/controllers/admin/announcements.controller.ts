@@ -16,7 +16,7 @@ async function notifyUsersOfPublishedAnnouncement(
 
   do {
     const recipients = await tx.user.findMany({
-      where: { role: { not: "admin" }, isActive: true },
+      where: { role: { not: "admin" }, isActive: true, moderationStatus: "ACTIVE" },
       select: { id: true },
       orderBy: { id: "asc" },
       take: NOTIFICATION_BATCH_SIZE,

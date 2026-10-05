@@ -11,7 +11,7 @@ import {
 } from "../services/completion-escalation.service";
 import { finalizeSuccessfulPayment } from "../services/payment-attempt.service";
 import {
-  lockServiceQueue,
+  lockProviderQueue,
   notifyWaitlist,
   recalculateQueue,
   recalculateQueueInTransaction,
@@ -190,7 +190,7 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   try {
     const cancellationRace = await Promise.allSettled([
       requestCancellation(second.booking!.id, second.booking!.seekerId, "Concurrent cancellation test."),
-      recalculateQueue(service.id),
+      recalculateQueue(provider.id),
     ]);
     if (cancellationRace[0].status === "rejected") throw cancellationRace[0].reason;
     if (cancellationRace[1].status === "rejected") throw cancellationRace[1].reason;
@@ -201,9 +201,11 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   assert.equal((await prisma.queue.findUniqueOrThrow({ where: { bookingId: third.booking!.id } })).position, 1);
   assert.equal(await prisma.paymentRefund.count({ where: { bookingId: second.booking!.id } }), 1);
 
+  const waitlistProvider = await makeUser("WaitlistProvider");
+  await prisma.user.update({ where: { id: waitlistProvider.id }, data: { onlineQueueLimit: 1 } });
   const waitlistService = await prisma.service.create({
     data: {
-      providerId: provider.id,
+      providerId: waitlistProvider.id,
       categoryId: category.id,
       title: `Waitlist Queue ${suffix}`,
       titleNormalized: `waitlist queue ${suffix}`.toLowerCase(),
@@ -221,7 +223,7 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   const blocker = await prisma.booking.create({
     data: {
       seekerId: seekers[0].id,
-      providerId: provider.id,
+      providerId: waitlistProvider.id,
       serviceId: waitlistService.id,
       originType: "DIRECT_LISTING",
       paymentMethod: "GCash",
@@ -233,6 +235,7 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   });
   const blockerQueue = await prisma.queue.create({
     data: {
+      providerId: waitlistProvider.id,
       serviceId: waitlistService.id,
       seekerId: seekers[0].id,
       paymentId: `pi_waitlist_blocker_${suffix}`,
@@ -249,24 +252,24 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   ]);
   assert.equal(waitlistJoins.filter((result) => result.status === "fulfilled").length, 1);
   await prisma.$transaction(async (tx) => {
-    await lockServiceQueue(tx, waitlistService.id);
+    await lockProviderQueue(tx, waitlistProvider.id);
     await tx.booking.update({ where: { id: blocker.id }, data: { status: "CANCELED" } });
     await tx.queue.update({ where: { id: blockerQueue.id }, data: { status: "CANCELLED" } });
-    await recalculateQueueInTransaction(tx, waitlistService.id);
+    await recalculateQueueInTransaction(tx, waitlistProvider.id);
   });
-  await Promise.all([notifyWaitlist(waitlistService.id), notifyWaitlist(waitlistService.id)]);
+  await Promise.all([notifyWaitlist(waitlistProvider.id), notifyWaitlist(waitlistProvider.id)]);
   assert.equal(await prisma.queueNotify.count({ where: { serviceId: waitlistService.id } }), 0);
   assert.equal(await prisma.notification.count({
     where: { userId: seekers[3].id, title: "Queue slot available" },
   }), 1);
 
   escalationBookingId = first.booking!.id;
-  await prisma.$executeRaw`UPDATE "bookings" SET "updatedAt" = NOW() - INTERVAL '71 hours' WHERE "id" = ${escalationBookingId}`;
+  await prisma.booking.update({ where: { id: escalationBookingId }, data: { updatedAt: new Date(Date.now() - 71 * 60 * 60 * 1000) } });
   await assert.rejects(
     createCompletionEscalation(escalationBookingId, provider.id, "The seeker has not yet confirmed completion."),
     (error: any) => error?.code === "ESCALATION_WAIT_PERIOD",
   );
-  await prisma.$executeRaw`UPDATE "bookings" SET "updatedAt" = NOW() - INTERVAL '73 hours' WHERE "id" = ${escalationBookingId}`;
+  await prisma.booking.update({ where: { id: escalationBookingId }, data: { updatedAt: new Date(Date.now() - 73 * 60 * 60 * 1000) } });
   const duplicateEscalations = await Promise.all([
     createCompletionEscalation(escalationBookingId, provider.id, "The seeker has not confirmed the completed work."),
     createCompletionEscalation(escalationBookingId, provider.id, "Duplicate submission should return the active request."),

@@ -5,6 +5,7 @@ import {
   getActivePublicProviderCount,
   getRecentlyPublishedServices,
   PUBLIC_PROVIDER_WHERE,
+  PUBLIC_SERVICE_WHERE,
 } from "../services/services.service";
 
 const RECENT_CONTENT_WINDOW_DAYS = 30;
@@ -16,7 +17,7 @@ const RECENT_CONTENT_WINDOW_DAYS = 30;
  *   - Top Providers leaderboard (publicly discoverable providers with active services, ranked deterministically)
  *   - Platform-wide community stats (Services Completed, Verified Residents, Active Providers, Active Listings)
  *   - Newly approved categories (approved suggestions verified against active marketplace categories)
- *   - Recently approved public service listings
+ *   - Recently published public service listings
  *   - Official administration announcements
  */
 export async function getCommunityStats(_req: Request, res: Response, next: NextFunction) {
@@ -59,7 +60,7 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
           trustScore: true,
           verificationStatus: true,
           services: {
-            where: { status: "ACTIVE", isAvailable: true },
+            where: PUBLIC_SERVICE_WHERE,
             select: { title: true, category: { select: { name: true } } },
             take: 2,
           },
@@ -186,10 +187,9 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
           activeListings,
         },
         recentCategories,
-        recentServices: recentlyPublishedServices.map(({ reviewedAt, ...service }) => ({
+        recentServices: recentlyPublishedServices.map((service) => ({
           ...service,
           priceType: service.priceType === "PER_SESSION" ? "FIXED" : service.priceType,
-          publishedAt: reviewedAt,
         })),
         announcements,
         leaderboardPeriod: {

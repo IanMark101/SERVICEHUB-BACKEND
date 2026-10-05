@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "./booking-lifecycle.service";
 import { assertNoFinancialResolutionReserved } from "./case-resolution.service";
+import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 
 const ELIGIBLE_STATUSES = ["ACCEPTED", "ONGOING", "AWAITING_CONFIRMATION", "UNDER_REVIEW", "DISPUTED", "COMPLETED", "CANCELED"];
 
@@ -35,6 +36,8 @@ export async function createSafetyReport(params: {
     if (!booking || ![booking.seekerId, booking.providerId].includes(params.reporterId)) {
       throw httpError("Booking not found or access denied", 404);
     }
+    await lockAccountLifecycle(tx, booking.seekerId, booking.providerId);
+    await assertActiveMarketplaceAccount(tx, params.reporterId);
     if (!ELIGIBLE_STATUSES.includes(booking.status)) throw httpError("This booking is not eligible for a safety report", 409);
     await assertNoRefundInProgress(tx, booking.id);
     await assertNoFinancialResolutionReserved(tx, booking.id);
@@ -46,7 +49,7 @@ export async function createSafetyReport(params: {
       where: { dedupeKey, status: { in: ["PENDING", "UNDER_REVIEW"] } },
       orderBy: { createdAt: "desc" },
     });
-    if (existing) return { report: existing, created: false, admins: [] as { id: string }[] };
+    if (existing) return { report: existing, created: false, admins: [] as { id: string }[], participantIds: [] as string[] };
 
     const report = await tx.report.create({
       data: { bookingId: booking.id, reporterId: params.reporterId, reportedUserId, reason: params.reason, description: params.description.trim(), evidenceStorageKey: params.evidenceStorageKey, reportType: "SAFETY", dedupeKey },
@@ -66,11 +69,12 @@ export async function createSafetyReport(params: {
         data: admins.map((admin) => ({ userId: admin.id, title: "Safety report requires review", body: "A booking participant submitted a safety report.", link: `/admin/reports?report=${report.id}` })),
       });
     }
-    return { report, created: true, admins };
+    return { report, created: true, admins, participantIds: [booking.seekerId, booking.providerId] };
   });
   if (result.created) {
     result.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", { title: "Safety report requires review" }));
     safeEmit("admin", "ADMIN_MODERATION_CHANGED", { type: "safety_report", reportId: result.report.id });
+    result.participantIds.forEach(userId => safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId: params.bookingId }));
   }
   const { evidenceStorageKey: _key, ...safeReport } = result.report;
   return { ...safeReport, hasPrivateEvidence: Boolean(result.report.evidenceStorageKey), created: result.created };

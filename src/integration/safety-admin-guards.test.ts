@@ -6,10 +6,8 @@ import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { createSafetyReport, accessSafetyReportEvidence } from "../services/safety-report.service";
-import { requestAccountDeletion } from "../services/account-deletion.service";
-import { promoteUserToAdmin } from "../controllers/admin/users.controller";
+import { deleteOwnAccount, getAccountDeletionEligibility } from "../services/account-deletion.service";
 import { moderateReview } from "../controllers/admin/reviews.controller";
-import { finalizeAccountDeletion } from "../controllers/admin/account-deletions.controller";
 import { getProviderReviews } from "../controllers/reviews.controller";
 
 async function invoke(controller: Function, req: Record<string, unknown>) {
@@ -24,7 +22,7 @@ async function invoke(controller: Function, req: Record<string, unknown>) {
   return { status, body, error: nextError };
 }
 
-test("participant safety, review moderation, promotion guards, and final deactivation", async (t) => {
+test("participant safety, review moderation, and verified self-deletion", async (t) => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const userIds: string[] = [];
   const reportIds: string[] = [];
@@ -53,7 +51,6 @@ test("participant safety, review moderation, promotion guards, and final deactiv
   const seeker = await makeUser("Safety Seeker");
   const provider = await makeUser("Safety Provider");
   const outsider = await makeUser("Safety Outsider");
-  const promotionTarget = await makeUser("Promotion Target");
   const deletionTarget = await makeUser("Deletion Target");
 
   const booking = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: provider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 500, paymentStatus: "UNPAID", status: "ONGOING", started: true } });
@@ -89,31 +86,22 @@ test("participant safety, review moderation, promotion guards, and final deactiv
   assert.equal((await prisma.review.findUniqueOrThrow({ where: { id: review.id } })).visibility, "VISIBLE");
   assert.equal(await prisma.adminAuditLog.count({ where: { resourceId: review.id, action: { in: ["REVIEW_HIDDEN", "REVIEW_RESTORED"] } } }), 2);
 
-  const promotionBlocker = await prisma.booking.create({ data: { seekerId: outsider.id, providerId: promotionTarget.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 400, paymentStatus: "UNPAID", status: "ACCEPTED" } });
-  const wrongPassword = await invoke(promoteUserToAdmin, { params: { id: promotionTarget.id }, body: { reason: "Capstone moderation team member.", currentPassword: "Wrong-Password" }, user: admin });
-  assert.equal(wrongPassword.status, 403);
-  const blockedPromotion = await invoke(promoteUserToAdmin, { params: { id: promotionTarget.id }, body: { reason: "Capstone moderation team member.", currentPassword: password }, user: admin });
-  assert.equal(blockedPromotion.error?.code, "ADMIN_PROMOTION_BLOCKED");
-  await prisma.booking.update({ where: { id: promotionBlocker.id }, data: { status: "CANCELED" } });
-  const promoted = await invoke(promoteUserToAdmin, { params: { id: promotionTarget.id }, body: { reason: "Capstone moderation team member.", currentPassword: password }, user: admin });
-  assert.equal(promoted.error, undefined);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: promotionTarget.id } })).role, "admin");
-
-  const deletionRequest = await requestAccountDeletion(deletionTarget.id);
-  assert.equal(deletionRequest.status, "PENDING");
+  const eligibility = await getAccountDeletionEligibility(deletionTarget.id);
+  assert.equal(eligibility.eligible, true);
+  const session = await prisma.refreshToken.create({ data: { userId: deletionTarget.id, token: `deletion-${suffix}`, expiresAt: new Date(Date.now() + 60_000) } });
   const accessToken = jwt.sign(
-    { sub: deletionTarget.id, role: deletionTarget.role },
+    { sub: deletionTarget.id, role: deletionTarget.role, sid: session.id },
     env.JWT_ACCESS_SECRET,
     { expiresIn: "15m" },
   );
-  const finalized = await invoke(finalizeAccountDeletion, { params: { userId: deletionTarget.id }, body: { reason: "User-requested deletion after all obligations cleared." }, user: admin });
-  assert.equal(finalized.error, undefined);
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: deletionTarget.id } })).isActive, false);
-  assert.equal((await prisma.accountDeletionRequest.findUniqueOrThrow({ where: { userId: deletionTarget.id } })).status, "COMPLETED");
-  assert.equal(await prisma.adminAuditLog.count({ where: { targetUserId: deletionTarget.id, action: "ACCOUNT_DEACTIVATED" } }), 1);
+  const finalized = await deleteOwnAccount(deletionTarget.id, session.id, { confirmation: "DELETE", method: "password", password });
+  assert.equal(finalized.deleted, true);
+  assert.equal(await prisma.user.findUnique({ where: { id: deletionTarget.id } }), null);
+  assert.equal(await prisma.accountDeletionRequest.count({ where: { userId: deletionTarget.id } }), 0);
+  assert.equal(await prisma.adminAuditLog.count({ where: { OR: [{ actorId: deletionTarget.id }, { targetUserId: deletionTarget.id }] } }), 0);
 
   const deactivatedAccess = await invoke(requireAuth, { headers: { authorization: `Bearer ${accessToken}` } });
-  assert.equal(deactivatedAccess.status, 403);
-  assert.equal(deactivatedAccess.body.error, "Account inactive");
-  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: deletionTarget.id } })).isActive, false);
+  assert.equal(deactivatedAccess.status, 401);
+  assert.equal(await prisma.refreshToken.count({ where: { userId: deletionTarget.id } }), 0);
+  assert.equal(await prisma.user.findUnique({ where: { id: deletionTarget.id } }), null);
 });

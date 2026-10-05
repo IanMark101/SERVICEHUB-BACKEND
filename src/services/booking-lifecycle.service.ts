@@ -4,7 +4,7 @@ import type { Prisma } from "@prisma/client";
  * Global coordination point for every mutation of an existing Booking.
  *
  * Lock ordering is always:
- *   booking lifecycle -> provider/request (when needed) -> service queue.
+ *   booking lifecycle -> provider/request (when needed) -> provider work queue.
  * The lock is transaction-scoped, so callers must re-read the Booking after
  * acquiring it and validate the fresh state before writing.
  */

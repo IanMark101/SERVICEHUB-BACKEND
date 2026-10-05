@@ -1,7 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { prisma } from "../../lib/prisma";
-import { performImmediateCancel } from "../../services/cancellation.service";
+import { resolveAdminBooking } from "../../services/admin-booking-resolution.service";
+import { BookingStatus, PaymentStatus, type Prisma } from "@prisma/client";
 
 function pageParams(req: Request) {
   const page = Math.max(1, Math.min(10_000, Number(req.query.page) || 1));
@@ -13,7 +14,18 @@ export async function listAdminBookings(req: Request, res: Response, next: NextF
   try {
     const { page, limit, skip } = pageParams(req);
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
-    const where = status ? { status: status as never } : {};
+    const userId = typeof req.query.userId === "string" ? req.query.userId : undefined;
+    const needsResolution = req.query.needsResolution === "true";
+    const where: Prisma.BookingWhereInput = {
+      ...(status ? { status: status as never } : {}),
+      AND: [
+        ...(userId ? [{ OR: [{ seekerId: userId }, { providerId: userId }] }] : []),
+        ...(needsResolution ? [{ OR: [
+          { status: { in: [BookingStatus.PENDING_APPROVAL, BookingStatus.WAITING, BookingStatus.ACCEPTED, BookingStatus.ONGOING, BookingStatus.AWAITING_CONFIRMATION, BookingStatus.UNDER_REVIEW, BookingStatus.DISPUTED] } },
+          { paymentStatus: { in: [PaymentStatus.PAID_HELD, PaymentStatus.FROZEN_HELD] } },
+        ] }] : []),
+      ],
+    };
     const [items, total] = await Promise.all([
       prisma.booking.findMany({
         where,
@@ -27,6 +39,7 @@ export async function listAdminBookings(req: Request, res: Response, next: NextF
           agreedAmount: true,
           paymentStatus: true,
           status: true,
+          statusBeforeDispute: true,
           started: true,
           createdAt: true,
           updatedAt: true,
@@ -40,7 +53,12 @@ export async function listAdminBookings(req: Request, res: Response, next: NextF
       }),
       prisma.booking.count({ where }),
     ]);
-    res.json({ success: true, data: items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
+    const operations = items.length ? await prisma.adminResolutionOperation.findMany({
+      where: { caseType: "ADMIN_BOOKING", bookingId: { in: items.map((item) => item.id) } },
+      select: { bookingId: true, requestedOutcome: true, status: true, stage: true, lastError: true },
+    }) : [];
+    const operationByBooking = new Map(operations.map((operation) => [operation.bookingId, operation]));
+    res.json({ success: true, data: items.map((item) => ({ ...item, resolutionOperation: operationByBooking.get(item.id) || null })), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (error) {
     next(error);
   }
@@ -102,28 +120,33 @@ export async function adminCancelUnstartedBooking(req: Request, res: Response, n
       return res.status(400).json({ success: false, error: "A cancellation reason between 3 and 2000 characters is required" });
     }
 
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      select: { id: true, providerId: true, started: true, status: true },
-    });
-    if (!booking) return res.status(404).json({ success: false, error: "Booking not found" });
-    if (booking.started || !["PENDING_APPROVAL", "WAITING", "ACCEPTED"].includes(booking.status)) {
-      return res.status(409).json({ success: false, error: "Only an unstarted nonterminal booking can be administratively cancelled here" });
-    }
-
     const adminId = (req as AuthenticatedRequest).user.id;
-    await performImmediateCancel(booking.id, adminId);
-    await prisma.adminAuditLog.create({
-      data: {
-        actorId: adminId,
-        targetUserId: booking.providerId,
-        action: "ADMIN_UNSTARTED_BOOKING_CANCELLED",
-        resourceType: "Booking",
-        resourceId: booking.id,
-        reason,
-      },
+    const result = await resolveAdminBooking({ bookingId, adminId, outcome: "cancel_booking", reason, requireBannedParticipant: false });
+    res.json({ success: true, data: result, message: "Booking cancelled and any held online payment submitted for refund" });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function resolveBannedParticipantBooking(req: Request, res: Response, next: NextFunction) {
+  try {
+    const bookingId = req.params.bookingId as string;
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    const outcome = req.body?.outcome;
+    if (reason.length < 3 || reason.length > 2_000) {
+      return res.status(400).json({ success: false, error: "A decision reason between 3 and 2000 characters is required" });
+    }
+    if (outcome !== "cancel_booking" && outcome !== "release_provider_and_complete") {
+      return res.status(400).json({ success: false, error: "Choose cancellation/refund or online payment release" });
+    }
+    const result = await resolveAdminBooking({
+      bookingId,
+      adminId: (req as AuthenticatedRequest).user.id,
+      outcome,
+      reason,
+      requireBannedParticipant: true,
     });
-    res.json({ success: true, message: "Booking cancelled and any held online payment submitted for refund" });
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }

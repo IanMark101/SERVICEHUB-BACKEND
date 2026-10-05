@@ -48,6 +48,7 @@ export async function submitVerification(
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`verification:${userId}`}))`;
     const user = await tx.user.findUnique({
       where: { id: userId },
       select: { verificationStatus: true, emailVerified: true, name: true, email: true },
@@ -168,9 +169,16 @@ export async function reviewVerification(
   adminNotes?: string,
 ) {
   const newStatus = approve ? "APPROVED" : "REJECTED";
+  const initial = await prisma.serviceVerification.findUnique({ where: { id: verificationId }, select: { userId: true } });
+  if (!initial) throw httpError("Verification not found", 404);
   const verification = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`verification:${initial.userId}`}))`;
     const current = await tx.serviceVerification.findUnique({ where: { id: verificationId }, include: { user: true } });
-    if (!current) throw httpError("Verification not found", 404);
+    if (!current || current.userId !== initial.userId) throw httpError("Verification not found", 404);
+    const latest = await tx.serviceVerification.findFirst({ where: { userId: current.userId, status: "PENDING_REVIEW" }, orderBy: [{ submittedAt: "desc" }, { id: "desc" }], select: { id: true } });
+    if (latest?.id !== verificationId || current.user.verificationStatus === "APPROVED") {
+      throw httpError("A newer verification decision superseded this submission", 409, "STALE_VERIFICATION");
+    }
     const reviewedAt = new Date();
     const claimed = await tx.serviceVerification.updateMany({
       where: { id: verificationId, status: "PENDING_REVIEW" },
@@ -178,6 +186,10 @@ export async function reviewVerification(
     });
     if (claimed.count !== 1) throw httpError("Verification has already been reviewed", 409);
     await tx.user.update({ where: { id: current.userId }, data: { verificationStatus: newStatus } });
+    await tx.serviceVerification.updateMany({
+      where: { userId: current.userId, id: { not: verificationId }, status: "PENDING_REVIEW" },
+      data: { status: "REJECTED", adminId, adminNotes: "Superseded by a later verification decision", reviewedAt, retentionUntil: verificationRetentionDeadline(reviewedAt) },
+    });
 
     if (approve) {
       await applyTrustEventInTransaction(tx, {
@@ -185,7 +197,7 @@ export async function reviewVerification(
         delta: 5,
         reason: "Residency & Identity Verification Approved by Cordova Admin",
         actorAdminId: adminId,
-        eventKey: `verification-approval:${verificationId}`,
+        eventKey: `verification-approval:${current.userId}`,
       });
     }
 
@@ -211,5 +223,6 @@ export async function reviewVerification(
   });
 
   safeEmit(`user:${verification.userId}`, "notification", { title: approve ? "Verification Approved" : "Verification Rejected" });
+  safeEmit(`user:${verification.userId}`, "accountStatusChanged", { verificationStatus: newStatus });
   return { status: newStatus };
 }

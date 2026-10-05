@@ -176,11 +176,20 @@ enum BookingStatus {
 // USERS & AUTH
 // ─────────────────────────────────────────────
 
+enum PasswordState {
+  NONE
+  SET
+  LEGACY_UNCONFIRMED
+}
+
 model User {
   id                   String                  @id @default(cuid())
   name                 String
   email                String                  @unique
   passwordHash         String
+  passwordState        PasswordState           @default(LEGACY_UNCONFIRMED)
+  googleSubject        String?                 @unique
+  googleConnectedAt    DateTime?
   phone                String
   location             String
   avatarUrl            String?
@@ -198,6 +207,7 @@ model User {
   postingSuspended     Boolean                 @default(false)
   postingSuspendedAt   DateTime?
   postingSuspendReason String?
+  onlineQueueLimit     Int                     @default(5)
   emailVerified        Boolean                 @default(false)
   onboardingStatus     OnboardingStatus        @default(PENDING)
   deactivatedAt        DateTime?
@@ -216,6 +226,7 @@ model User {
   serviceRequests      ServiceRequest[]
   directRequestsSeeker DirectRequest[]  @relation("SeekerDirectRequests")
   queueEntries         Queue[]
+  providerWorkQueue    Queue[]          @relation("ProviderWorkQueue")
   queueNotifications   QueueNotify[]
   bookingsAsSeeker     Booking[]        @relation("SeekerBookings")
 
@@ -255,6 +266,7 @@ model User {
 
   // Category suggestions
   categorySuggestions CategorySuggested[]
+  contentModerationCases ContentModerationCase[]
 
   // Trust Score audit log
   trustScoreEvents       TrustScoreEvent[]
@@ -268,6 +280,8 @@ model User {
   cancellationResponses  CancellationRequest[]   @relation("CancellationResponder")
   refundsRequested       PaymentRefund[]         @relation("RefundAdmin")
   accountDeletionRequest AccountDeletionRequest?
+  banAppeals             BanAppeal[]           @relation("BanAppealOwner")
+  banAppealsReviewed     BanAppeal[]           @relation("BanAppealReviewer")
 
   @@map("users")
 }
@@ -399,13 +413,16 @@ model Service {
   queueLimit            Int           @default(3)
   // payment_methods stored as JSON: { gcash: bool, cash: bool }
   paymentMethods        Json
-  status                ServiceStatus @default(PENDING_REVIEW)
+  status                ServiceStatus @default(ACTIVE)
   isAvailable           Boolean       @default(false)
   rejectionCount        Int           @default(0)
   adminNotes            String?
   reviewedById          String?
   reviewedBy            User?         @relation("ServiceReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedAt            DateTime?
+  publishedAt           DateTime?
+  moderationPolicyVersion String?
+  moderationReasonCode    String?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
@@ -415,6 +432,7 @@ model Service {
   bookings       Booking[]
 
   @@index([providerId, status])
+  @@index([status, publishedAt])
   @@map("services")
 }
 
@@ -425,6 +443,12 @@ model Service {
 model ServiceRequest {
   id          String        @id @default(cuid())
   seekerId    String
+  // Public posts have no targets. Legacy listing inquiries require a selected
+  // service before a provider restriction is valid (enforced by a SQL check).
+  targetProviderId String?
+  targetServiceId  String?
+  preferredPaymentMethod String?
+  paymentMethods Json?
   seeker      User          @relation(fields: [seekerId], references: [id], onDelete: Cascade)
   categoryId  String
   category    Category      @relation(fields: [categoryId], references: [id])
@@ -432,14 +456,62 @@ model ServiceRequest {
   description String
   budgetMin   Decimal       @db.Decimal(10, 2)
   budgetMax   Decimal       @db.Decimal(10, 2)
-  urgency     String // "low" | "medium" | "high"
+  urgency     String // New writes use RequestUrgencySchema; String retains historical free-text readability.
   status      RequestStatus @default(OPEN)
+  moderationPolicyVersion String?
+  moderationReasonCode String?
+  adminNotes String?
+  reviewedAt DateTime?
+  reviewedById String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   offers Offer[]
 
+  @@index([targetProviderId, status])
+  @@index([seekerId, targetServiceId, status])
   @@map("service_requests")
+}
+
+model ContentModerationEvent {
+  id            String   @id @default(cuid())
+  actorId       String
+  contentType   String
+  resourceId    String?
+  outcome       String
+  reasonCode    String
+  policyVersion String
+  createdAt     DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([contentType, resourceId])
+  @@map("content_moderation_events")
+}
+
+model ContentModerationCase {
+  id           String   @id @default(cuid())
+  submitterId  String
+  submitter    User     @relation(fields: [submitterId], references: [id], onDelete: Cascade)
+  caseType     String
+  contentType  String
+  resourceId   String?
+  reason       String   @db.VarChar(1000)
+  status       String   @default("OPEN")
+  adminId      String?
+  resolution   String?  @db.VarChar(1000)
+  contentOwnerId String?
+  contentSnapshot Json?
+  decision String?
+  penalty String?
+  decisionResult Json?
+  decidedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([submitterId, createdAt])
+  @@index([contentOwnerId, createdAt])
+  @@map("content_moderation_cases")
 }
 
 model Offer {
@@ -448,8 +520,7 @@ model Offer {
   request              ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   providerId           String
   provider             User           @relation("ProviderOffers", fields: [providerId], references: [id], onDelete: Cascade)
-  // Nullable only for legacy rows. Every new offer must name the exact listing
-  // whose online queue and payment rules will be used.
+  // Optional offer-writing shortcut; a provider can respond without a listing.
   serviceId            String?
   offeredPrice         Decimal        @db.Decimal(10, 2)
   estimatedDuration    Int // minutes
@@ -477,6 +548,7 @@ model DirectRequest {
   providerId            String
   provider              User                @relation("ProviderDirectRequests", fields: [providerId], references: [id], onDelete: Cascade)
   serviceId             String
+  quantity              Int                 @default(1)
   service               Service             @relation(fields: [serviceId], references: [id])
   selectedPaymentMethod String // "cash" only (online goes through Queue)
   agreedPrice           Decimal             @db.Decimal(10, 2)
@@ -498,8 +570,10 @@ model DirectRequest {
 
 model Queue {
   id                String        @id @default(cuid())
-  serviceId         String
-  service           Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  providerId        String
+  provider          User          @relation("ProviderWorkQueue", fields: [providerId], references: [id], onDelete: Cascade)
+  serviceId         String?
+  service           Service?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   seekerId          String
   seeker            User          @relation(fields: [seekerId], references: [id], onDelete: Cascade)
   // bookingId references: offerId or directRequestId — stored as string for flexibility
@@ -520,7 +594,7 @@ model Queue {
 
   // Partial uniqueness and positive-position checks are enforced by the
   // queue_concurrency_hardening SQL migration because Prisma cannot express them.
-  @@index([serviceId, status, position])
+  @@index([providerId, status, position])
   @@map("queue")
 }
 
@@ -557,6 +631,7 @@ model Booking {
   paymentAttemptId    String?            @unique
   paymentMethod       String // "GCash" | "On-site Cash"
   agreedAmount        Decimal?           @db.Decimal(10, 2) // immutable price snapshot at booking/payment time
+  estimatedDurationMins Int?             // job-specific snapshot; later listing edits do not change the forecast
   paymentStatus       PaymentStatus      @default(PAID_HELD)
   status              BookingStatus      @default(WAITING)
   statusBeforeDispute BookingStatus?
@@ -759,6 +834,7 @@ model TrustScoreEvent {
   userId       String
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   delta        Int // positive = gain, negative = deduction
+  requestedDelta Int? // original manual adjustment before score clamping; used to validate retries
   reason       String // human-readable label shown in Trust History tab
   scoreBefore  Int // snapshot of score BEFORE this event
   scoreAfter   Int // snapshot of score AFTER this event (clamped 0–100)
@@ -829,6 +905,24 @@ model AdminAuditLog {
   @@map("admin_audit_logs")
 }
 
+model BanAppeal {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation("BanAppealOwner", fields: [userId], references: [id], onDelete: Restrict)
+  banAuditLogId String    @unique
+  message       String
+  status        String    @default("PENDING")
+  decisionReason String?
+  decidedById   String?
+  decidedBy     User?     @relation("BanAppealReviewer", fields: [decidedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  decidedAt     DateTime?
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@map("ban_appeals")
+}
+
 model AccountDeletionRequest {
   id          String                @id @default(cuid())
   userId      String                @unique
@@ -870,7 +964,8 @@ model PaymentAttempt {
   idempotencyKey    String               @unique
   seekerId          String
   providerId        String
-  serviceId         String
+  serviceId         String?
+  quantity          Int                  @default(1)
   offerId           String?
   providerIntentId  String?              @unique
   providerPaymentId String?              @unique
@@ -885,7 +980,7 @@ model PaymentAttempt {
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
-  @@index([seekerId, serviceId, status])
+  @@index([seekerId, providerId, status])
   @@index([offerId, status])
   @@map("payment_attempts")
 }

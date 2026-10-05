@@ -120,4 +120,22 @@ export const messageMutationLimiter = actionLimiter("message", 60 * 1000, 30, "T
 export const reviewMutationLimiter = actionLimiter("review", 15 * 60 * 1000, 10, "Too many review changes. Please try again later.");
 export const reportMutationLimiter = actionLimiter("report", 60 * 60 * 1000, 10, "Too many reports submitted. Please try again later.");
 export const paymentInitiationLimiter = actionLimiter("payment", 15 * 60 * 1000, 20, "Too many payment attempts. Please wait before trying again.");
+export const paymentStatusLimiter = actionLimiter("payment-status", 15 * 60 * 1000, 60, "Too many payment status checks. Please try again shortly.");
 export const waitlistMutationLimiter = actionLimiter("waitlist", 15 * 60 * 1000, 30, "Too many queue changes. Please wait before trying again.");
+export const marketplaceContentLimiter = actionLimiter("marketplace-content", 15 * 60 * 1000, 20, "Too many listing or request submissions. Please wait before trying again.");
+
+// Never skip localhost or relax credential guessing limits in development.
+export const accountDeletionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: accountOrIpKey("account-deletion"),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { success: false, error: "Too many account verification attempts. Wait 15 minutes before trying again." },
+});
+export const deletionChallengeLimiter = actionLimiter("deletion-challenge", 15 * 60 * 1000, 10, "Too many verification starts. Please try again later.");
+export const passwordMutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10, keyGenerator: accountOrIpKey("password-management"),
+  standardHeaders: "draft-7", legacyHeaders: false,
+  message: { success: false, error: "Too many password attempts. Wait 15 minutes before trying again." },
+});

@@ -61,7 +61,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
     const service = await createService(user.id, input);
     res.status(201).json({
       success: true,
-      message: "Service submitted for admin review. You will be notified once approved.",
+      message: "Listing published.",
       data: service,
     });
   } catch (err: any) {
@@ -83,8 +83,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
     const user = (req as AuthenticatedRequest).user;
     const input = UpdateServiceSchema.parse(req.body);
     const service = await updateService(req.params.id as string, user.id, input);
-    safeBroadcast("SERVICE_LISTING_UPDATED", service);
-    safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: service.id });
+    // Never broadcast unpublished listing content to marketplace subscribers.
     res.json({ success: true, data: service });
   } catch (err: any) {
     if (err.name === "ZodError") {

@@ -5,6 +5,7 @@ import { env } from "../config/env";
 import { getUserPermissions } from "../utils/permissions";
 
 export interface AuthenticatedRequest extends Request {
+  sessionId?: string;
   user: {
     id: string;
     name: string;
@@ -22,16 +23,24 @@ export interface AuthenticatedRequest extends Request {
     emailVerified: boolean;
     onboardingStatus: "PENDING" | "COMPLETED" | "SKIPPED";
     isActive: boolean;
+    deactivatedAt?: Date | null;
     moderationStatus: string;
     suspendedUntil?: Date | null;
     postingSuspended: boolean;
   };
 }
 
+export function accountAccessDecision(user: { isActive: boolean; moderationStatus: string; deactivatedAt?: Date | null }, allowBanned = false) {
+  if (user.deactivatedAt) return "ACCOUNT_INACTIVE";
+  if (user.moderationStatus === "BANNED") return allowBanned ? "ALLOW" : "ACCOUNT_BANNED";
+  if (!user.isActive) return "ACCOUNT_INACTIVE";
+  return "ALLOW";
+}
+
 // ── requireAuth ───────────────────────────────────────────────────────────────
 // Validates Bearer JWT, attaches full user object to req.user
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+async function authenticate(req: Request, res: Response, next: NextFunction, allowBanned: boolean) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, error: "Authentication required" });
@@ -39,9 +48,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   const token = authHeader.split(" ")[1];
 
+  let payload: { sub: string; role: string; sid?: string };
   try {
-    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as { sub: string; role: string };
-
+    payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as { sub: string; role: string; sid?: string };
+  } catch {
+    return res.status(401).json({ success: false, error: "Invalid or expired token" });
+  }
+  if (!payload.sid) return res.status(401).json({ success: false, error: "Session expired" });
+  try {
+    const session = await prisma.refreshToken.findUnique({ where: { id: payload.sid }, select: { id: true, userId: true, expiresAt: true } });
+    if (!session || session.userId !== payload.sub || session.expiresAt <= new Date()) {
+      return res.status(401).json({ success: false, error: "Session expired" });
+    }
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -61,6 +79,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         emailVerified: true,
         onboardingStatus: true,
         isActive: true,
+        deactivatedAt: true,
         moderationStatus: true,
         suspendedUntil: true,
         postingSuspended: true,
@@ -90,15 +109,28 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       user.suspendedUntil = null;
     }
 
-    if (!user.isActive) {
+    const access = accountAccessDecision(user, allowBanned);
+    if (access === "ACCOUNT_BANNED") return res.status(403).json({ success: false, code: "ACCOUNT_BANNED", error: "This account has been banned." });
+    if (access === "ACCOUNT_INACTIVE") {
+      if (user.moderationStatus === 'SUSPENDED') return res.status(403).json({ success: false, code: 'ACCOUNT_SUSPENDED', error: 'Your account is suspended. Marketplace transactions are unavailable until the suspension ends.' });
       return res.status(403).json({ success: false, error: "Account inactive" });
     }
 
     (req as AuthenticatedRequest).user = user;
+    (req as AuthenticatedRequest).sessionId = session.id;
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, error: "Invalid or expired token" });
+    next(err);
   }
+}
+
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  return authenticate(req, res, next, false);
+}
+
+// Only /auth/me and the appeal endpoints may use this identity gate.
+export function requireAccountIdentity(req: Request, res: Response, next: NextFunction) {
+  return authenticate(req, res, next, true);
 }
 
 // ── requireAdmin ──────────────────────────────────────────────────────────────
@@ -159,6 +191,9 @@ export function requireVerification(req: Request, res: Response, next: NextFunct
 
   const permissions = getUserPermissions(user);
   if (!permissions.canTransact) {
+    if (user.moderationStatus === 'SUSPENDED' || user.moderationStatus === 'BANNED' || !user.isActive) {
+      return res.status(403).json({ success: false, code: user.moderationStatus === 'SUSPENDED' ? 'ACCOUNT_SUSPENDED' : user.moderationStatus === 'BANNED' ? 'ACCOUNT_BANNED' : 'ACCOUNT_INACTIVE', error: user.moderationStatus === 'SUSPENDED' ? 'Your account is suspended. Marketplace transactions are unavailable until the suspension ends.' : user.moderationStatus === 'BANNED' ? 'Your account is banned from marketplace transactions.' : 'Your account is inactive. Restore it before making marketplace transactions.' });
+    }
     const isPending = user.verificationStatus === "PENDING_REVIEW";
     return res.status(403).json({
       success: false,
@@ -199,7 +234,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       },
     });
 
-    if (user && user.isActive) {
+    if (user && user.isActive && user.moderationStatus !== "BANNED") {
       (req as AuthenticatedRequest).user = user;
     }
   } catch (err) {

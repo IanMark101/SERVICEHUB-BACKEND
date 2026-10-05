@@ -1,45 +1,30 @@
 import type { Request, Response, NextFunction } from "express";
+import type { Prisma } from "@prisma/client";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { prisma } from "../../lib/prisma";
-import { applyTrustEvent } from "../../services/trust.service";
-import { disconnectUserSockets } from "../../lib/socket";
-import { BanUserSchema, PromoteUserSchema, RestoreUserSchema, SuspendUserSchema, TrustAdjustmentSchema } from "../../schema/marketplace.schema";
+import { applyManualTrustAdjustment } from "../../services/trust.service";
+import { disconnectUserSockets, safeEmit } from "../../lib/socket";
+import { BanUserSchema, RestoreUserSchema, SuspendUserSchema, TrustAdjustmentSchema } from "../../schema/marketplace.schema";
 import bcrypt from "bcryptjs";
-import { getUserActiveCaseCounts } from "../../services/data-retention.service";
+import { lockAccountLifecycle } from "../../services/account-lifecycle.service";
 
-async function assertCanModerateUser(adminId: string, targetId: string, allowAdminRestore = false) {
+async function assertCanModerateUser(tx: Prisma.TransactionClient, adminId: string, targetId: string, allowAdminRestore = false) {
   if (adminId === targetId) {
     const error = new Error("Administrators cannot moderate their own account") as Error & { status?: number };
     error.status = 409;
     throw error;
   }
-  const target = await prisma.user.findUnique({ where: { id: targetId }, select: { role: true } });
+  const target = await tx.user.findUnique({ where: { id: targetId }, select: { role: true, deactivatedAt: true } });
   if (!target) {
     const error = new Error("User not found") as Error & { status?: number };
     error.status = 404;
     throw error;
   }
+  if (target.deactivatedAt) throw Object.assign(new Error("A deleted account cannot be moderated or restored."), { status: 409 });
   if (target.role === "admin" && !allowAdminRestore) {
     const error = new Error("Administrator accounts cannot be suspended or banned from this moderation screen") as Error & { status?: number };
     error.status = 409;
     throw error;
-  }
-  if (!allowAdminRestore) {
-    const unstartedProviderBookings = await prisma.booking.count({
-      where: {
-        providerId: targetId,
-        started: false,
-        status: { in: ["PENDING_APPROVAL", "WAITING", "ACCEPTED"] },
-      },
-    });
-    if (unstartedProviderBookings > 0) {
-      const error = new Error(
-        `Resolve or administratively cancel the provider's ${unstartedProviderBookings} unstarted booking(s) before suspension or banning`,
-      ) as Error & { status?: number; code?: string };
-      error.status = 409;
-      error.code = "UNSTARTED_BOOKINGS_REQUIRE_RECONCILIATION";
-      throw error;
-    }
   }
 }
 
@@ -110,10 +95,16 @@ export async function listUsers(req: Request, res: Response, next: NextFunction)
 // ── PATCH /admin/users/:id/trust ──────────────────────────────────────────────
 export async function updateTrustScore(req: Request, res: Response, next: NextFunction) {
   try {
-    const { delta: parsedDelta, reason } = TrustAdjustmentSchema.parse(req.body);
+    const { delta: parsedDelta, reason, currentPassword, operationId } = TrustAdjustmentSchema.parse(req.body);
     const adminId = (req as AuthenticatedRequest).user.id;
-    await applyTrustEvent(req.params.id as string, parsedDelta, reason, adminId);
-    res.json({ success: true });
+    const admin = await prisma.user.findUnique({ where: { id: adminId }, select: { passwordHash: true, role: true, isActive: true, moderationStatus: true } });
+    if (!admin || admin.role !== "admin" || !admin.isActive || admin.moderationStatus !== "ACTIVE" ||
+      !(await bcrypt.compare(currentPassword, admin.passwordHash))) {
+      return res.status(403).json({ success: false, error: "Current administrator password is incorrect" });
+    }
+    const result = await applyManualTrustAdjustment({ userId: req.params.id as string, adminId, delta: parsedDelta, reason, operationId });
+    if (result.applied) safeEmit(`user:${req.params.id as string}`, "notification", { title: "Trust score adjusted" });
+    res.json({ success: true, applied: result.applied });
   } catch (err) {
     next(err);
   }
@@ -125,17 +116,23 @@ export async function suspendUser(req: Request, res: Response, next: NextFunctio
     const adminId = (req as AuthenticatedRequest).user.id;
     const targetId = req.params.id as string;
     const { reason, durationDays } = SuspendUserSchema.parse(req.body);
-    await assertCanModerateUser(adminId, targetId);
     const suspendedUntil = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
     await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, targetId);
+      await assertCanModerateUser(tx, adminId, targetId);
+      const current = await tx.user.findUniqueOrThrow({ where: { id: targetId }, select: { moderationStatus: true } });
+      if (current.moderationStatus !== "ACTIVE") throw Object.assign(new Error("Only an active account can be suspended"), { status: 409 });
       await tx.user.update({
         where: { id: targetId },
         data: { isActive: true, moderationStatus: "SUSPENDED", suspendedUntil, moderationReason: reason },
       });
+      await tx.notification.create({ data: { userId: targetId, title: "Account suspended", body: `Your account has been suspended until ${suspendedUntil.toLocaleDateString("en-PH")}. Reason: ${reason}` } });
       await tx.adminAuditLog.create({
         data: { actorId: adminId, targetUserId: targetId, action: "USER_SUSPENDED", resourceType: "User", resourceId: targetId, reason, metadata: { durationDays, suspendedUntil: suspendedUntil.toISOString() } },
       });
     });
+    safeEmit(`user:${targetId}`, "notification", { title: "Account suspended" });
+    safeEmit(`user:${targetId}`, "accountStatusChanged", { status: "SUSPENDED" });
     res.json({ success: true, message: "User suspended" });
   } catch (err) {
     next(err);
@@ -148,13 +145,22 @@ export async function banUser(req: Request, res: Response, next: NextFunction) {
     const adminId = (req as AuthenticatedRequest).user.id;
     const targetId = req.params.id as string;
     const { reason } = BanUserSchema.parse(req.body);
-    await assertCanModerateUser(adminId, targetId);
     await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, targetId);
+      await assertCanModerateUser(tx, adminId, targetId);
+      const current = await tx.user.findUniqueOrThrow({ where: { id: targetId }, select: { moderationStatus: true } });
+      if (current.moderationStatus === "BANNED") {
+        const error = new Error("Account is already banned") as Error & { status?: number };
+        error.status = 409;
+        throw error;
+      }
       await tx.user.update({ where: { id: targetId }, data: { isActive: true, moderationStatus: "BANNED", suspendedUntil: null, moderationReason: reason } });
+      await tx.notification.create({ data: { userId: targetId, title: "Account banned", body: "Your ServiceHub account has been banned. You may submit an appeal from the account notice.", link: "/account-banned" } });
       await tx.adminAuditLog.create({
-        data: { actorId: adminId, targetUserId: targetId, action: "USER_BANNED", resourceType: "User", resourceId: targetId, reason },
+        data: { actorId: adminId, targetUserId: targetId, action: "USER_BANNED", resourceType: "User", resourceId: targetId, reason, metadata: { obligationsReviewRequired: true } },
       });
     });
+    await disconnectUserSockets(targetId, "Your ServiceHub account has been banned by an administrator.", "ACCOUNT_BANNED");
     res.json({ success: true, message: "User banned" });
   } catch (err) {
     next(err);
@@ -167,13 +173,25 @@ export async function restoreUser(req: Request, res: Response, next: NextFunctio
     const adminId = (req as AuthenticatedRequest).user.id;
     const targetId = req.params.id as string;
     const { reason } = RestoreUserSchema.parse(req.body || {});
-    await assertCanModerateUser(adminId, targetId, true);
     await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, targetId);
+      await assertCanModerateUser(tx, adminId, targetId, true);
+      const current = await tx.user.findUniqueOrThrow({ where: { id: targetId }, select: { moderationStatus: true, isActive: true } });
+      if (current.moderationStatus === "ACTIVE" && current.isActive) {
+        const error = new Error("Account is already active") as Error & { status?: number };
+        error.status = 409;
+        throw error;
+      }
       await tx.user.update({ where: { id: targetId }, data: { isActive: true, moderationStatus: "ACTIVE", suspendedUntil: null, moderationReason: null } });
+      const pendingAppeals = await tx.banAppeal.findMany({ where: { userId: targetId, status: "PENDING" }, select: { id: true } });
+      await tx.banAppeal.updateMany({ where: { userId: targetId, status: "PENDING" }, data: { status: "APPROVED", decisionReason: reason, decidedById: adminId, decidedAt: new Date() } });
+      for (const appeal of pendingAppeals) await tx.adminAuditLog.create({ data: { actorId: adminId, targetUserId: targetId, action: "BAN_APPEAL_APPROVED", resourceType: "BanAppeal", resourceId: appeal.id, reason, metadata: { resolution: "MANUAL_RESTORE" } } });
+      await tx.notification.create({ data: { userId: targetId, title: "Account restored", body: "Your ServiceHub account has been restored. Normal verification requirements still apply.", link: "/login" } });
       await tx.adminAuditLog.create({
         data: { actorId: adminId, targetUserId: targetId, action: "USER_RESTORED", resourceType: "User", resourceId: targetId, reason },
       });
     });
+    safeEmit(`user:${targetId}`, "accountStatusChanged", { status: "ACTIVE" });
     res.json({ success: true, message: "User restored" });
   } catch (err) {
     next(err);
@@ -186,67 +204,22 @@ export async function restorePostingPrivilege(req: Request, res: Response, next:
     const adminId = (req as AuthenticatedRequest).user.id;
     const targetId = req.params.id as string;
     const { reason } = RestoreUserSchema.parse(req.body || {});
-    await assertCanModerateUser(adminId, targetId, true);
     await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, targetId);
+      await assertCanModerateUser(tx, adminId, targetId, true);
       await tx.user.update({
         where: { id: targetId },
         data: { postingSuspended: false, postingSuspendedAt: null, postingSuspendReason: null },
       });
+      await tx.notification.create({ data: { userId: targetId, title: "Listing access restored", body: "An administrator restored your service-listing privilege. Other account and verification requirements still apply." } });
       await tx.adminAuditLog.create({
         data: { actorId: adminId, targetUserId: targetId, action: "POSTING_PRIVILEGE_RESTORED", resourceType: "User", resourceId: targetId, reason },
       });
     });
+    safeEmit(`user:${targetId}`, "notification", { title: "Listing access restored" });
     res.json({ success: true, message: "Service-listing privilege restored" });
   } catch (error) {
     next(error);
   }
 }
 
-export async function promoteUserToAdmin(req: Request, res: Response, next: NextFunction) {
-  try {
-    const actorId = (req as AuthenticatedRequest).user.id;
-    const targetId = req.params.id as string;
-    const { reason, currentPassword } = PromoteUserSchema.parse(req.body);
-    if (actorId === targetId) {
-      return res.status(409).json({ success: false, error: "You are already an administrator" });
-    }
-    const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { passwordHash: true, role: true } });
-    if (!actor || actor.role !== "admin" || !(await bcrypt.compare(currentPassword, actor.passwordHash))) {
-      return res.status(403).json({ success: false, error: "Current administrator password is incorrect" });
-    }
-    await prisma.$transaction(async (tx) => {
-      const target = await tx.user.findUnique({ where: { id: targetId } });
-      if (!target) {
-        const error = new Error("User not found") as Error & { status?: number };
-        error.status = 404;
-        throw error;
-      }
-      if (!target.isActive || !target.emailVerified || target.moderationStatus !== "ACTIVE") {
-        const error = new Error("Only an active, email-verified account can be promoted") as Error & { status?: number };
-        error.status = 422;
-        throw error;
-      }
-      if (target.role === "admin") {
-        const error = new Error("User is already an administrator") as Error & { status?: number };
-        error.status = 409;
-        throw error;
-      }
-      const blockers = await getUserActiveCaseCounts(tx, targetId);
-      if (Object.values(blockers).some((count) => count > 0)) {
-        const error = new Error("Resolve the target user's active bookings, held payments, and unresolved cases before promotion") as Error & { status?: number; code?: string };
-        error.status = 409;
-        error.code = "ADMIN_PROMOTION_BLOCKED";
-        throw error;
-      }
-      await tx.user.update({ where: { id: targetId }, data: { role: "admin" } });
-      await tx.refreshToken.deleteMany({ where: { userId: targetId } });
-      await tx.adminAuditLog.create({
-        data: { actorId, targetUserId: targetId, action: "USER_PROMOTED_TO_ADMIN", resourceType: "User", resourceId: targetId, reason },
-      });
-    });
-    await disconnectUserSockets(targetId, "Account permissions changed. Please sign in again.");
-    res.json({ success: true, message: "User promoted to administrator" });
-  } catch (error) {
-    next(error);
-  }
-}

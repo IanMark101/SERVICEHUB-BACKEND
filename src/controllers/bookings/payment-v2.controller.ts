@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { ConfirmOnlineBookingSchema, InitiatePaymentSchema } from "../../schema/marketplace.schema";
-import { getPaymentAttemptStatus, initiateOnlinePayment } from "../../services/payment-attempt.service";
+import { initiateOnlinePayment, reconcileOnlinePaymentReturn } from "../../services/payment-attempt.service";
 
 export async function initiatePayment(req: Request, res: Response, next: NextFunction) {
   try {
@@ -11,6 +11,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
       seekerId: user.id,
       serviceId: input.serviceId,
       offerId: input.offerId,
+      quantity: input.quantity,
       paymentMethod: input.paymentMethodType,
     });
     return res.json({
@@ -30,13 +31,13 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
     next(error);
   }
 }
-// The redirect page may poll this endpoint, but it cannot finalize a booking.
-// A verified, deduplicated PayMongo webhook is the sole confirmation path.
+// A browser redirect is informational. The backend independently verifies
+// PayMongo's intent before using the same idempotent finalizer as the webhook.
 export async function confirmOnlineBooking(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
     const { paymentIntentId } = ConfirmOnlineBookingSchema.parse(req.body);
-    const attempt = await getPaymentAttemptStatus(user.id, paymentIntentId);
+    const attempt = await reconcileOnlinePaymentReturn(user.id, paymentIntentId);
     return res.json({
       success: true,
       message: attempt.status === "SUCCEEDED"

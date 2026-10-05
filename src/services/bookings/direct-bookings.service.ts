@@ -4,16 +4,22 @@ import { assertDistinctAccounts } from "../../utils/security";
 import { sendMessage } from "../messages.service";
 import { refundBookingPayment } from "../payment-refund.service";
 import { lockBookingLifecycle } from "../booking-lifecycle.service";
+import { lockAccountLifecycle, marketplaceParticipantsEligible } from "../account-lifecycle.service";
+import { rejectSiblingOffersAndNotify } from "../offer-selection-notifications.service";
+import { calculateDirectListingTerms } from "./direct-listing-pricing";
+import { assertRequestPaymentMethod } from "../request-payment-methods";
 // ── Cash Direct Request (no queue) ────────────────────────────────────────────
 
 export async function createDirectRequest(params: {
   seekerId: string;
   providerId: string;
   serviceId: string;
+  quantity?: number;
   schedule?: string;
   message?: string;
 }) {
   const { seekerId, providerId, serviceId, schedule, message } = params;
+  const quantity = params.quantity ?? 1;
 
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
   assertDistinctAccounts(seekerId, providerId, "book service");
@@ -26,6 +32,7 @@ export async function createDirectRequest(params: {
       price: true,
       priceType: true,
       serviceType: true,
+      estimatedDurationMins: true,
       isAvailable: true,
       title: true,
       status: true,
@@ -39,17 +46,9 @@ export async function createDirectRequest(params: {
     throw err;
   }
 
-  if (!["FIXED", "PER_SESSION"].includes(service.priceType)) {
-    const err = new Error("Direct cash booking is available only for fixed-price listings") as any;
-    err.status = 400;
-    throw err;
-  }
-  if (service.price === null) {
-    const err = new Error("This fixed-price listing is missing a valid price") as Error & { status?: number };
-    err.status = 409;
-    throw err;
-  }
-  const fixedPrice = service.price;
+  const { amount: fixedPrice, estimatedDurationMins: durationMins } = calculateDirectListingTerms(
+    service.priceType, service.price, quantity, service.estimatedDurationMins,
+  );
   if (!service.provider.isActive || service.provider.moderationStatus !== "ACTIVE" || !service.provider.emailVerified || service.provider.verificationStatus !== "APPROVED") {
     const err = new Error("The provider is not currently eligible to accept a new booking") as any;
     err.status = 409;
@@ -81,6 +80,12 @@ export async function createDirectRequest(params: {
   }
 
   const { directRequest, booking } = await prisma.$transaction(async (tx) => {
+    await lockAccountLifecycle(tx, seekerId, providerId);
+    if (!(await marketplaceParticipantsEligible(tx, seekerId, providerId))) {
+      const err = new Error("Both participants must be eligible for a booking") as Error & { status?: number };
+      err.status = 409;
+      throw err;
+    }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-booking:${seekerId}:${serviceId}`}))`;
     const concurrentBooking = await tx.booking.findFirst({
       where: { seekerId, serviceId, status: { in: ["PENDING_APPROVAL", "ACCEPTED", "WAITING", "ONGOING", "AWAITING_CONFIRMATION", "DISPUTED"] } },
@@ -96,6 +101,7 @@ export async function createDirectRequest(params: {
         seekerId,
         providerId,
         serviceId,
+        quantity,
         selectedPaymentMethod: "cash",
         agreedPrice: fixedPrice,
         schedule,
@@ -113,6 +119,7 @@ export async function createDirectRequest(params: {
         originType: "DIRECT_LISTING",
         paymentMethod: "On-site Cash",
         agreedAmount: fixedPrice,
+        estimatedDurationMins: durationMins,
         paymentStatus: "UNPAID",
         status: "PENDING_APPROVAL",
         started: false,
@@ -250,6 +257,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
           directRequestId: directRequest!.id,
           paymentMethod: "On-site Cash",
           agreedAmount: directRequest!.agreedPrice,
+          estimatedDurationMins: (await tx.service.findUnique({ where: { id: directRequest!.serviceId }, select: { estimatedDurationMins: true } }))?.estimatedDurationMins ?? 60,
           paymentStatus: "UNPAID",
           status: "ACCEPTED",
           started: false,
@@ -372,87 +380,70 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
   // ── CRITICAL: Self-transaction prohibition (Spec Part 11) ──────────────────
   assertDistinctAccounts(seekerId, offer.providerId, "accept offer");
 
-  if (offer.status !== "PENDING" || offer.request.status !== "OPEN" || !offer.serviceId) {
-    const err = new Error("This offer is no longer available or is missing its provider listing") as any;
+  if (offer.status !== "PENDING" || offer.request.status !== "OPEN") {
+    const err = new Error("This offer is no longer available") as any;
     err.status = 409;
     throw err;
   }
 
-  const service = await prisma.service.findUnique({
-    where: { id: offer.serviceId },
-    select: {
-      providerId: true,
-      categoryId: true,
-      status: true,
-      isAvailable: true,
-      serviceType: true,
-      paymentMethods: true,
-      provider: {
-        select: {
-          isActive: true,
-          moderationStatus: true,
-          emailVerified: true,
-          verificationStatus: true,
-        },
-      },
-    },
+  const provider = await prisma.user.findUnique({
+    where: { id: offer.providerId },
+    select: { isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true },
   });
-  const methods = service?.paymentMethods as { cash?: boolean } | undefined;
-  if (!service || service.providerId !== offer.providerId || service.categoryId !== offer.request.categoryId || service.status !== "ACTIVE" || !service.isAvailable || !methods?.cash || !service.provider.isActive || service.provider.moderationStatus !== "ACTIVE" || !service.provider.emailVerified || service.provider.verificationStatus !== "APPROVED") {
-    const err = new Error("The offer's provider listing is not eligible for a cash booking") as any;
+  if (!provider?.isActive || provider.moderationStatus !== "ACTIVE" || !provider.emailVerified || provider.verificationStatus !== "APPROVED") {
+    const err = new Error("The provider is not eligible for a new booking") as any;
     err.status = 409;
     throw err;
   }
 
-  const booking = await prisma.$transaction(async (tx) => {
+  const { booking, losingProviderIds } = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${offer.requestId}`}))`;
+    await lockAccountLifecycle(tx, seekerId, offer.providerId);
+    if (!(await marketplaceParticipantsEligible(tx, seekerId, offer.providerId))) {
+      const err = new Error("Both participants must be eligible for a booking") as Error & { status?: number };
+      err.status = 409;
+      throw err;
+    }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`offer-selection:${offerId}`}))`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-booking:${seekerId}:${offer.serviceId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`offer-booking:${offerId}`}))`;
 
-    const freshOffer = await tx.offer.findUnique({ where: { id: offerId }, include: { request: true } });
+    const freshOffer = await tx.offer.findUnique({
+      where: { id: offerId },
+      include: { request: true },
+    });
     if (!freshOffer || freshOffer.status !== "PENDING" || freshOffer.request.status !== "OPEN" || freshOffer.request.seekerId !== seekerId) {
       const err = new Error("This offer is no longer available") as any;
       err.status = 409;
       throw err;
     }
-
+    assertRequestPaymentMethod(freshOffer.request, "cash");
+    if (freshOffer.request.targetServiceId) {
+      if (freshOffer.request.preferredPaymentMethod !== "On-site Cash" || freshOffer.serviceId !== freshOffer.request.targetServiceId) {
+        throw Object.assign(new Error("This inquiry was requested with a different payment method or listing"), { status: 409 });
+      }
+      const listedService = await tx.service.findUnique({ where: { id: freshOffer.serviceId }, select: { paymentMethods: true } });
+      if (!(listedService?.paymentMethods as { cash?: boolean } | null)?.cash) {
+        throw Object.assign(new Error("This listing no longer accepts on-site cash"), { status: 409 });
+      }
+    }
     const activeBooking = await tx.booking.findFirst({
       where: {
         seekerId,
-        serviceId: offer.serviceId,
+        offerId,
         status: { in: ["PENDING_APPROVAL", "ACCEPTED", "WAITING", "ONGOING", "AWAITING_CONFIRMATION", "DISPUTED"] },
       },
       select: { id: true },
     });
     if (activeBooking) {
-      const err = new Error("You already have an active booking for this service") as any;
+      const err = new Error("You already have an active booking for this offer") as any;
       err.status = 409;
       err.code = "ACTIVE_BOOKING_EXISTS";
       throw err;
     }
 
-    const eligibleService = await tx.service.findUnique({
-      where: { id: offer.serviceId! },
-      select: {
-        providerId: true,
-        categoryId: true,
-        status: true,
-        isAvailable: true,
-        serviceType: true,
-        paymentMethods: true,
-        provider: {
-          select: {
-            isActive: true,
-            moderationStatus: true,
-            emailVerified: true,
-            verificationStatus: true,
-          },
-        },
-      },
-    });
-    const currentMethods = eligibleService?.paymentMethods as { cash?: boolean } | undefined;
-    if (!eligibleService || eligibleService.providerId !== offer.providerId || eligibleService.categoryId !== offer.request.categoryId || eligibleService.status !== "ACTIVE" || !eligibleService.isAvailable || !currentMethods?.cash || !eligibleService.provider.isActive || eligibleService.provider.moderationStatus !== "ACTIVE" || !eligibleService.provider.emailVerified || eligibleService.provider.verificationStatus !== "APPROVED") {
-      const err = new Error("The offer's provider listing is no longer eligible for a cash booking") as any;
+    const currentProvider = await tx.user.findUnique({ where: { id: offer.providerId }, select: { isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true } });
+    if (!currentProvider?.isActive || currentProvider.moderationStatus !== "ACTIVE" || !currentProvider.emailVerified || currentProvider.verificationStatus !== "APPROVED") {
+      const err = new Error("The provider is no longer eligible for a cash booking") as any;
       err.status = 409;
       throw err;
     }
@@ -467,14 +458,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
       throw err;
     }
 
-    await tx.offer.updateMany({
-      where: {
-        requestId: offer.requestId,
-        id: { not: offerId },
-        status: "PENDING",
-      },
-      data: { status: "REJECTED" },
-    });
+    const losingProviderIds = await rejectSiblingOffersAndNotify(tx, offer.requestId, offerId, offer.request.title);
 
     const requestWon = await tx.serviceRequest.updateMany({
       where: { id: offer.requestId, status: "OPEN" },
@@ -487,7 +471,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
       throw err;
     }
 
-    return tx.booking.create({
+    const booking = await tx.booking.create({
       data: {
         seekerId,
         providerId: offer.providerId,
@@ -496,11 +480,18 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
         originType: "OFFER",
         paymentMethod: "On-site Cash",
         agreedAmount: offer.offeredPrice,
+        estimatedDurationMins: offer.estimatedDuration,
         paymentStatus: "UNPAID",
         status: "ACCEPTED",
       },
     });
+    return { booking, losingProviderIds };
   });
+
+  for (const providerId of losingProviderIds) {
+    safeEmit(`user:${providerId}`, "notification", { title: "Another offer was selected" });
+    safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { type: "offer_not_selected" });
+  }
 
   // Notify Provider
   await prisma.notification.create({

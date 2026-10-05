@@ -1,17 +1,18 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { prisma } from "../../lib/prisma";
-import { BooleanDecisionSchema } from "../../schema/marketplace.schema";
+import { AdminCancellationDecisionSchema } from "../../schema/marketplace.schema";
 
 export async function resolveCancellationRequest(req: Request, res: Response, next: NextFunction) {
   try {
-    const { approve, adminNotes: adminNote } = BooleanDecisionSchema.parse(req.body);
+    const { approve, adminNotes: adminNote, fault } = AdminCancellationDecisionSchema.parse(req.body);
     const { adminResolveCancellationRequest } = await import("../../services/cancellation.service.js");
     const result = await adminResolveCancellationRequest(
       req.params.id as string,
       approve,
       adminNote,
       (req as AuthenticatedRequest).user.id,
+      fault,
     );
     res.json({ success: true, data: result });
   } catch (err) {

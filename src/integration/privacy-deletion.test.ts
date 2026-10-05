@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { prisma } from "../lib/prisma";
 import { VERIFICATION_PRIVACY_NOTICE_VERSION } from "../config/privacy";
-import { requestAccountDeletion } from "../services/account-deletion.service";
+import { getAccountDeletionEligibility } from "../services/account-deletion.service";
 import { getVerificationRetentionState } from "../services/data-retention.service";
 import {
   accessVerificationProof,
@@ -132,12 +132,12 @@ test("verification privacy, audited access, retention holds, and deletion blocke
   assert.equal(retention?.hasActiveCaseHold, true);
   assert.equal(retention?.canPurge, false);
 
-  const blockedDeletion = await requestAccountDeletion(seeker.id);
-  assert.equal(blockedDeletion.status, "BLOCKED");
+  const blockedDeletion = await getAccountDeletionEligibility(seeker.id);
+  assert.equal(blockedDeletion.eligible, false);
   assert.deepEqual(blockedDeletion.blockers, [{ type: "nonterminalBookings", count: 1 }]);
 
   await prisma.booking.update({ where: { id: booking.id }, data: { status: "CANCELED" } });
-  const pendingDeletion = await requestAccountDeletion(seeker.id);
-  assert.equal(pendingDeletion.status, "PENDING");
+  const pendingDeletion = await getAccountDeletionEligibility(seeker.id);
+  assert.equal(pendingDeletion.eligible, true);
   assert.deepEqual(pendingDeletion.blockers, []);
 });

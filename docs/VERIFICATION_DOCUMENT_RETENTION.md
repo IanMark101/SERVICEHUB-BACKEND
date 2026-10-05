@@ -1,14 +1,31 @@
-# Verification Document Retention Policy
+# Verification records and account deletion
 
-Version: 2026-09-04-v1
+Version: 2026-09-30-v2
 
-ServiceHub Cordova stores identity and residency evidence in private managed storage. Ordinary user and administrator queue responses expose document metadata only; opening or downloading a proof requires a dedicated administrator endpoint and creates an `AdminAuditLog` record.
+ServiceHub stores identity/residency images in private managed storage. Normal
+API responses expose metadata; administrator access is authorized and audited.
 
-Documents are retained for at least 365 days from submission. An administrator review resets the minimum retention deadline to 365 days from the review. A document must not be purged after that date when either condition applies:
+Active-account verification records normally follow a 365-day retention period.
+The account owner may permanently delete their account sooner after clearing all
+marketplace obligations and explicit document holds. This removes verification
+and proof records from the live database together with the User row and all its
+related data. No anonymous account placeholder or completion receipt remains.
 
-- `ServiceVerification.legalHold` is enabled for a legal, regulatory, or administrator preservation requirement.
-- The submitting user participates in a nonterminal booking, held payment, pending or escalated cancellation, unresolved report, or active completion escalation.
+An explicit ServiceVerification.legalHold, unfinished booking/queue, unsettled
+payment/refund, unresolved case, or retryable resolution blocks account deletion.
+The server checks these inside the locked deletion transaction. Password or fresh
+Google verification is still required after typing DELETE.
 
-`getVerificationRetentionState` is the authoritative purge eligibility check. A later cleanup worker must call it before removing a database proof or private managed-storage object. Account deletion requests do not override transaction, moderation, audit, or verification retention requirements.
+The confirmation explains that shared closed bookings, payment/case history,
+reviews, and chats are removed from both participants' views. Other accounts and
+unrelated engagements are preserved.
 
-Account deletion in Phase 3 is a request workflow. Requests with active obligations are stored as `BLOCKED`; eligible requests are stored as `PENDING` for guarded administrator processing. Final deactivation/anonymization is intentionally deferred to the administrator safeguard phase and must preserve records required for financial reconciliation, disputes, legal holds, and immutable audit history.
+Managed-storage images and database backups are separate from live database rows.
+This SQL deletion does not claim to delete Cloudinary files or backups. A separate
+storage cleanup mechanism is required for physical removal of those files;
+getVerificationRetentionState only evaluates retention of existing records and
+is not a storage deletion worker. The privacy notice describes this boundary.
+
+Previous anonymous Deleted account rows can be inspected with
+npm run accounts:purge-deleted -- --dry-run. Applying cleanup requires one exact
+--user-id and repeats the eligibility checks; it cannot purge a live account.
