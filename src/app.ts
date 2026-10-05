@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { env } from "./config/env";
+import { getAllowedFrontendOrigins } from "./config/frontend-origins";
 
 // Route imports
 import authRoutes from "./routes/auth.routes";
@@ -33,7 +34,7 @@ app.use(requestContext);
 // ─── Global Middleware ──────────────────────────────────────────────────────
 
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: getAllowedFrontendOrigins(),
   credentials: true, // allow cookies (refresh token)
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 }));

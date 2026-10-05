@@ -12,6 +12,14 @@ values. The environment file is excluded from the image and supplied at runtime
 by Compose. Required values include `DATABASE_URL`, `JWT_ACCESS_SECRET`, and
 `JWT_REFRESH_SECRET`. Set `FRONTEND_URL` to your frontend origin.
 
+The backend allows `https://servicehubcordova.tech`,
+`https://www.servicehubcordova.tech`, and
+`https://servicehub-frontend-umber.vercel.app`, plus the configured `FRONTEND_URL`,
+for HTTP CORS, Socket.IO CORS, and production session/refresh/logout requests.
+Use `FRONTEND_URL=https://servicehubcordova.tech` on the server for canonical
+email and payment-return links. Additional frontend origins can be supplied in
+the comma-separated `FRONTEND_ORIGINS` setting.
+
 For `NODE_ENV=production`, also provide `PAYMONGO_PUBLIC_KEY`,
 `PAYMONGO_SECRET_KEY`, and `PAYMONGO_WEBHOOK_SECRET`.
 

@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
+import { getAllowedFrontendOrigins } from "../config/frontend-origins";
 import { getUserPermissions } from "../utils/permissions";
 
 export interface AuthenticatedRequest extends Request {
@@ -244,21 +245,13 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
 }
 
 // Refresh tokens are cookie-authenticated. In production, require the browser
-// request to originate from the configured frontend so another site cannot
+// request to originate from an allowed frontend so another site cannot
 // trigger refresh/logout actions with a cross-site cookie request.
 export function requireTrustedOrigin(req: Request, res: Response, next: NextFunction) {
   if (env.NODE_ENV !== "production") return next();
 
   const origin = req.get("origin");
-  let trustedOrigin: string | undefined;
-  try {
-    trustedOrigin = new URL(env.FRONTEND_URL).origin;
-  } catch {
-    // A malformed deployment setting must fail closed rather than disable the
-    // cross-site request protection for cookie-authenticated endpoints.
-  }
-
-  if (!origin || !trustedOrigin || origin !== trustedOrigin) {
+  if (!origin || !getAllowedFrontendOrigins().includes(origin)) {
     return res.status(403).json({ success: false, error: "Untrusted request origin" });
   }
   next();

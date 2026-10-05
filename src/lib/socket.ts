@@ -2,6 +2,7 @@ import { Server as SocketIOServer, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env";
+import { getAllowedFrontendOrigins } from "../config/frontend-origins";
 import { prisma } from "./prisma";
 
 let io: SocketIOServer | null = null;
@@ -17,7 +18,7 @@ function socketAuthError(code: "TOKEN_EXPIRED" | "SESSION_REVOKED" | "PERMISSION
 export function initSocket(httpServer: HttpServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: env.FRONTEND_URL,
+      origin: getAllowedFrontendOrigins(),
       credentials: true,
       methods: ["GET", "POST"],
     },
