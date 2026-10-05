@@ -72,6 +72,54 @@ docker compose up -d app
 docker compose logs -f app
 ```
 
+## Nginx and WebSocket connections
+
+For the existing host configuration at
+`/etc/nginx/sites-enabled/api.servicehubcordova.tech`, run the repair helper on
+the backend server:
+
+```sh
+sudo python3 scripts/fix-nginx-websocket.py
+```
+
+It backs up the resolved configuration file under `/root`, adds the required
+upgrade headers and timeouts to the existing API proxy location, validates with
+`nginx -t`, and reloads Nginx. A validation or reload failure restores the saved
+configuration. Existing certificate settings and site symlinks are preserved.
+
+The frontend starts Socket.IO with HTTP polling and then attempts a WebSocket
+upgrade. Both transports use `/socket.io/` on the backend origin. The API's
+existing HTTPS Nginx server block must forward WebSocket upgrade headers to
+the backend on port 8000.
+
+Copy `docker/nginx-socket.io.conf` to
+`/etc/nginx/snippets/servicehub-socket.io.conf` on the server. Include it inside
+the existing `server` block serving HTTPS for `api.servicehubcordova.tech`:
+
+```nginx
+include /etc/nginx/snippets/servicehub-socket.io.conf;
+```
+
+If that server block already has a `location /socket.io/` block, replace that
+location with the supplied block instead of adding a second one. The upstream
+assumes Nginx runs on the Docker host; a containerized Nginx needs the backend's
+container hostname and shared Docker network instead of `127.0.0.1`.
+
+Validate and reload the host's Nginx configuration:
+
+```sh
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+The repository's root `nginx.config` is the reference project's static SPA
+configuration; use the Socket.IO snippet with the server's existing HTTPS
+configuration. A container rebuild does not update that host configuration.
+
+HTTP polling returning an Engine.IO handshake while WebSocket returns HTTP 400
+with `code: 3` indicates an upgrade/proxy problem. Keep the frontend's polling
+fallback enabled, and verify the WebSocket handshake returns HTTP 101 after the
+Nginx change. See the [Socket.IO reverse proxy guide](https://socket.io/docs/v4/reverse-proxy/).
+
 ## GitHub Actions deployment
 
 `.github/workflows/deploy.yaml` builds and pushes the backend image when `main`
