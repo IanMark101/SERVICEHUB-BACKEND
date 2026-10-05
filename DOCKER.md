@@ -78,14 +78,18 @@ docker compose logs -f app
 changes, then copies the server Compose file and `scripts/deploy.sh` to `/root`
 over SSH and runs the script. Pushes changing only `Docs/**` are skipped.
 
-Configure these repository secrets in GitHub Settings > Secrets and variables >
-Actions:
+Configure one repository secret named `SERVICEHUBSECRETKEY` in GitHub Settings >
+Secrets and variables > Actions. Its value must be a valid JSON object containing
+these fields; the workflow reads them with `fromJSON(secrets.SERVICEHUBSECRETKEY)`:
 
 - `DOCKERHUB_USERNAME`: `ianmark123`, matching the image in the server Compose file.
 - `DOCKERHUB_TOKEN`: a Docker Hub access token with push permission for that image.
 - `SSH_HOST`: the backend server's hostname or IP address.
 - `SSH_USER`: the SSH account with access to `/root` and permission to run Docker.
 - `SSH_PRIVATE_KEY`: the private key authorized for that SSH account.
+
+Store the private key as a JSON string with its line breaks encoded as `\n`.
+Keep the actual secret value in GitHub's secret store.
 
 The server needs Docker with the Compose plugin and the environment file at
 `/root/env/servicehub-backend/.env` before the first deployment. If using another
