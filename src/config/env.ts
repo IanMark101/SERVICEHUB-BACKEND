@@ -1,4 +1,4 @@
-import "dotenv/config";
+import { environmentFile } from "./load-environment";
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -47,6 +47,7 @@ const parsed = validateEnvironment(process.env);
 if (!parsed.success) {
   console.error("❌ Invalid environment variables:");
   console.error(parsed.error.flatten().fieldErrors);
+  console.error(`Set the required variables in the process environment or in ${environmentFile} (see .env.example).`);
   process.exit(1);
 }
 

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./src/config/load-environment";
 import { defineConfig } from "prisma/config";
 import { enforceDatabaseTlsVerification } from "./src/config/database-url";
 

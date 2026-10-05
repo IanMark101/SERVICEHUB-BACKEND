@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./config/load-environment";
 import http from "http";
 import { env } from "./config/env"; // validates all env vars at startup
 import app from "./app";

@@ -7,9 +7,14 @@ coverage
 .env.*
 !.env.example
 .database-backups
+.audit-results
 *.log
 npm-debug.log*
 .DS_Store
 Dockerfile*
 compose*.yaml
 compose*.yml
+docker-compose*.yaml
+docker-compose*.yml
+docker
+.github

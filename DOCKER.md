@@ -1,140 +1,81 @@
-# ServiceHub Cordova Docker Guide
+# ServiceHub Backend Docker Guide
 
-This setup runs the production builds of the ServiceHub frontend and backend in Docker. The existing Neon PostgreSQL database and other hosted services remain external.
+The backend follows the Docker layout in
+[portfolio-backend-api](https://github.com/arielmaestrodev/portfolio-backend-api):
+a two-stage Alpine image, a root Compose file for local builds, and a separate
+`docker/docker-compose.yaml` for a server that pulls a Docker Hub image.
 
-## Repository layout
+## Environment
 
-The Compose file expects both repositories to remain beside each other:
+Keep the backend's existing `.env`, or copy `.env.example` and fill in real
+values. The environment file is excluded from the image and supplied at runtime
+by Compose. Required values include `DATABASE_URL`, `JWT_ACCESS_SECRET`, and
+`JWT_REFRESH_SECRET`. Set `FRONTEND_URL` to your frontend origin.
 
-```text
-fullstack/
-  SERVICEHUB-BACKEND/
-  SERVICEHUB-FRONTEND/
-```
+For `NODE_ENV=production`, also provide `PAYMONGO_PUBLIC_KEY`,
+`PAYMONGO_SECRET_KEY`, and `PAYMONGO_WEBHOOK_SECRET`.
 
-Run all Compose commands from `SERVICEHUB-BACKEND`.
+`DATABASE_URL` is the application's pooled Neon connection. `DIRECT_URL` is
+the direct connection copied from Neon for Prisma migration commands.
 
-## 1. Prepare the backend environment
+## Local build and start
 
-Create `SERVICEHUB-BACKEND/.env` from `.env.example` if it does not already exist. Do not commit this file.
-
-At minimum, confirm the following values:
-
-```env
-DATABASE_URL=your_neon_postgresql_connection_string
-DIRECT_URL=your_neon_direct_connection_string
-JWT_ACCESS_SECRET=use_a_long_random_secret
-JWT_REFRESH_SECRET=use_a_different_long_random_secret
-FRONTEND_URL=http://localhost:3000
-GOOGLE_CLIENT_ID=your_google_oauth_client_id
-PAYMONGO_PUBLIC_KEY=your_test_public_key
-PAYMONGO_SECRET_KEY=your_test_secret_key
-PAYMONGO_WEBHOOK_SECRET=your_webhook_secret
-```
-
-For Neon, `DATABASE_URL` is the pooled application URL whose hostname contains
-`-pooler`. `DIRECT_URL` is the connection string copied from Neon with
-**Connection pooling disabled**. Prisma migration and other CLI commands use
-`DIRECT_URL`; the running backend continues to use `DATABASE_URL`. Do not guess
-or manually edit the direct hostname.
-
-Keep the existing Cloudinary and SMTP variables when uploads and email delivery are required.
-
-The Google client ID is public configuration. Compose passes the same ID into the frontend build. Passwords, database URLs, PayMongo secret keys, Cloudinary secrets, and SMTP credentials are supplied only to the backend container.
-
-## 2. Validate the Compose configuration
+Run these commands from `SERVICEHUB-BACKEND`:
 
 ```powershell
 docker compose config --quiet
-```
-
-## 3. Build and start ServiceHub
-
-```powershell
 docker compose up --build -d
+docker compose logs -f app
 ```
 
-Compose performs these operations in order:
+The API listens on port 8000 inside the container and is available at
+`http://localhost:8000`. Check `http://localhost:8000/health`.
+For a separately running frontend, configure its public API URL as
+`http://localhost:8000/api`.
 
-1. Builds the backend image and generates Prisma Client.
-2. Applies committed Prisma migrations to Neon with `prisma migrate deploy`.
-3. Starts the backend and waits for `/health` to pass.
-4. Builds and starts the Next.js frontend.
+Stop the backend with `docker compose down`.
 
-Open:
+## Build and publish the server image
 
-- Application: `http://localhost:3000`
-- API health check: `http://localhost:3001/health`
-
-## 4. Inspect status and logs
+The server Compose file uses the existing `ianmark123/servicehub-backend` image:
 
 ```powershell
-docker compose ps
-docker compose logs -f backend frontend
+docker build -t ianmark123/servicehub-backend:latest .
+docker push ianmark123/servicehub-backend:latest
 ```
 
-To inspect the migration service:
+If using another Docker Hub account, change the image name in
+`docker/docker-compose.yaml` and both commands to match.
+
+## Server deployment
+
+Place the server's environment file at `/root/env/servicehub-backend/.env` and
+copy `docker/docker-compose.yaml` to `/root/docker/docker-compose.yaml`.
+The server Compose file sets `NODE_ENV=production` and `PORT=8000` and restarts
+the API unless it was explicitly stopped.
+
+Run on the server:
+
+```sh
+cd /root/docker
+docker compose config --quiet
+docker compose pull app
+docker compose up -d app
+docker compose logs -f app
+```
+
+## Database migrations
+
+Building or starting the API does not apply database migrations. Run the pinned
+Prisma CLI from the backend checkout before a planned release:
 
 ```powershell
-docker compose logs migrate
+npm ci
+npx prisma migrate status
+# Apply committed migrations during a planned release:
+npx prisma migrate deploy
 ```
 
-## 5. Stop the application
-
-```powershell
-docker compose down
-```
-
-This does not delete Neon data because the database is not stored in a Docker volume.
-
-## Port conflicts
-
-If local development servers already use ports 3000 and 3001, choose different host ports before building:
-
-```powershell
-$env:FRONTEND_PORT = "3100"
-$env:BACKEND_PORT = "3101"
-$env:FRONTEND_URL = "http://localhost:3100"
-$env:NEXT_PUBLIC_API_URL = "http://localhost:3101/api"
-docker compose up --build -d
-```
-
-The browser-facing `NEXT_PUBLIC_API_URL` is embedded during the frontend image build. Rebuild the frontend whenever that public URL changes.
-
-## Rebuild after source changes
-
-```powershell
-docker compose up --build -d
-```
-
-## Run a fresh migration check manually
-
-The default startup already rebuilds the migration image and runs
-`prisma migrate deploy`. To rerun it explicitly after migration changes:
-
-```powershell
-docker compose build migrate
-docker compose run --rm migrate
-```
-
-For a non-mutating connectivity and migration-history check, override the
-service command:
-
-```powershell
-docker compose build migrate
-docker compose run --rm migrate npx prisma migrate status
-```
-
-## PayMongo webhooks during local testing
-
-Docker exposes the backend on the selected host port, but it does not make localhost reachable from PayMongo. Continue using the temporary Cloudflare tunnel for local webhook testing. Point the tunnel at the published backend port.
-
-After deployment, configure PayMongo to call the deployed backend webhook URL directly. A tunnel is no longer required.
-
-## Production deployment notes
-
-- Set `FRONTEND_URL` to the deployed frontend origin.
-- Set `NEXT_PUBLIC_API_URL` to the publicly reachable deployed backend URL ending in `/api`.
-- Configure Google OAuth authorized origins for the deployed frontend.
-- Configure PayMongo webhooks with the deployed backend endpoint.
-- Use the platform's secret manager instead of committing an `.env` file.
+The runtime image copies the Prisma Client generated in the builder stage and
+does not install an unpinned Prisma CLI. It starts with the backend's existing
+`npm start` command (`node ./dist/src/server.js`).

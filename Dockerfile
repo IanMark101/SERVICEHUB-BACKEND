@@ -1,48 +1,52 @@
-# syntax=docker/dockerfile:1.7
+# Stage 1: Base stage with Node.js Alpine image
+FROM node:22-alpine AS builder
 
-FROM node:22-bookworm-slim AS base
+# Match backend CI and install the libraries needed by Prisma on Alpine.
+RUN apk add --no-cache libc6-compat openssl
 
-ENV NPM_CONFIG_FUND=false \
-    NPM_CONFIG_UPDATE_NOTIFIER=false
+# Set the working directory for subsequent instructions
+WORKDIR /builder
 
-WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates openssl \
-    && rm -rf /var/lib/apt/lists/*
-
-FROM base AS build
-
+# Copy package.json and package-lock.json to leverage Docker cache
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
 
+# Install all dependencies (including devDependencies) to build the app and generate Prisma client
+RUN npm ci
+
+# Copy the rest of the application code
 COPY . .
 
-RUN npm run db:generate \
-    && npm run build
+# Generate Prisma Client
+RUN npm run db:generate
 
-FROM build AS production-deps
+# Build the application
+RUN npm run build
 
-RUN npm prune --omit=dev
+# Stage 2: Runner stage
+FROM node:22-alpine AS runner
 
-FROM base AS runner
+RUN apk add --no-cache libc6-compat openssl
 
-ENV NODE_ENV=production \
-    PORT=3001
+# Set the working directory in the container
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=8000
 
-RUN groupadd --system --gid 1001 servicehub \
-    && useradd --system --uid 1001 --gid servicehub --create-home servicehub
+# Copy package files
+COPY package.json package-lock.json ./
 
-COPY --from=production-deps --chown=servicehub:servicehub /app/package.json /app/package-lock.json ./
-COPY --from=production-deps --chown=servicehub:servicehub /app/node_modules ./node_modules
-COPY --from=build --chown=servicehub:servicehub /app/dist ./dist
-COPY --from=build --chown=servicehub:servicehub /app/prisma ./prisma
+# Install only production dependencies
+RUN npm ci --omit=dev --ignore-scripts
 
-USER servicehub
+# Reuse the client generated with the lockfile's Prisma version on Alpine.
+COPY --from=builder /builder/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /builder/prisma ./prisma
 
-EXPOSE 3001
+# Copy built artifacts from the builder stage
+COPY --from=builder /builder/dist ./dist
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:3001/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"]
+# Inform Docker that the container is listening on port 8000 at runtime
+EXPOSE 8000
 
-CMD ["node", "./dist/src/server.js"]
+# Define the command to run the app
+CMD ["npm", "start"]
