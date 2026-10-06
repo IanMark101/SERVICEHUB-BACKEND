@@ -7,3 +7,6 @@ node_modules
 
 # Local pre-migration database backups may contain private user data.
 /.database-backups/
+
+# Generated local audit output; audit scripts recreate it when needed.
+/.audit-results/
