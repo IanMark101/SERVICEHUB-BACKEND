@@ -66,6 +66,10 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         },
         queue: true,
         reports: true,
+        progressEvents: {
+          select: { id: true, kind: true, actorRole: true, eventKey: true, occurredAt: true },
+          orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+        },
         cancellationRequests: {
           orderBy: { createdAt: "desc" },
         },
@@ -104,6 +108,10 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         reviews: true,
         booking: {
           include: {
+            progressEvents: {
+              select: { id: true, kind: true, actorRole: true, eventKey: true, occurredAt: true },
+              orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+            },
             service: { select: { title: true } },
             offer: { include: { request: { select: { title: true } } } },
             directRequest: { include: { service: { select: { title: true } } } },

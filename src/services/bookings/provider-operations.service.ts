@@ -4,6 +4,7 @@ import { sendMessage } from "../messages.service";
 import { emitProviderQueueUpdates, lockProviderQueue, recalculateQueueInTransaction } from "../queue.service";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifecycle.service";
 import { paidStartBlockReason } from "./paid-start-readiness";
+import { recordBookingProgress } from "../booking-progress.service";
 
 export async function providerStartJob(id: string, providerId: string) {
   const result = await prisma.$transaction(async (tx) => {
@@ -145,6 +146,7 @@ export async function providerStartJob(id: string, providerId: string) {
         ...(queueEntry ? { queuePosition: 1 } : {}),
       },
     });
+    await recordBookingProgress(tx, booking.id, "STARTED", "PROVIDER");
     await recalculateQueueInTransaction(tx, providerId);
     return { booking: updatedBooking, queueEntry };
   });

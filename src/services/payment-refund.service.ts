@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { bookingActorRole, recordBookingProgress } from "./booking-progress.service";
 import { createRefund, getPaymentIntent } from "./paymongo.service";
 import {
   emitWaitlistNotification,
@@ -153,6 +154,7 @@ export async function refundBookingPayment(
       where: { id: bookingId },
       data: { status: "CANCELED", paymentStatus: "REFUNDED", statusBeforeDispute: null },
     });
+    await recordBookingProgress(tx, bookingId, "CANCELED", bookingActorRole(booking, requestedById));
     await tx.queue.update({
       where: { id: booking.queue.id },
       data: { status: "CANCELLED", paymentStatus: "REFUNDED" },

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
+import { recordBookingProgress } from "./booking-progress.service";
 import { safeEmit } from "../lib/socket";
 import {
   attachPaymentMethod,
@@ -505,6 +506,8 @@ export async function finalizeSuccessfulPayment(params: {
         started: false,
       },
     });
+    // Paid bookings become accepted automatically after payment confirmation.
+    await recordBookingProgress(tx, booking.id, "ACCEPTED", "SYSTEM");
     const queue = await tx.queue.create({
       data: {
         providerId: fresh.providerId,

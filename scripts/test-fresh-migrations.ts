@@ -19,6 +19,12 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
+if (process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1') {
+  // Prisma qualifies model queries; raw SQL also needs the disposable schema.
+  // Omit public so an unqualified query cannot fall through to live tables.
+  isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+  isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+}
 const admin = new Client({ connectionString: databaseUrl });
 // Long integration suites may outlive an idle pooled connection. Keep cleanup
 // independent of this inspection client so the disposable schema is removed.
@@ -87,6 +93,16 @@ async function main() {
       '--exit-code',
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
+
+    if (process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1') {
+      const failures: string[] = [];
+      for (const file of ['booking-progress.test.ts', 'booking-flows.test.ts', 'cancellation-report-finalization.test.ts', 'provider-wide-workload.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        if (result.status !== 0) failures.push(file);
+      }
+      assert.deepEqual(failures, [], `fresh-schema suites failed: ${failures.join(', ')}`);
+      return;
+    }
 
     if (process.env.SERVICEHUB_REQUEST_PAYMENT_ONLY === '1') {
       for (const file of ['post-request-flow.test.ts', 'request-payment-selection.test.ts']) {

@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
 import { sendMessage } from "./messages.service";
 import { closeParticipantCancellationReport } from "./cancellation-report-finalization.service";
+import { bookingActorRole, recordBookingProgress } from "./booking-progress.service";
 import { applyTrustEventInTransaction } from "./trust.service";
 import { refundBookingPayment } from "./payment-refund.service";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "./booking-lifecycle.service";
@@ -85,6 +86,7 @@ export async function performImmediateCancel(bookingId: string, actorId?: string
       await assertNoRefundInProgress(tx, bookingId);
       if (current.queue) await lockProviderQueue(tx, current.providerId);
       await tx.booking.update({ where: { id: bookingId }, data: { status: "CANCELED", paymentStatus: current.paymentStatus, statusBeforeDispute: null } });
+      await recordBookingProgress(tx, bookingId, "CANCELED", bookingActorRole(current, actorId));
       if (current.queue) {
         await tx.queue.update({ where: { id: current.queue.id }, data: { status: "CANCELLED", paymentStatus: current.queue.paymentStatus } });
         await recalculateQueueInTransaction(tx, current.providerId);
@@ -127,6 +129,7 @@ export async function requestCancellation(bookingId: string, userId: string, rea
     const responderId = userId === booking.seekerId ? booking.providerId : booking.seekerId;
     const immediate = !booking.started;
     const request = await tx.cancellationRequest.create({ data: { bookingId, requestedBy: userId, responderId, reason: reason.trim(), status: immediate ? "UNDER_REVIEW" : "PENDING", resolutionOutcome: immediate ? "IMMEDIATE_CANCEL_PENDING" : null } });
+    await recordBookingProgress(tx, bookingId, "CANCELLATION_REQUESTED", bookingActorRole(booking, userId), `${request.id}:requested`);
     if (immediate) {
       await tx.booking.update({
         where: { id: booking.id },
@@ -178,6 +181,7 @@ export async function respondToCancellationRequest(requestId: string, responderI
       if (!request || request.responderId !== responderId || request.requestedBy === responderId) throw httpError("Cancellation request not found or access denied", 404);
       const changed = await tx.cancellationRequest.updateMany({ where: { id: requestId, status: "PENDING" }, data: { status: "DECLINED", responderNote: note, providerNote: note, resolvedAt: new Date() } });
       if (changed.count !== 1) throw httpError("Cancellation request has already been decided", 409);
+      await recordBookingProgress(tx, request.bookingId, "CANCELLATION_DECLINED", bookingActorRole(request.booking, responderId), `${request.id}:participant-declined`);
       await tx.notification.create({ data: { userId: request.requestedBy, title: "Cancellation request declined", body: `The other participant declined the request. ${note}`, link: request.requestedBy === request.booking.seekerId ? `/seeker/seeker-activity?tab=active&booking=${request.bookingId}` : `/provider/provider-activity?tab=in_progress&booking=${request.bookingId}` } });
       return request;
     });
@@ -201,6 +205,7 @@ export async function respondToCancellationRequest(requestId: string, responderI
     const completed = completedResolutionResult(operation);
     if (completed) return { request, operation, completed };
     await tx.cancellationRequest.update({ where: { id: request.id }, data: { status: "UNDER_REVIEW", responderNote: note, providerNote: note } });
+    await recordBookingProgress(tx, request.bookingId, "CANCELLATION_APPROVED", bookingActorRole(request.booking, responderId), `${request.id}:participant-approved`);
     return { request, operation, completed: null };
   });
   if (claim.completed) return claim.completed;
@@ -252,6 +257,7 @@ export async function escalateCancellationRequest(requestId: string, userId: str
     const requesterRole = userId === request.booking.seekerId ? "seeker" : "provider";
     const report = await tx.report.create({ data: { bookingId: request.bookingId, reporterId: userId, reportedUserId: otherPartyId, reason: "INCOMPLETE_SERVICE", description: `Cancellation escalation. ${requesterRole} reason: ${request.reason || "Not supplied"}. Response: ${request.responderNote || "Not supplied"}.`, reportType: "CANCELLATION_ESCALATION", status: "PENDING", dedupeKey: `cancellation:${request.id}` } });
     const updated = await tx.cancellationRequest.update({ where: { id: request.id }, data: { status: "ESCALATED", reportId: report.id } });
+    await recordBookingProgress(tx, request.bookingId, "CANCELLATION_ESCALATED", bookingActorRole(request.booking, userId), `${request.id}:escalated`);
     await tx.notification.create({ data: { userId: otherPartyId, title: "Cancellation escalated to Admin", body: `The ${requesterRole} escalated the declined request for administrator review.`, link: userId === request.booking.seekerId ? `/provider/provider-activity?tab=disputed&booking=${request.bookingId}` : `/seeker/seeker-activity?tab=disputed&booking=${request.bookingId}` } });
     return { request: updated, report, created: true };
   });
@@ -287,6 +293,7 @@ export async function adminResolveCancellationRequest(requestId: string, approve
     if (approve && !hasEstablishedFinancialEffect(operation)) await assertNoOtherBlockingCases(tx, request.bookingId, { cancellationRequestId: request.id, reportId: request.reportId });
     await tx.cancellationRequest.update({ where: { id: request.id }, data: { status: "UNDER_REVIEW", adminId, adminNote } });
     await tx.report.updateMany({ where: { id: request.reportId, status: { in: ["PENDING", "UNDER_REVIEW"] } }, data: { status: "UNDER_REVIEW", adminId, adminNotes: adminNote } });
+    await recordBookingProgress(tx, request.bookingId, approve ? "CANCELLATION_APPROVED" : "CANCELLATION_DECLINED", "ADMIN", `${request.id}:admin-response`);
     return { request, operation, completed: null };
   });
   if (claim.completed) return claim.completed;

@@ -14,6 +14,7 @@ import {
 } from "../queue.service";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifecycle.service";
 import { assertNoFinancialResolutionReserved } from "../case-resolution.service";
+import { recordBookingProgress } from "../booking-progress.service";
 
 function httpError(message: string, status: number, code?: string) {
   const error = new Error(message) as Error & { status?: number; code?: string };
@@ -43,6 +44,7 @@ export async function markJobComplete(id: string, providerId: string) {
       where: { id: fresh.id },
       data: { status: "AWAITING_CONFIRMATION" },
     });
+    await recordBookingProgress(tx, fresh.id, "WORK_MARKED_COMPLETE", "PROVIDER", `work-complete:${updated.updatedAt.toISOString()}`);
     let waitlistNotification: WaitlistNotification | null = null;
     if (fresh.queue) {
       await lockProviderQueue(tx, fresh.providerId);
@@ -120,6 +122,7 @@ export async function settleCompletedBooking(
       where: { id: booking.id },
       data: { status: "COMPLETED", paymentStatus: settlementStatus, statusBeforeDispute: null },
     });
+    await recordBookingProgress(tx, booking.id, "COMPLETION_CONFIRMED", actor.type);
     if (booking.queue) {
       await lockProviderQueue(tx, booking.providerId);
       await tx.queue.update({ where: { id: booking.queue.id }, data: { status: "DONE", paymentStatus: settlementStatus } });

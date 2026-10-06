@@ -653,11 +653,28 @@ model Booking {
   cancellationRequests  CancellationRequest[]
   completionEscalations CompletionEscalation[]
   refund                PaymentRefund?
+  progressEvents        BookingProgressEvent[]
 
   // The database migration also enforces one ONGOING booking per provider.
   @@index([providerId, status])
   @@index([serviceId, status])
   @@map("bookings")
+}
+
+// Action times are separate from updatedAt, scheduling, and duration estimates.
+// Written with the successful lifecycle mutation in the same transaction.
+model BookingProgressEvent {
+  id         String   @id @default(cuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  kind       String
+  actorRole  String
+  eventKey   String
+  occurredAt DateTime @default(now())
+
+  @@unique([bookingId, eventKey])
+  @@index([bookingId, occurredAt])
+  @@map("booking_progress_events")
 }
 
 // ─────────────────────────────────────────────

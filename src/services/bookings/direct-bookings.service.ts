@@ -8,6 +8,7 @@ import { lockAccountLifecycle, marketplaceParticipantsEligible } from "../accoun
 import { rejectSiblingOffersAndNotify } from "../offer-selection-notifications.service";
 import { calculateDirectListingTerms } from "./direct-listing-pricing";
 import { assertRequestPaymentMethod } from "../request-payment-methods";
+import { recordBookingProgress } from "../booking-progress.service";
 // ── Cash Direct Request (no queue) ────────────────────────────────────────────
 
 export async function createDirectRequest(params: {
@@ -243,13 +244,15 @@ export async function respondToDirectBookingService(requestId: string, providerI
       }
 
       if (targetBooking) {
-        return tx.booking.update({
+        const accepted = await tx.booking.update({
           where: { id: targetBooking.id },
           data: { status: "ACCEPTED", started: false },
         });
+        await recordBookingProgress(tx, accepted.id, "ACCEPTED", "PROVIDER");
+        return accepted;
       }
 
-      return tx.booking.create({
+      const accepted = await tx.booking.create({
         data: {
           seekerId: directRequest!.seekerId,
           providerId,
@@ -263,6 +266,8 @@ export async function respondToDirectBookingService(requestId: string, providerI
           started: false,
         },
       });
+      await recordBookingProgress(tx, accepted.id, "ACCEPTED", "PROVIDER");
+      return accepted;
     });
 
     // Notify Seeker
@@ -333,13 +338,15 @@ export async function respondToDirectBookingService(requestId: string, providerI
       }
 
       if (targetBooking) {
-        return tx.booking.update({
+        const declined = await tx.booking.update({
           where: { id: targetBooking.id },
           data: {
             status: "DECLINED",
             paymentStatus: hasHeldOnlinePayment ? "REFUNDED" : targetBooking.paymentStatus,
           },
         });
+        await recordBookingProgress(tx, declined.id, "DECLINED", "PROVIDER");
+        return declined;
       }
 
       return null;
@@ -485,6 +492,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
         status: "ACCEPTED",
       },
     });
+    await recordBookingProgress(tx, booking.id, "ACCEPTED", "SEEKER");
     return { booking, losingProviderIds };
   });
 
