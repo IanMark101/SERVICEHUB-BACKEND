@@ -167,7 +167,6 @@ export async function settleCompletedBooking(
         result.booking.id,
         actor.userId,
         result.isCash ? "Cash service completion confirmed." : "Online payment released after completion confirmation.",
-        undefined,
         true,
         actor.type === "ADMIN" ? "admin" : undefined,
       );

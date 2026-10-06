@@ -97,7 +97,7 @@ export async function performImmediateCancel(bookingId: string, actorId?: string
   emitWaitlistNotification(waitlistNotification);
   await emitProviderQueueUpdates(booking.providerId).catch((error) => console.error("Queue refresh event failed", error));
 
-  await sendMessage(bookingId, booking.seekerId, "Booking cancelled.", undefined, true);
+  await sendMessage(bookingId, booking.seekerId, "Booking cancelled.", true);
   await prisma.notification.create({ data: { userId: booking.providerId, title: "Booking cancelled", body: "The booking has been cancelled.", link: `/provider/provider-activity?tab=canceled&booking=${booking.id}` } });
   safeEmit(`user:${booking.providerId}`, "notification", { title: "Booking cancelled" });
   if (hasHeldOnlinePayment) {

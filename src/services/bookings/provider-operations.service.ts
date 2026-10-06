@@ -164,7 +164,7 @@ export async function providerStartJob(id: string, providerId: string) {
   safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
   safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
   safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
-  await sendMessage(booking.id, booking.providerId, "Provider started the job.", undefined, true);
+  await sendMessage(booking.id, booking.providerId, "Provider started the job.", true);
 
   return booking;
 }

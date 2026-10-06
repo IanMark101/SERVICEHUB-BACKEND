@@ -62,9 +62,9 @@ export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
     const bookingId = req.params.bookingId || req.params.completedServiceId;
-    const { content = "", imageUrl } = MessageSchema.parse(req.body);
+    const { content } = MessageSchema.parse(req.body);
 
-    const message = await sendMessage(bookingId as string, user.id, content, imageUrl);
+    const message = await sendMessage(bookingId as string, user.id, content);
     res.status(201).json({ success: true, data: message });
   } catch (err: any) {
     if (err.code === "MESSAGES_LOCKED") {

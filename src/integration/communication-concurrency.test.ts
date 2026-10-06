@@ -85,7 +85,7 @@ test('concurrent messages and notification operations remain durable and bounded
   const sent = await Promise.all(
     Array.from({ length: 40 }, (_, index) => {
       const senderId = index % 2 === 0 ? seeker.id : provider.id;
-      return sendMessage(booking.id, senderId, `Concurrent message ${index}`, undefined, false, 'user');
+      return sendMessage(booking.id, senderId, `Concurrent message ${index}`, false, 'user');
     }),
   );
   assert.equal(new Set(sent.map((message) => message.id)).size, 40);
