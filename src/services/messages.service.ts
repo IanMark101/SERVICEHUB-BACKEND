@@ -326,11 +326,10 @@ export async function sendMessage(
   bookingId: string,
   senderId: string,
   content: string,
-  imageUrl?: string,
   isSystem: boolean = false,
   senderRole?: string,
 ) {
-  if (!content?.trim() && !imageUrl) {
+  if (!content?.trim()) {
     const err = new Error("Message content is required") as any;
     err.status = 400;
     throw err;
@@ -357,8 +356,7 @@ export async function sendMessage(
       bookingId,
       senderId,
       receiverId,
-      content: content || "",
-      imageUrl,
+      content: content.trim(),
       isSystem,
     },
     include: {
@@ -399,7 +397,7 @@ export async function sendMessage(
     bookingId,
     senderId,
     senderName: message.sender.name,
-    preview: content?.slice(0, 60) || "📷 Image",
+    preview: content.trim().slice(0, 60),
   });
 
   return message;

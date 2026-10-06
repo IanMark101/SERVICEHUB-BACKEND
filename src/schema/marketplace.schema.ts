@@ -121,9 +121,8 @@ export const AdminCategoryUpdateSchema = z.object({
 export const AdminCategoryCreateSchema = z.object({ name: Text(80).min(3), reason: Text(500).min(3) }).strict();
 
 export const MessageSchema = z.object({
-  content: Text(2_000).optional(),
-  imageUrl: ManagedImageUrl.optional(),
-}).strict().refine((value) => Boolean(value.content || value.imageUrl), "Message content or image is required");
+  content: Text(2_000).min(1, "Message content is required"),
+}).strict();
 
 export const WaitlistSchema = z.object({ serviceId: Cuid }).strict();
 

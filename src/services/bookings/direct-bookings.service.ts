@@ -291,7 +291,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
     safeEmit(`user:${providerId}`, "notification", { title: "Booking Confirmed! 🎉" });
 
     // System Message in Conversation
-    await sendMessage(booking.id, providerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", undefined, true);
+    await sendMessage(booking.id, providerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", true);
 
     return booking;
   } else {
@@ -519,7 +519,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
   safeEmit(`user:${seekerId}`, "notification", { title: "Booking Confirmed! 🎉" });
 
   // Automated System Message
-  await sendMessage(booking.id, seekerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", undefined, true);
+  await sendMessage(booking.id, seekerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", true);
 
   return booking;
 }
