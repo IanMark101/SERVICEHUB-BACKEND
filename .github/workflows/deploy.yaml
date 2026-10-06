@@ -46,7 +46,7 @@ jobs:
         with:
           host: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_HOST }}
           username: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_USER }}
-          key: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_PRIVATE_KEY }}
+          key: ${{ secrets.SERVICEHUB_DEPLOY_SSH_KEY || fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_PRIVATE_KEY }}
           source: 'docker/docker-compose.yaml,scripts/deploy.sh'
           target: '/root'
 
@@ -55,5 +55,5 @@ jobs:
         with:
           host: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_HOST }}
           username: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_USER }}
-          key: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_PRIVATE_KEY }}
+          key: ${{ secrets.SERVICEHUB_DEPLOY_SSH_KEY || fromJSON(secrets.SERVICEHUBSECRETKEY).SSH_PRIVATE_KEY }}
           script: sh /root/scripts/deploy.sh
