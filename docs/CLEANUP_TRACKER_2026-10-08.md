@@ -2,7 +2,7 @@
 
 Branch in both application repositories: `feature/safe-codebase-cleanup-2026-10-08`  
 Date/timezone: 2026-10-08, Asia/Taipei  
-Status: **Checklists created. Cleanup execution has not started. 0 items deleted.**
+Status: **29 first-batch items removed and compared with baseline. Interactive frontend browser review remains pending.**
 
 This document is the workspace overview. Each repository checklist owns its item checkboxes and change log:
 
@@ -15,10 +15,10 @@ The overview is stored in the backend repository so it can be versioned on its c
 
 | Owner | First batch | Deferred | Manual review | Total planning entries | Deleted |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Frontend | 28 | 3 | 12 | 43 | 0 |
-| Backend | 1 | 2 | 18 | 21 | 0 |
+| Frontend | 28 | 3 | 12 | 43 | 28 |
+| Backend | 1 | 2 | 18 | 21 | 1 |
 | Shared workspace | 0 | 0 | 42 | 42 | 0 |
-| **Total** | **29** | **5** | **72** | **106** | **0** |
+| **Total** | **29** | **5** | **72** | **106** | **29** |
 
 Counts are planning entries, not file totals inside folders. Manifest-review entries concern individual declarations; the manifests themselves must stay.
 
@@ -28,7 +28,7 @@ The original audit identified 108 potential cleanup entries. Two have been moved
 
 Only the repository checklist's FE-001 through FE-028 and BE-001 form the initial small deletion set: 18 unreachable frontend modules, two unused React/Vite starter assets, eight empty QA route folders, and the backend's pasted branch listing. Do not add original artwork, generated clients, logs, public assets, dependencies, tests, migration helpers, backups, documentation, or skill folders to this batch.
 
-Deletion and approval are separate from creating this tracking document. No checkbox is checked for a deletion, and no removed file or verification result is claimed here.
+The user authorized the first cleanup batch after tracker creation. All 29 items have been removed and recorded individually in the repository checklists. Deferred and manual-review entries remain excluded.
 
 ## Protected — keep
 
@@ -115,13 +115,14 @@ No shared-workspace deletion is part of the first batch. Any future action here 
 
 - [x] Frontend and backend are on the named cleanup branches.
 - [x] Protected master-prompt, skill, hook, and design-record paths are recorded.
-- [ ] Create a current recovery snapshot of retained files, existing tracked modifications, and untracked source/support files.
-- [ ] Record frontend baseline checks before physical cleanup.
-- [ ] Complete the first-batch deletion checkboxes and change logs in both repository checklists.
-- [ ] Complete frontend post-cleanup checks and fixture-based UI smoke checks.
-- [ ] Confirm every retained file and protected path is unchanged relative to the recovery snapshot.
-- [ ] Update this overview's deletion counts from the repository checklists.
-- [ ] Record cleanup commits containing only the approved removals and their tracker updates.
+- [x] Create a current recovery snapshot of retained files, existing tracked modifications, and untracked source/support files.
+- [x] Record frontend baseline checks before physical cleanup.
+- [x] Complete the first-batch deletion checkboxes and change logs in both repository checklists.
+- [x] Complete frontend automated post-cleanup checks and fixture HTTP/prerender checks.
+- [ ] Complete hydrated-browser fixture smoke review; no browser is exposed in this resumed session.
+- [x] Confirm every retained file and protected path is unchanged relative to the recovery snapshot.
+- [x] Update this overview's deletion counts from the repository checklists.
+- [x] Record cleanup commits containing only the approved removals and their tracker updates.
 
 Prior audit evidence: frontend in-memory TypeScript checks passed both with current files and with the 18 unreachable modules hidden; backend in-memory TypeScript checks passed with and without the obsolete custom-output client. Those checks did not physically delete anything and are not a substitute for recording baseline and post-removal results during execution.
 
@@ -129,14 +130,26 @@ Prior audit evidence: frontend in-memory TypeScript checks passed both with curr
 
 | Batch | Baseline | After removal | UI/behavior checks | Retained-file integrity | Result |
 | --- | --- | --- | --- | --- | --- |
-| Initial first batch | Not run for execution | Not run | Not run | Not run against a recovery snapshot | Pending; no deletion |
+| Initial first batch | TypeScript/build/prerender passed; tests 690 pass/8 fail; lint 1 error/6 warnings | Same test failures and lint diagnostics; TypeScript/build/prerender passed | Six fixture routes HTTP 200; route manifest/CSS checked; interactive review pending | 1,013 retained files and 87 protected files match snapshot | No new automated failures detected; browser review still pending |
 | Deferred generated-client pass | Not scheduled | Not run | Not run | Not run | Deferred |
 | Manual-review items | Not scheduled | Not run | Not run | Not run | Keep pending review |
 
 ## Change log
 
-Append one row per item action. No cleanup deletion has occurred as of tracker creation.
+Item actions are recorded individually in the repository checklists; workspace progress is recorded here.
 
 | Date/time (Asia/Taipei) | Item ID | Action | Recovery reference | Verification | Commit/reference | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-08 | — | Tracker created; no deletion | Not created yet | Documentation only | Git history when committed | Existing local edits preserved |
+
+## Execution checkpoint
+
+The work was paused at the user's request before deletion and resumed on 2026-10-08. Resume checks confirmed unchanged source files and branch heads, all eight QA folders still empty, and no new reachable consumers. Baseline tests/lint have existing failures; production build and TypeScript passed. All 29 first-batch entries are removed. Tests/lint match the recorded failures, TypeScript/build/prerender checks pass, all 60 application page entries remain, and retained-file hashes match. The cleanup commits include only these removals and tracking updates. Interactive browser smoke review remains pending because the browser inventory in this resumed session is empty.
+
+Recovery: C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-safe-cleanup/snapshot.json, with originals under files/ and a guarded restore-first-batch.cjs script. The recovery directory is local and ignored; it is not part of the cleanup commits. Run the restoration script only to roll back all 29 missing paths; it refuses to overwrite existing files. Update the checklists if any item is restored.
+
+## Next review
+
+Keep the five deferred candidates and 72 manual-review entries in place. Before a broader cleanup, resolve or understand the existing login integration/activity presentation test failures and vendor lint error, and complete the hydrated-browser smoke review. The source remains in active development; future feature work can reuse retained utilities or restore any removed first-batch file from the snapshot.
+
+The 29 entries comprise 21 files and eight empty folders. Git records file deletions; empty folders are tracked in the checklists/removal log and can be recreated by the guarded recovery script. Recovery preserves the exact pre-cleanup working-tree versions, including local edits; a Git revert alone restores the older committed versions.

@@ -3,13 +3,13 @@
 Branch: `feature/safe-codebase-cleanup-2026-10-08`  
 Repository: `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/`  
 Audit base commit, before tracker creation: `cb81bf8d3c2ad58f49f9fed2da981880761b561c`  
-Status: **Planning only. 0 items deleted. No cleanup verification batch has run.**
+Status: **BE-001 removed and verified. 1 first-batch item deleted.**
 
 [Workspace overview and shared-file review](docs/CLEANUP_TRACKER_2026-10-08.md) · [Frontend checklist](../SERVICEHUB-FRONTEND/CLEANUP_CHECKLIST_2026-10-08.md)
 
 | Scope | Entries | Deleted |
 | --- | ---: | ---: |
-| First batch | 1 | 0 |
+| First batch | 1 | 1 |
 | Deferred candidates | 2 | 0 |
 | Manual review | 18 | 0 |
 
@@ -45,9 +45,9 @@ Keep current application routes, live components, tests, migrations, environment
 - For an empty-folder candidate, recheck that it is empty immediately before removal. Git does not track empty directories.
 - Use exact allowlisted paths. Do not bulk-delete by name pattern, stage unrelated existing changes, or modify preserved application behavior.
 
-## First batch — pending deletion
+## First batch — removed
 
-- [ ] **BE-001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/adfasdf` — Pasted Git branch listing; no application/tool consumer.
+- [x] **BE-001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/adfasdf` — Pasted Git branch listing; no application/tool consumer.
 
 ## Deferred — excluded from first batch
 
@@ -122,12 +122,12 @@ The database backup folder currently contains:
 ## Execution and verification gates
 
 - [x] Confirmed the cleanup branch and preserved all pre-existing local changes.
-- [ ] Create a recovery snapshot containing current tracked edits and untracked source/support files.
-- [ ] Recheck that BE-001 is still only pasted branch output and has no consumer.
-- [ ] Remove BE-001, update its checkbox, and record the action.
-- [ ] Verify every retained backend and protected file matches the recovery snapshot.
-- [ ] Confirm the first-batch diff contains only BE-001 and tracker updates.
-- [ ] Record the result and synchronize counts in the workspace overview.
+- [x] Create a recovery snapshot containing current tracked edits and untracked source/support files.
+- [x] Recheck that BE-001 is still only pasted branch output and has no consumer.
+- [x] Remove BE-001, update its checkbox, and record the action.
+- [x] Verify every retained backend and protected file matches the recovery snapshot.
+- [x] Confirm the first-batch diff contains only BE-001 and tracker updates.
+- [x] Record the result and synchronize counts in the workspace overview.
 
 BE-001 is a non-executable text artifact. Backend build/test verification belongs to a later generated-client or dependency pass when that pass begins; it is not claimed complete here. Database-mutating integration suites must use a disposable test database/schema, rather than the application database.
 
@@ -135,8 +135,15 @@ Before any deferred BE-D-001 removal, record backend typechecking, `npm run buil
 
 ## Change log
 
-Append one row per item action. No cleanup deletion has occurred as of tracker creation.
+Append one row per item action. Deletion and retained-file verification are recorded below.
 
 | Date/time (Asia/Taipei) | Item ID | Action | Recovery reference | Verification | Commit/reference | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-08 | — | Tracker created; no deletion | Not created yet | Documentation only | Git history when committed | Existing local edits preserved |
+| 2026-10-08 14:48:35 | BE-001 | Deleted file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-safe-cleanup/snapshot.json; original path under files/ | Verified against baseline; see verification results | Cleanup commit containing this row (Git history) | Exact working-tree bytes retained |
+
+## Verification results
+
+BE-001 was only pasted branch output. The fresh workspace reference scan found no executable consumer, and its exact bytes were verified in the snapshot before removal. All retained backend/protected files match the snapshot; the only backend cleanup changes are the text-file deletion and two tracking documents. Backend application source, Prisma clients, dependencies, tests, migrations, and database data were unchanged. No backend build or database integration run is claimed for this non-executable artifact removal.
+
+Recovery and evidence: C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-safe-cleanup/snapshot.json, removals.json, and preservation-check.json. The item action is versioned in the cleanup commit containing this row.
