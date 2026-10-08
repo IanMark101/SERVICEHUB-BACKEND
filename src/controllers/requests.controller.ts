@@ -6,6 +6,8 @@ import {
   getMyRequests,
   updateRequest,
   cancelRequest,
+  archiveCompletedRequest,
+  getRequestRepostTemplate,
 } from "../services/requests.service";
 import { safeBroadcast } from "../lib/socket";
 import { ServiceRequestSchema, ServiceRequestUpdateSchema } from "../schema/marketplace.schema";
@@ -96,4 +98,21 @@ export async function remove(req: Request, res: Response, next: NextFunction) {
   } catch (err) {
     next(err);
   }
+}
+
+export async function archive(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    await archiveCompletedRequest(req.params.id as string, user.id);
+    safeBroadcast('SERVICE_REQUESTS_CHANGED', { id: req.params.id });
+    res.json({ success: true, message: 'Request archived. Booking history is unchanged.' });
+  } catch (error) { next(error); }
+}
+
+export async function repostTemplate(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const data = await getRequestRepostTemplate(req.params.id as string, user.id);
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
 }

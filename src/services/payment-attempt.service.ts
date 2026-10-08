@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
+import { recordBookingProgress } from "./booking-progress.service";
 import { safeEmit } from "../lib/socket";
 import {
   attachPaymentMethod,
@@ -10,11 +11,12 @@ import {
   createRefund,
   getPaymentIntent,
 } from "./paymongo.service";
-import { emitProviderQueueUpdates, lockProviderQueue, recalculateQueueInTransaction } from "./queue.service";
+import { lockProviderQueue, recalculateQueueInTransaction } from "./queue.service";
 import { lockAccountLifecycle, marketplaceParticipantsEligible } from "./account-lifecycle.service";
 import { rejectSiblingOffersAndNotify } from "./offer-selection-notifications.service";
 import { calculateDirectListingTerms } from "./bookings/direct-listing-pricing";
 import { assertRequestPaymentMethod } from "./request-payment-methods";
+import { recordLifecycleNotice, publishLifecycleChange } from './bookings/lifecycle-events';
 
 const ATTEMPT_TTL_MS = 15 * 60 * 1000;
 type OnlineMethod = "gcash";
@@ -505,6 +507,8 @@ export async function finalizeSuccessfulPayment(params: {
         started: false,
       },
     });
+    // Paid bookings become accepted automatically after payment confirmation.
+    await recordBookingProgress(tx, booking.id, "ACCEPTED", "SYSTEM");
     const queue = await tx.queue.create({
       data: {
         providerId: fresh.providerId,
@@ -533,7 +537,15 @@ export async function finalizeSuccessfulPayment(params: {
       losingProviderIds = await rejectSiblingOffersAndNotify(tx, offer.requestId, offer.id, offerTerms?.request.title ?? 'service request');
       await tx.serviceRequest.update({ where: { id: offer.requestId }, data: { status: "IN_PROGRESS" } });
     }
-    return { booking, queue, created: true, refundRequired: false, title: offerTerms?.request.title ?? service?.title ?? "your service", losingProviderIds };
+    const title = offerTerms?.request.title ?? service?.title ?? 'your service';
+    const recorded = await recordLifecycleNotice(tx, booking, {
+      userId: booking.providerId, title: 'Paid booking ready to start',
+      body: queue.position === 1
+        ? `Payment was confirmed for "${title}". This seeker is first in your paid work queue and ready for you to start.`
+        : `Payment was confirmed for "${title}". This seeker is now in your paid work queue at position ${queue.position}.`,
+      link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
+    });
+    return { booking, queue, created: true, refundRequired: false, title, losingProviderIds, recorded };
   });
 
   if (result.created && result.booking && result.queue) {
@@ -543,22 +555,9 @@ export async function finalizeSuccessfulPayment(params: {
         safeEmit(`user:${providerId}`, 'ENGAGEMENT_CHANGED', { type: 'offer_not_selected' });
       }
     }
-    await emitProviderQueueUpdates(result.booking.providerId).catch((error) => console.error("Queue refresh event failed", error));
-    await prisma.notification.create({
-      data: {
-        userId: result.booking.providerId,
-        title: "Paid booking ready to start",
-        body: result.queue.position === 1
-          ? `Payment was confirmed for "${result.title}". This customer is first in your paid work queue and ready for you to start.`
-          : `Payment was confirmed for "${result.title}". This customer is now in your paid work queue at position ${result.queue.position}.`,
-        link: `/provider/provider-activity?tab=waiting&booking=${result.booking.id}`,
-      },
-    });
-    safeEmit(`user:${result.booking.providerId}`, "notification", { title: "Paid booking ready to start" });
+    if ('recorded' in result) publishLifecycleChange(result.booking, 'queue_created', result.recorded, true);
     safeEmit(`user:${result.booking.providerId}`, "queue_update", { providerId: result.booking.providerId });
     if (result.booking.serviceId) safeEmit(`service:${result.booking.serviceId}`, "queue_update", { serviceId: result.booking.serviceId });
-    safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });
-    safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });
   }
   return result;
 }

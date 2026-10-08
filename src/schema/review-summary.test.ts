@@ -6,7 +6,7 @@ const review = (id: string, rating = 5, tags: unknown = ['Friendly'], text = 'Th
 
 test('one review is counted honestly, with exact tags rather than a common trend', () => {
   const digest = reviewFacts([review('one')], 'provider');
-  assert.equal(digest.summary, 'Based on 1 client review, this provider has an average rating of 5.0/5. Review tags: Friendly (1 review).');
+  assert.equal(digest.summary, 'Based on 1 service seeker review, this service provider has an average rating of 5.0/5. Review tags: Friendly (1 review).');
 });
 test('averages include ratings without written feedback', () => {
   assert.equal(reviewFacts([review('one', 5), { ...review('two', 1), text: null }], 'provider').averageRating, 3);
@@ -18,12 +18,12 @@ test('duplicate, unknown and opposite-role tags cannot inflate a digest', () => 
 });
 test('client context uses provider-authored feedback and client-specific labels', () => {
   const digest = reviewFacts([review('one', 4, ['Respectful', 'Friendly'])], 'seeker');
-  assert.match(digest.summary, /1 provider review, this client/);
+  assert.match(digest.summary, /1 service provider review, this service seeker/);
   assert.match(digest.summary, /Respectful/);
   assert.doesNotMatch(digest.summary, /Friendly/);
 });
 test('a twenty-review window is explicitly recent', () => {
-  assert.match(reviewFacts(Array.from({ length: 20 }, (_, i) => review(String(i))), 'provider').summary, /20 recent client reviews/);
+  assert.match(reviewFacts(Array.from({ length: 20 }, (_, i) => review(String(i))), 'provider').summary, /20 recent service seeker reviews/);
 });
 test('AI can only select original excerpts by existing review ids', () => {
   assert.deepEqual(groundedExcerpts('{"reviewIds":["one"]}', [review('one')]), ['5/5: “The work was carefully completed.”']);

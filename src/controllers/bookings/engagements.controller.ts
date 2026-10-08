@@ -44,12 +44,12 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
           select: { id: true, name: true, email: true, phone: true, location: true, avatarUrl: true, trustScore: true, verificationStatus: true },
         },
         service: {
-          select: { id: true, title: true, description: true, price: true, priceType: true, estimatedDurationMins: true },
+          select: { id: true, title: true, description: true, price: true, priceType: true, estimatedDurationMins: true, category: { select: { name: true } } },
         },
         offer: {
           include: {
             request: {
-              select: { title: true },
+              select: { title: true, targetServiceId: true, category: { select: { name: true } } },
             },
           },
         },
@@ -60,12 +60,16 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
             agreedPrice: true,
             quantity: true,
             service: {
-              select: { title: true },
+              select: { title: true, category: { select: { name: true } }, estimatedDurationMins: true },
             },
           },
         },
         queue: true,
         reports: true,
+        progressEvents: {
+          select: { id: true, kind: true, actorRole: true, eventKey: true, occurredAt: true },
+          orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+        },
         cancellationRequests: {
           orderBy: { createdAt: "desc" },
         },
@@ -96,7 +100,7 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
       },
       include: {
         seeker: {
-          select: { id: true, name: true, email: true, phone: true, avatarUrl: true },
+          select: { id: true, name: true, email: true, phone: true, avatarUrl: true, trustScore: true },
         },
         provider: {
           select: { id: true, name: true, email: true, phone: true, avatarUrl: true, trustScore: true },
@@ -104,9 +108,13 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         reviews: true,
         booking: {
           include: {
-            service: { select: { title: true } },
-            offer: { include: { request: { select: { title: true } } } },
-            directRequest: { include: { service: { select: { title: true } } } },
+            progressEvents: {
+              select: { id: true, kind: true, actorRole: true, eventKey: true, occurredAt: true },
+              orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+            },
+            service: { select: { title: true, category: { select: { name: true } }, estimatedDurationMins: true } },
+            offer: { include: { request: { select: { title: true, targetServiceId: true, category: { select: { name: true } } } } } },
+            directRequest: { include: { service: { select: { title: true, category: { select: { name: true } }, estimatedDurationMins: true } } } },
           },
         },
       },

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireEmailVerified, requireVerification, requireMarketplaceUser } from "../middlewares/auth.middleware";
-import { create, list, getMine, update, remove } from "../controllers/requests.controller";
+import { create, list, getMine, update, remove, archive, repostTemplate } from "../controllers/requests.controller";
 import { marketplaceContentLimiter } from "../middlewares/rateLimiter.middleware";
 
 const router = Router();
@@ -11,6 +11,8 @@ router.use(requireAuth, requireMarketplaceUser, requireEmailVerified);
 router.post("/", requireVerification, marketplaceContentLimiter, create);
 router.get("/", list);
 router.get("/mine", getMine);
+router.get('/:id/repost-template', repostTemplate);
+router.post('/:id/archive', archive);
 router.patch("/:id", requireVerification, marketplaceContentLimiter, update);
 router.delete("/:id", remove);
 

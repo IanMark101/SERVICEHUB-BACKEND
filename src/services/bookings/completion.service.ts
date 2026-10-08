@@ -1,12 +1,9 @@
 import type { BookingStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { applyTrustEventInTransaction } from "../trust.service";
-import { safeEmit } from "../../lib/socket";
 import { assertDistinctAccounts } from "../../utils/security";
-import { sendMessage } from "../messages.service";
 import {
   emitWaitlistNotification,
-  emitProviderQueueUpdates,
   lockProviderQueue,
   notifyWaitlistInTransaction,
   recalculateQueueInTransaction,
@@ -14,6 +11,8 @@ import {
 } from "../queue.service";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifecycle.service";
 import { assertNoFinancialResolutionReserved } from "../case-resolution.service";
+import { recordBookingProgress } from "../booking-progress.service";
+import { recordLifecycleNotice, publishLifecycleChange } from './lifecycle-events';
 
 function httpError(message: string, status: number, code?: string) {
   const error = new Error(message) as Error & { status?: number; code?: string };
@@ -43,6 +42,7 @@ export async function markJobComplete(id: string, providerId: string) {
       where: { id: fresh.id },
       data: { status: "AWAITING_CONFIRMATION" },
     });
+    const progressEvent = await recordBookingProgress(tx, fresh.id, "WORK_MARKED_COMPLETE", "PROVIDER", `work-complete:${updated.updatedAt.toISOString()}`);
     let waitlistNotification: WaitlistNotification | null = null;
     if (fresh.queue) {
       await lockProviderQueue(tx, fresh.providerId);
@@ -52,25 +52,20 @@ export async function markJobComplete(id: string, providerId: string) {
     } else {
       await recalculateQueueInTransaction(tx, fresh.providerId);
     }
-    return { booking: updated, queue: fresh.queue, changed: true, waitlistNotification };
+    const recorded = await recordLifecycleNotice(tx, updated, {
+      userId: updated.seekerId,
+      title: "Service marked complete",
+      body: "Review the completed work, then confirm completion or open a dispute.",
+      link: `/seeker/seeker-activity?tab=action_required&booking=${updated.id}`,
+    });
+    return { booking: updated, queue: fresh.queue, changed: true, waitlistNotification, progressEvent, recorded };
   });
 
   emitWaitlistNotification(result.waitlistNotification ?? null);
-  if (result.changed) await emitProviderQueueUpdates(result.booking.providerId).catch((error) => console.error("Queue refresh event failed", error));
-  if (result.changed) {
-    await prisma.notification.create({
-      data: {
-        userId: result.booking.seekerId,
-        title: "Service marked complete",
-        body: "Review the completed work, then confirm completion or open a dispute.",
-        link: `/seeker/seeker-activity?tab=action_required&booking=${result.booking.id}`,
-      },
-    });
-    safeEmit(`user:${result.booking.seekerId}`, "notification", { title: "Service marked complete" });
-    safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "awaiting_confirmation" });
-    safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "awaiting_confirmation" });
+  if (result.changed && result.recorded) {
+    publishLifecycleChange(result.booking, 'awaiting_confirmation', result.recorded, true);
   }
-  return result.booking;
+  return { ...result.booking, progressEvent: result.progressEvent };
 }
 
 export async function settleCompletedBooking(
@@ -120,6 +115,7 @@ export async function settleCompletedBooking(
       where: { id: booking.id },
       data: { status: "COMPLETED", paymentStatus: settlementStatus, statusBeforeDispute: null },
     });
+    const progressEvent = await recordBookingProgress(tx, booking.id, "COMPLETION_CONFIRMED", actor.type);
     if (booking.queue) {
       await lockProviderQueue(tx, booking.providerId);
       await tx.queue.update({ where: { id: booking.queue.id }, data: { status: "DONE", paymentStatus: settlementStatus } });
@@ -158,40 +154,26 @@ export async function settleCompletedBooking(
         eventKey: `booking-completion:${booking.id}:provider`,
       });
     }
-    return { completed, booking: updatedBooking, changed: true, isCash };
+    const recorded = await recordLifecycleNotice(tx, updatedBooking, {
+      userId: booking.providerId,
+      title: "Completion confirmed",
+      body: actor.type === "ADMIN"
+        ? "An administrator reviewed the booking and confirmed completion."
+        : isCash
+          ? "The seeker confirmed completion of the on-site cash booking."
+          : "The seeker confirmed completion and the internal payment hold was released.",
+      link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
+    }, {
+      senderId: actor.userId,
+      content: isCash ? "Cash service completion confirmed." : "Online payment released after completion confirmation.",
+    });
+    return { completed, booking: updatedBooking, changed: true, isCash, progressEvent, recorded };
   });
 
-  if (result.changed) {
-    try {
-      await sendMessage(
-        result.booking.id,
-        actor.userId,
-        result.isCash ? "Cash service completion confirmed." : "Online payment released after completion confirmation.",
-        true,
-        actor.type === "ADMIN" ? "admin" : undefined,
-      );
-      await prisma.notification.create({
-        data: {
-          userId: result.booking.providerId,
-          title: "Completion confirmed",
-          body: actor.type === "ADMIN"
-            ? "An administrator reviewed the booking and confirmed completion."
-            : result.isCash
-              ? "The seeker confirmed completion of the on-site cash booking."
-              : "The seeker confirmed completion and the internal payment hold was released.",
-          link: `/provider/provider-activity?tab=all&booking=${result.booking.id}`,
-        },
-      });
-      safeEmit(`user:${result.booking.providerId}`, "notification", { title: "Completion confirmed" });
-    } catch (error) {
-      // The booking settlement is already committed. A best-effort chat or
-      // notification failure must not make the client retry financial state.
-      console.error("Post-settlement notification failed", error);
-    }
-    safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "completed" });
-    safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "completed" });
+  if (result.changed && result.recorded) {
+    publishLifecycleChange(result.booking, 'completed', result.recorded);
   }
-  return result.completed;
+  return { ...result.completed, booking: result.booking, progressEvent: result.progressEvent };
 }
 
 export async function confirmCompletionService(bookingId: string, seekerId: string) {
@@ -205,7 +187,7 @@ export async function disputeJobService(
   description?: string,
   evidenceUrl?: string,
 ) {
-  const report = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await lockBookingLifecycle(tx, bookingId);
     const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { queue: true } });
     if (!booking || booking.seekerId !== seekerId) throw httpError("Booking not found or access denied", 404);
@@ -219,7 +201,7 @@ export async function disputeJobService(
     assertDistinctAccounts(seekerId, booking.providerId, "dispute job");
 
     const paymentStatus = booking.paymentMethod === "On-site Cash" ? "UNPAID" : "FROZEN_HELD";
-    await tx.booking.update({
+    const updatedBooking = await tx.booking.update({
       where: { id: booking.id },
       data: { status: "DISPUTED", statusBeforeDispute: booking.status as BookingStatus, paymentStatus },
     });
@@ -230,7 +212,7 @@ export async function disputeJobService(
     });
 
     const validReasons = ["POOR_SERVICE_QUALITY", "INCOMPLETE_SERVICE", "SCAM_OR_FRAUD", "INAPPROPRIATE_BEHAVIOR", "OVERPRICING", "NO_SHOW"];
-    return tx.report.create({
+    const report = await tx.report.create({
       data: {
         bookingId: booking.id,
         reporterId: seekerId,
@@ -242,16 +224,13 @@ export async function disputeJobService(
         status: "PENDING",
       },
     });
-  });
-
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId }, select: { providerId: true, seekerId: true } });
-  if (booking) {
-    await prisma.notification.create({
-      data: { userId: booking.providerId, title: "Completion disputed", body: "The seeker opened a completion dispute for administrator review.", link: `/provider/provider-activity?tab=disputed&booking=${bookingId}` },
+    const recorded = await recordLifecycleNotice(tx, booking, {
+      userId: booking.providerId, title: "Completion disputed",
+      body: "The seeker opened a completion dispute for administrator review.",
+      link: `/provider/provider-activity?tab=disputed&booking=${bookingId}`,
     });
-    safeEmit(`user:${booking.providerId}`, "notification", { title: "Completion disputed" });
-    safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId, type: "disputed" });
-    safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId, type: "disputed" });
-  }
-  return report;
+    return { report, booking: updatedBooking, recorded };
+  });
+  publishLifecycleChange(result.booking, 'disputed', result.recorded);
+  return { ...result.report, booking: result.booking };
 }

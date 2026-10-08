@@ -61,10 +61,11 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
           link: `${isSeeker ? "/provider" : "/seeker"}/user-profile?id=${targetId}&tab=reviews`,
         },
       });
-      return { review, targetId, providerId: isSeeker ? completed.providerId : null };
+      return { review, targetId, providerId: isSeeker ? completed.providerId : null, bookingId: completed.bookingId, participantIds: [completed.seekerId, completed.providerId] };
     });
 
     safeEmit(`user:${result.targetId}`, "notification", { title: "New Review Received" });
+    result.participantIds.forEach(id => safeEmit(`user:${id}`, "ENGAGEMENT_CHANGED", { bookingId: result.bookingId, type: "reviewed" }));
     refreshReviewSummary(result.targetId, !!result.providerId);
     res.status(201).json({ success: true, data: result.review });
   } catch (error) {
@@ -98,7 +99,7 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`review:${reviewId}`}))`;
       const existing = await tx.review.findUnique({
         where: { id: reviewId },
-        include: { completedService: { select: { seekerId: true, providerId: true } } },
+        include: { completedService: { select: { bookingId: true, seekerId: true, providerId: true } } },
       });
       if (!existing) {
         const error = new Error("Review not found") as Error & { status?: number };
@@ -135,11 +136,11 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
           eventKey: `review:${reviewId}:rating:v${nextVersion}`,
         });
       }
-      return { updated, targetId: existing.targetId, providerId: eligibleProviderReview ? existing.completedService.providerId : null };
+      return { updated, targetId: existing.targetId, providerId: eligibleProviderReview ? existing.completedService.providerId : null, bookingId: existing.completedService.bookingId, participantIds: [existing.completedService.seekerId, existing.completedService.providerId] };
     });
 
     refreshReviewSummary(result.targetId, !!result.providerId);
-    safeEmit(`user:${result.targetId}`, 'accountStatusChanged', { reviewsChanged: true });
+    result.participantIds.forEach(id => safeEmit(`user:${id}`, "ENGAGEMENT_CHANGED", { bookingId: result.bookingId, type: "reviewed" }));
     res.json({ success: true, message: "Review updated successfully", data: result.updated });
   } catch (error) {
     next(error);

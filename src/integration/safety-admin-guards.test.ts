@@ -53,6 +53,24 @@ test("participant safety, review moderation, and verified self-deletion", async 
   const outsider = await makeUser("Safety Outsider");
   const deletionTarget = await makeUser("Deletion Target");
 
+  const acceptedBooking = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: provider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 500, paymentStatus: "UNPAID", status: "ACCEPTED", started: false } });
+  for (const reporterId of [seeker.id, provider.id]) {
+    for (const reason of ["POOR_SERVICE_QUALITY", "INCOMPLETE_SERVICE"] as const) {
+      await assert.rejects(
+        createSafetyReport({ bookingId: acceptedBooking.id, reporterId, reason, description: "A work-related concern before the provider starts the job." }),
+        (error: unknown) => error instanceof Error && "status" in error && error.status === 409 && /only after the provider starts the job/.test(error.message),
+      );
+    }
+  }
+  assert.equal(await prisma.report.count({ where: { bookingId: acceptedBooking.id } }), 0);
+  assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: acceptedBooking.id } })).status, "ACCEPTED");
+  const preWorkReport = await createSafetyReport({ bookingId: acceptedBooking.id, reporterId: provider.id, reason: "INAPPROPRIATE_BEHAVIOR", description: "Unsafe messages can be reported before any work starts." });
+  reportIds.push(preWorkReport.id);
+  assert.equal(preWorkReport.created, true);
+  const pausedBooking = await prisma.booking.findUniqueOrThrow({ where: { id: acceptedBooking.id } });
+  assert.equal(pausedBooking.started, false);
+  assert.equal(pausedBooking.status, "DISPUTED");
+
   const booking = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: provider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 500, paymentStatus: "UNPAID", status: "ONGOING", started: true } });
   const evidenceStorageKey = `servicehub/safety/${booking.id}/${seeker.id}/evidence.jpg`;
   const firstReport = await createSafetyReport({ bookingId: booking.id, reporterId: seeker.id, reason: "INAPPROPRIATE_BEHAVIOR", description: "The participant behaved in a way that requires administrator review.", evidenceStorageKey });
@@ -69,6 +87,9 @@ test("participant safety, review moderation, and verified self-deletion", async 
   const reciprocal = await createSafetyReport({ bookingId: booking.id, reporterId: provider.id, reason: "INCOMPLETE_SERVICE", description: "The other participant may independently submit a safety concern." });
   reportIds.push(reciprocal.id);
   assert.notEqual(reciprocal.id, firstReport.id);
+  const qualityConcern = await createSafetyReport({ bookingId: booking.id, reporterId: seeker.id, reason: "POOR_SERVICE_QUALITY", description: "The work has started and its quality needs administrator review." });
+  reportIds.push(qualityConcern.id);
+  assert.equal(qualityConcern.created, true);
   await assert.rejects(createSafetyReport({ bookingId: booking.id, reporterId: outsider.id, reason: "NO_SHOW", description: "An outsider must never be allowed to report this booking." }), /access denied/i);
   await assert.rejects(createSafetyReport({ bookingId: booking.id, reporterId: provider.id, reason: "NO_SHOW", description: "Invalid evidence ownership must be rejected.", evidenceStorageKey: `servicehub/safety/${booking.id}/${outsider.id}/bad.jpg` }), /does not belong/i);
   await accessSafetyReportEvidence(firstReport.id, admin.id, "view");

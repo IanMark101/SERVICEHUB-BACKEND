@@ -23,7 +23,7 @@ import {
   updateUserProfile,
   changeUserPassword,
 } from "../services/auth.service";
-import { getTrustHistory } from "../services/trust.service";
+import { getTrustHistory, getPublicTrustHistory } from "../services/trust.service";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { env } from "../config/env";
 
@@ -321,10 +321,9 @@ export async function getUserTrustHistoryHandler(req: Request, res: Response, ne
   try {
     const targetUserId = req.params.id as string;
     const requester = (req as AuthenticatedRequest).user;
-    if (requester.id !== targetUserId && requester.role !== "admin") {
-      return res.status(403).json({ success: false, error: "Trust history is private to the account owner and administrators" });
-    }
-    const events = await getTrustHistory(targetUserId);
+    const events = requester.id === targetUserId || requester.role === 'admin'
+      ? await getTrustHistory(targetUserId)
+      : await getPublicTrustHistory(targetUserId);
     res.json({ success: true, data: events });
   } catch (err) {
     next(err);

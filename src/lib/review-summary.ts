@@ -27,7 +27,7 @@ export function reviewFacts(reviews: ReviewForSummary[], context: ReviewContext)
   const n = reviews.length;
   return {
     reviewCount: n, averageRating, reviewContext: context, reviewLimit: 20,
-    summary: `Based on ${n}${n === 20 ? ' recent' : ''} ${context === 'provider' ? 'client' : 'provider'} ${n === 1 ? 'review' : 'reviews'}, this ${context === 'provider' ? 'provider' : 'client'} has an average rating of ${averageRating.toFixed(1)}/5.${topTags.length ? ` Review tags: ${topTags.map(([tag, count]) => `${tag} (${count} ${count === 1 ? 'review' : 'reviews'})`).join(', ')}.` : ''}`,
+    summary: `Based on ${n}${n === 20 ? ' recent' : ''} ${context === 'provider' ? 'service seeker' : 'service provider'} ${n === 1 ? 'review' : 'reviews'}, this ${context === 'provider' ? 'service provider' : 'service seeker'} has an average rating of ${averageRating.toFixed(1)}/5.${topTags.length ? ` Review tags: ${topTags.map(([tag, count]) => `${tag} (${count} ${count === 1 ? 'review' : 'reviews'})`).join(', ')}.` : ''}`,
   };
 }
 
