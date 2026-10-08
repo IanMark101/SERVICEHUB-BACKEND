@@ -2,7 +2,7 @@
 
 Branch in both application repositories: `feature/safe-codebase-cleanup-2026-10-08`  
 Date/timezone: 2026-10-08, Asia/Taipei  
-Status: **29 first-batch items removed and compared with baseline. Interactive frontend browser review remains pending.**
+Status: **32 cleanup entries removed and backed up. Frontend: 700 tests pass and lint is clean. Backend: build and 111 contract tests pass. Interactive browser review remains pending.**
 
 This document is the workspace overview. Each repository checklist owns its item checkboxes and change log:
 
@@ -15,10 +15,10 @@ The overview is stored in the backend repository so it can be versioned on its c
 
 | Owner | First batch | Deferred | Manual review | Total planning entries | Deleted |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Frontend | 28 | 3 | 12 | 43 | 28 |
-| Backend | 1 | 2 | 18 | 21 | 1 |
+| Frontend | 28 | 3 | 12 | 43 | 30 |
+| Backend | 1 | 2 | 18 | 21 | 2 |
 | Shared workspace | 0 | 0 | 42 | 42 | 0 |
-| **Total** | **29** | **5** | **72** | **106** | **29** |
+| **Total** | **29** | **5** | **72** | **106** | **32** |
 
 Counts are planning entries, not file totals inside folders. Manifest-review entries concern individual declarations; the manifests themselves must stay.
 
@@ -150,6 +150,29 @@ Recovery: C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-safe
 
 ## Next review
 
-Keep the five deferred candidates and 72 manual-review entries in place. Before a broader cleanup, resolve or understand the existing login integration/activity presentation test failures and vendor lint error, and complete the hydrated-browser smoke review. The source remains in active development; future feature work can reuse retained utilities or restore any removed first-batch file from the snapshot.
+The resumed pass removed three verified deferred artifacts, retained the original hero artwork for polishing/manual review, and confirmed the three current audit logs are required evidence. All 72 original manual-review entries remain retained. Existing frontend test expectations and lint diagnostics are resolved in the current working tree. Complete hydrated-browser smoke review before merging. Further feature/polishing work can proceed without deleting uncertain assets, tools, documentation, tests, or dependencies.
 
 The 29 entries comprise 21 files and eight empty folders. Git records file deletions; empty folders are tracked in the checklists/removal log and can be recreated by the guarded recovery script. Recovery preserves the exact pre-cleanup working-tree versions, including local edits; a Git revert alone restores the older committed versions.
+
+
+## Resumed pass and final decisions — 2026-10-08
+
+| ID / full path | Purpose and current use | Classification / decision | Reason and removal risk |
+| --- | --- | --- | --- |
+| FE-D-001 — C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-FRONTEND/src/assets/hero.png | Original artwork; no current executable import found | Needs manual review — kept | May be useful in upcoming polishing. Removal loses editable/source artwork; retention is unresolved. |
+| FE-D-002 — C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-FRONTEND/tsconfig.tsbuildinfo | Ignored TypeScript incremental cache, read/written automatically when incremental mode runs | Safe candidate — removed | Regenerable cache, not application code. No build/typecheck writer was running. Next incremental check can be slower; exact bytes backed up. |
+| FE-D-003 — C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-FRONTEND/.safety-report-qa/ | Empty prior QA output directory; no script/config/route consumer found | Safe candidate — removed | Rechecked empty immediately before removal. Negligible application risk; future QA can recreate it. |
+| BE-D-001 — C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/ | Obsolete generated client, 21 files; old embedded schema targets this location | Safe candidate — removed | Current generator, runtime imports, CI and Docker use node_modules client output. Virtual TypeScript plus physical build/tests pass without it. Legacy manual commands could require restoring the saved copy. Active clients remain intact. |
+| BE-D-002 — C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/.audit-results/ | Three historical verification logs written by the audit runner and linked from SERVICEHUB_REVIEW_DIGEST_REAUDIT_2026-10-07.md | Required — keep | Historical evidence is consumed by retained documentation. Deletion would break its three evidence links. |
+
+Of 106 planning entries: **32 safe candidates removed**, **73 retained for manual review** (72 original entries plus hero artwork), and **one confirmed required evidence folder kept**. Protected prompt/skills/configuration/design authority are additional keep items outside these counts. Folder-child checklist entries do not increase planning-entry totals.
+
+The second batch comprises 22 local ignored files and three removed directories (the empty QA folder and the now-empty generated-client parent/runtime folders), about 12.62 MiB. Combined with the first batch, 43 files and 11 directory paths were physically removed. These counts include generated output; only the first batch's 21 file deletions are versioned by Git. Empty directories and ignored artifacts are backed up and tracked in the checklists; switching branches does not restore them.
+
+Latest validation: frontend 700/700 tests across 114 files, TypeScript, webpack production build, and landing/auth prerender checks pass; ESLint reports zero errors/warnings. Backend build and all 111 schema/contract tests across 33 files pass both before and after obsolete-client removal. No database integration run is claimed. Hydrated browser verification remains unchecked because no browser is exposed.
+
+The two test expectation/fixture updates remain unstaged with the existing CAPTCHA/ActivityFeed implementation changes they exercise. They should be committed with those feature changes, not as a standalone commit against the older implementation. Standalone lint/font maintenance and checklist updates are independent cleanup changes. User-owned edits remain preserved; no feature source was refactored in this pass.
+
+Recovery locations: .cleanup-backups/2026-10-08-safe-cleanup/ (first batch), .cleanup-backups/2026-10-08-validation/ (validation originals/evidence), and .cleanup-backups/2026-10-08-deferred-cleanup/ (second batch originals and guarded restoration). Keep all three until rollback retention is explicitly decided.
+
+Recommendation: stop further deletion at this safe boundary, retain the 73 uncertain items for ongoing development, perform a short interactive smoke review before merging, and handle later retirement as separate changes after features stabilize. Neither repository was pushed or merged.

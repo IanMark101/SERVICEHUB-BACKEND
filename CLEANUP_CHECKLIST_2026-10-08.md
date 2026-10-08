@@ -3,14 +3,14 @@
 Branch: `feature/safe-codebase-cleanup-2026-10-08`  
 Repository: `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/`  
 Audit base commit, before tracker creation: `cb81bf8d3c2ad58f49f9fed2da981880761b561c`  
-Status: **BE-001 removed and verified. 1 first-batch item deleted.**
+Status: **Two items removed: BE-001 and the verified obsolete custom-output client BE-D-001. Build and 111 contract tests pass.**
 
 [Workspace overview and shared-file review](docs/CLEANUP_TRACKER_2026-10-08.md) · [Frontend checklist](../SERVICEHUB-FRONTEND/CLEANUP_CHECKLIST_2026-10-08.md)
 
 | Scope | Entries | Deleted |
 | --- | ---: | ---: |
 | First batch | 1 | 1 |
-| Deferred candidates | 2 | 0 |
+| Deferred candidates | 2 | 1 |
 | Manual review | 18 | 0 |
 
 Folder contents are listed separately below for eventual file-by-file tracking. The two parent folders remain two planning entries; their child checkboxes are not additional scope entries.
@@ -49,42 +49,42 @@ Keep current application routes, live components, tests, migrations, environment
 
 - [x] **BE-001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/adfasdf` — Pasted Git branch listing; no application/tool consumer.
 
-## Deferred — excluded from first batch
+## Deferred candidates — subsequent decisions
 
-- [ ] **BE-D-001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/` — Obsolete custom-output client. Current imports use @prisma/client; current schema no longer targets this directory. Handle separately after backend verification.
-- [ ] **BE-D-002** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/.audit-results/` — Historical audit logs; preserve evidence until retention is settled. The audit runner writes new output rather than reading these logs.
+- [x] **BE-D-001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/` — Obsolete custom-output client. Current imports use @prisma/client; current schema no longer targets this directory. Removed after reference/import resolution, virtual-removal TypeScript, build, and contract checks. All 21 children are backed up.
+- [ ] **BE-D-002** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/.audit-results/` — Required — keep as retained verification evidence. All three current logs are linked from SERVICEHUB_REVIEW_DIGEST_REAUDIT_2026-10-07.md; the runner creates new logs but does not replace this historical evidence.
 
 The obsolete generated client was hidden in memory during the earlier audit without introducing backend TypeScript errors. Keep the active client under `node_modules/@prisma/client` and `node_modules/.prisma/client`. Do not regenerate or remove active dependencies as part of the first batch.
 
 ### BE-D-001 contents — src/generated/prisma
 
-All child entries below remain deferred. Mark the parent folder complete only when every listed child is gone and the directory's removal has been confirmed. Re-inventory immediately before any future removal.
+All 21 children below were individually backed up, hash-checked, and removed. Both the runtime directory and parent directory were confirmed empty before non-recursive removal.
 
-- [ ] **BE-D-001.001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/client.d.ts`
-- [ ] **BE-D-001.002** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/client.js`
-- [ ] **BE-D-001.003** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/default.d.ts`
-- [ ] **BE-D-001.004** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/default.js`
-- [ ] **BE-D-001.005** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/edge.d.ts`
-- [ ] **BE-D-001.006** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/edge.js`
-- [ ] **BE-D-001.007** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/index-browser.js`
-- [ ] **BE-D-001.008** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/index.d.ts`
-- [ ] **BE-D-001.009** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/index.js`
-- [ ] **BE-D-001.010** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/package.json`
-- [ ] **BE-D-001.011** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/query_compiler_fast_bg.js`
-- [ ] **BE-D-001.012** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/query_compiler_fast_bg.wasm`
-- [ ] **BE-D-001.013** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/query_compiler_fast_bg.wasm-base64.js`
-- [ ] **BE-D-001.014** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/client.d.ts`
-- [ ] **BE-D-001.015** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/client.js`
-- [ ] **BE-D-001.016** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/index-browser.d.ts`
-- [ ] **BE-D-001.017** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/index-browser.js`
-- [ ] **BE-D-001.018** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/wasm-compiler-edge.js`
-- [ ] **BE-D-001.019** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/schema.prisma`
-- [ ] **BE-D-001.020** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/wasm-edge-light-loader.mjs`
-- [ ] **BE-D-001.021** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/wasm-worker-loader.mjs`
+- [x] **BE-D-001.001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/client.d.ts`
+- [x] **BE-D-001.002** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/client.js`
+- [x] **BE-D-001.003** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/default.d.ts`
+- [x] **BE-D-001.004** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/default.js`
+- [x] **BE-D-001.005** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/edge.d.ts`
+- [x] **BE-D-001.006** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/edge.js`
+- [x] **BE-D-001.007** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/index-browser.js`
+- [x] **BE-D-001.008** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/index.d.ts`
+- [x] **BE-D-001.009** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/index.js`
+- [x] **BE-D-001.010** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/package.json`
+- [x] **BE-D-001.011** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/query_compiler_fast_bg.js`
+- [x] **BE-D-001.012** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/query_compiler_fast_bg.wasm`
+- [x] **BE-D-001.013** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/query_compiler_fast_bg.wasm-base64.js`
+- [x] **BE-D-001.014** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/client.d.ts`
+- [x] **BE-D-001.015** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/client.js`
+- [x] **BE-D-001.016** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/index-browser.d.ts`
+- [x] **BE-D-001.017** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/index-browser.js`
+- [x] **BE-D-001.018** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/runtime/wasm-compiler-edge.js`
+- [x] **BE-D-001.019** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/schema.prisma`
+- [x] **BE-D-001.020** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/wasm-edge-light-loader.mjs`
+- [x] **BE-D-001.021** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/src/generated/prisma/wasm-worker-loader.mjs`
 
 ### BE-D-002 contents — .audit-results
 
-All child entries below remain deferred. Mark the parent folder complete only when every listed child is gone and the directory's removal has been confirmed. Re-inventory immediately before any future removal.
+All three log children below remain retained. Their unchecked boxes mean not deleted; the review decision is keep.
 
 - [ ] **BE-D-002.001** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/.audit-results/audit_20260924_089fd4b1696d47d6b11014b9d4980bfc.log`
 - [ ] **BE-D-002.002** — `C:/Users/SERVICEHUB-CORDOVA/fullstack/SERVICEHUB-BACKEND/.audit-results/audit_20260924_37747bedce514fd5a52318a20e4687d5.log`
@@ -141,9 +141,48 @@ Append one row per item action. Deletion and retained-file verification are reco
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-08 | — | Tracker created; no deletion | Not created yet | Documentation only | Git history when committed | Existing local edits preserved |
 | 2026-10-08 14:48:35 | BE-001 | Deleted file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-safe-cleanup/snapshot.json; original path under files/ | Verified against baseline; see verification results | Cleanup commit containing this row (Git history) | Exact working-tree bytes retained |
+| 2026-10-08 15:38:01 | BE-D-001.001 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.002 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.003 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.004 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.005 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.006 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.007 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.008 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.009 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.010 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.011 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.012 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.013 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.014 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.015 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.016 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.017 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.018 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.019 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.020 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001.021 | Deleted obsolete generated file | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
+| 2026-10-08 15:38:01 | BE-D-001 | Removed empty client folders | C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/snapshot.json; exact originals under files/ | Verified; see resumed results | Cleanup documentation commit containing this row | Ignored obsolete client; active node_modules client retained |
 
 ## Verification results
 
 BE-001 was only pasted branch output. The fresh workspace reference scan found no executable consumer, and its exact bytes were verified in the snapshot before removal. All retained backend/protected files match the snapshot; the only backend cleanup changes are the text-file deletion and two tracking documents. Backend application source, Prisma clients, dependencies, tests, migrations, and database data were unchanged. No backend build or database integration run is claimed for this non-executable artifact removal.
 
 Recovery and evidence: C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-safe-cleanup/snapshot.json, removals.json, and preservation-check.json. The item action is versioned in the cleanup commit containing this row.
+
+
+## Resumed client cleanup — 2026-10-08
+
+BE-D-001 is the old custom output selected by its own embedded schema; the current prisma/schema.prisma generator has no custom output. src/lib/prisma.ts and the rest of the application/scripts/tests import @prisma/client. Node resolves that package and its generated default to node_modules/@prisma/client/default.js and node_modules/.prisma/client/default.js (version 7.10.0). Both active directories remain intact. Current CI and Docker generate the default client and Docker copies node_modules/.prisma. No current executable consumer of src/generated/prisma was found.
+
+| Verification | Before removal | After removal |
+| --- | --- | --- |
+| In-memory TypeScript, with/without old client | Both passed (153 / 147 root files) | Physical removal agrees with virtual result |
+| npm run build (tsc and tsc-alias) | Passed | Passed |
+| Default schema/contract test set, 33 files | 111 passed, 0 failed | 111 passed, 0 failed |
+
+Contract tests used fixture environment values, a non-serving database port, and mocked external payment transport; real .env credentials were not loaded. The initial harness omitted the dummy PayMongo key and one mocked-provider test failed before any removal; after supplying the fixture key all 111 passed before and after removal. The initial TypeScript helper also resolved Node types from the wrong working directory; correcting the helper produced zero diagnostics in both virtual variants. Both initial logs are retained. No database integration or migration execution is claimed; no application data was changed.
+
+BE-D-001 is ignored local output, so Git branch switching/reverting the checklist will not restore it. All 21 files and directory topology are recoverable using C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-deferred-cleanup/restore-second-batch.cjs when every target is absent. This client is obsolete under current configuration and need not be regenerated for current runtime use.
+
+BE-D-002 remains required verification evidence: the three logs are explicitly linked by the retained root review-digest re-audit report. Removing them would break its evidence links. All eighteen backend manual-review entries, migrations, backup files, operational scripts, package declarations, and active clients remain retained. Evidence: C:/Users/SERVICEHUB-CORDOVA/fullstack/.cleanup-backups/2026-10-08-validation/deferred-review-evidence.json and logs/.
