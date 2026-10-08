@@ -5,6 +5,14 @@ import { disconnectUserSockets, safeEmit } from "../../lib/socket";
 import { lockAuthenticationSession } from "./session-lifecycle.service";
 import { lockAccountLifecycle } from "../account-lifecycle.service";
 import { StrongPasswordSchema } from "../../schema/password.schema";
+import { reviewEligibilitySql } from '../../lib/review-eligibility';
+
+type ProfileReviewRow = {
+  id: string; authorName: string; authorAvatar: string | null; rating: number;
+  comment: string | null; createdAt: Date; reviewContext: 'PROVIDER' | 'SEEKER';
+  reviewCount: bigint; averageRating: unknown; five: bigint; four: bigint;
+  three: bigint; two: bigint; one: bigint;
+};
 
 // ── Public & Edit Profile Services ───────────────────────────────────────────
 
@@ -38,35 +46,53 @@ export async function getUserPublicProfile(userId: string) {
     where: { providerId: userId },
   });
 
-  const reviews = await prisma.review.findMany({
-    where: { targetId: userId, visibility: "VISIBLE" },
-    include: {
-      author: {
-        select: { id: true, name: true, avatarUrl: true },
-      },
-      completedService: { select: { seekerId: true, providerId: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 10,
-  });
+  // Keep each role's latest ten comments and its full rating totals. Limiting a
+  // mixed feed first could hide all service reviews behind newer client ones.
+  const reviews = await prisma.$queryRaw<ProfileReviewRow[]>`
+    WITH eligible AS (
+      SELECT r.id, a.name AS "authorName", a."avatarUrl" AS "authorAvatar",
+        r.rating, r.text AS comment, r."createdAt",
+        CASE WHEN cs."providerId" = ${userId} THEN 'PROVIDER' ELSE 'SEEKER' END AS "reviewContext"
+      FROM reviews r JOIN completed_services cs ON cs.id = r."completedServiceId"
+      JOIN users a ON a.id = r."authorId" LEFT JOIN bookings b ON b.id = cs."bookingId"
+      WHERE ${reviewEligibilitySql(userId)}
+    ), ranked AS (
+      SELECT *, ROW_NUMBER() OVER w AS position,
+        COUNT(*) OVER role AS "reviewCount", AVG(rating) OVER role AS "averageRating",
+        COUNT(*) FILTER (WHERE rating = 5) OVER role AS five,
+        COUNT(*) FILTER (WHERE rating = 4) OVER role AS four,
+        COUNT(*) FILTER (WHERE rating = 3) OVER role AS three,
+        COUNT(*) FILTER (WHERE rating = 2) OVER role AS two,
+        COUNT(*) FILTER (WHERE rating = 1) OVER role AS one
+      FROM eligible WINDOW role AS (PARTITION BY "reviewContext"),
+        w AS (PARTITION BY "reviewContext" ORDER BY "createdAt" DESC, id DESC)
+    ) SELECT * FROM ranked WHERE position <= 10 ORDER BY "createdAt" DESC, id DESC`;
 
-  const avgRatingResult = await prisma.review.aggregate({
-    where: { targetId: userId, visibility: "VISIBLE", completedService: { providerId: userId } },
-    _avg: { rating: true },
-  });
+  const statsFor = (context: 'PROVIDER' | 'SEEKER') => {
+    const row = reviews.find(review => review.reviewContext === context);
+    return {
+      reviewCount: Number(row?.reviewCount ?? 0),
+      averageRating: row ? Number(Number(row.averageRating).toFixed(1)) : 0,
+      ratingDistribution: [5, 4, 3, 2, 1].map((star, index) => ({
+        star, count: Number(row ? [row.five, row.four, row.three, row.two, row.one][index] : 0),
+      })),
+    };
+  };
+  const reviewStats = { PROVIDER: statsFor('PROVIDER'), SEEKER: statsFor('SEEKER') };
 
   return {
     ...user,
     completedServiceCount: completedCount,
-    averageRating: avgRatingResult._avg.rating ? Number(avgRatingResult._avg.rating.toFixed(1)) : 0,
+    averageRating: reviewStats.PROVIDER.averageRating,
+    reviewStats,
     reviews: reviews.map(r => ({
       id: r.id,
-      authorName: r.author.name,
-      authorAvatar: r.author.avatarUrl,
+      authorName: r.authorName,
+      authorAvatar: r.authorAvatar,
       rating: r.rating,
-      comment: r.text || '',
+      comment: r.comment || '',
       createdAt: r.createdAt,
-      reviewContext: r.completedService.providerId === userId ? "PROVIDER" : "SEEKER",
+      reviewContext: r.reviewContext,
     })),
   };
 }

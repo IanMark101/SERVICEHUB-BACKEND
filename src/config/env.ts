@@ -27,9 +27,28 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().optional(),
   // Google OAuth
   GOOGLE_CLIENT_ID: z.string().optional(),
+  // Google reCAPTCHA v2 checkbox. Enable only after provisioning real keys.
+  RECAPTCHA_ENABLED: z.enum(["true", "false"]).default("false"),
+  RECAPTCHA_SITE_KEY: z.string().trim().optional(),
+  RECAPTCHA_SECRET_KEY: z.string().trim().optional(),
+  RECAPTCHA_ALLOWED_HOSTNAMES: z.string().default(""),
 });
 
 export const serviceHubEnvSchema = envSchema.superRefine((value, ctx) => {
+  if (value.RECAPTCHA_ENABLED === "true") {
+    for (const field of ["RECAPTCHA_SITE_KEY", "RECAPTCHA_SECRET_KEY"] as const) {
+      if (!value[field]) ctx.addIssue({ code: "custom", path: [field], message: `${field} is required when reCAPTCHA is enabled` });
+    }
+    const hosts = value.RECAPTCHA_ALLOWED_HOSTNAMES.split(",").map((host) => host.trim()).filter(Boolean);
+    if (!hosts.length || hosts.some((host) => !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(host))) {
+      ctx.addIssue({ code: "custom", path: ["RECAPTCHA_ALLOWED_HOSTNAMES"], message: "List exact hostnames separated by commas, without schemes, ports, paths, or wildcards" });
+    }
+    if (value.NODE_ENV === "production") {
+      if (value.RECAPTCHA_SITE_KEY === "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" || value.RECAPTCHA_SECRET_KEY === "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe") {
+        ctx.addIssue({ code: "custom", path: ["RECAPTCHA_SECRET_KEY"], message: "Google's always-passing test keys cannot be used in production" });
+      }
+    }
+  }
   if (value.NODE_ENV === "production") {
     for (const field of ["PAYMONGO_PUBLIC_KEY", "PAYMONGO_SECRET_KEY", "PAYMONGO_WEBHOOK_SECRET"] as const) {
       if (!value[field]) {

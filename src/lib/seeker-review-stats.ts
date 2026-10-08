@@ -1,4 +1,4 @@
-/** Reviews received as a client must never include feedback earned as a provider. */
+/** Reviews received as a service seeker must never include feedback earned as a provider. */
 export function getSeekerReviewStats(reviews: Array<{ targetId: string; rating: number; completedService: { seekerId: string } }>) {
   const totals = new Map<string, { sum: number; count: number }>();
   for (const review of reviews) {

@@ -20,19 +20,21 @@ import {
 import { requireAuth, requireAccountIdentity, requireTrustedOrigin } from "../middlewares/auth.middleware";
 import { getMyBanAppeal, submitBanAppeal } from "../controllers/ban-appeals.controller";
 import { authLimiter, passwordMutationLimiter } from "../middlewares/rateLimiter.middleware";
+import { captchaConfig, requireCaptcha, passwordLoginCaptcha } from "../middlewares/captcha.middleware";
 import { securityMethods, passwordSetupChallenge, passwordSetupVerification, setPassword } from "../controllers/password-management.controller";
 
 const router = Router();
 
 // Public routes (Rate-limited to 15 attempts per 15 minutes)
-router.post("/register", authLimiter, register);
-router.post("/login", authLimiter, login);
+router.get("/captcha-config", captchaConfig);
+router.post("/register", authLimiter, requireCaptcha, register);
+router.post("/login", authLimiter, passwordLoginCaptcha, login);
 router.post("/google-login", authLimiter, googleLogin);
 router.post("/refresh", requireTrustedOrigin, refresh);
 router.post("/session", requireTrustedOrigin, session);
 router.post("/logout", requireTrustedOrigin, logout);
 router.get("/verify-email/:token", verifyEmailHandler);
-router.post("/forgot-password", authLimiter, forgotPasswordHandler);
+router.post("/forgot-password", authLimiter, requireCaptcha, forgotPasswordHandler);
 router.post("/reset-password", authLimiter, resetPasswordHandler);
 router.post("/resend-verification", authLimiter, resendVerificationHandler);
 router.get("/profile/:id", requireAuth, getPublicProfileHandler);

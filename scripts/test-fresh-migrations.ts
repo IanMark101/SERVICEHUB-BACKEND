@@ -19,7 +19,7 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
-if (process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1') {
+if (process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1' || process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
   // Prisma qualifies model queries; raw SQL also needs the disposable schema.
   // Omit public so an unqualified query cannot fall through to live tables.
   isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
@@ -93,6 +93,12 @@ async function main() {
       '--exit-code',
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
+
+    if (process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/public-trust-request-archive.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'public trust and request archive integration failed');
+      return;
+    }
 
     if (process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1') {
       const failures: string[] = [];

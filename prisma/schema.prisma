@@ -465,6 +465,7 @@ model ServiceRequest {
   reviewedById String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  archivedAt  DateTime? // Owner hides a completed listing; booking and offer history stay intact.
 
   offers Offer[]
 

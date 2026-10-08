@@ -1,7 +1,8 @@
 import { prisma } from "../../lib/prisma";
 import { safeEmit } from "../../lib/socket";
 import { assertDistinctAccounts } from "../../utils/security";
-import { sendMessage } from "../messages.service";
+import type { Booking, Prisma } from "@prisma/client";
+import { recordLifecycleNotice, publishLifecycleChange } from "./lifecycle-events";
 import { refundBookingPayment } from "../payment-refund.service";
 import { lockBookingLifecycle } from "../booking-lifecycle.service";
 import { lockAccountLifecycle, marketplaceParticipantsEligible } from "../account-lifecycle.service";
@@ -9,6 +10,22 @@ import { rejectSiblingOffersAndNotify } from "../offer-selection-notifications.s
 import { calculateDirectListingTerms } from "./direct-listing-pricing";
 import { assertRequestPaymentMethod } from "../request-payment-methods";
 import { recordBookingProgress } from "../booking-progress.service";
+
+async function recordAgreement(tx: Prisma.TransactionClient, booking: Booking, actor: 'PROVIDER' | 'SEEKER') {
+  const progressEvent = await recordBookingProgress(tx, booking.id, "ACCEPTED", actor);
+  const recorded = await recordLifecycleNotice(tx, booking, {
+    userId: actor === 'PROVIDER' ? booking.seekerId : booking.providerId,
+    title: actor === 'PROVIDER' ? 'Booking Accepted!' : 'Offer Accepted!',
+    body: 'The booking was accepted. Messaging is now enabled to coordinate service details.',
+    link: actor === 'PROVIDER' ? `/seeker/seeker-activity?tab=all&booking=${booking.id}` : `/provider/provider-activity?tab=all&booking=${booking.id}`,
+  }, { senderId: actor === 'PROVIDER' ? booking.providerId : booking.seekerId, content: 'Agreement reached! Direct chat messaging is now enabled for this transaction.' });
+  await tx.notification.create({ data: {
+    userId: actor === 'PROVIDER' ? booking.providerId : booking.seekerId,
+    title: 'Booking Confirmed!', body: 'Messaging is now open to coordinate with the other participant.',
+    link: actor === 'PROVIDER' ? `/provider/provider-activity?tab=all&booking=${booking.id}` : `/seeker/seeker-activity?tab=all&booking=${booking.id}`,
+  } });
+  return { booking, progressEvent, recorded };
+}
 // ── Cash Direct Request (no queue) ────────────────────────────────────────────
 
 export async function createDirectRequest(params: {
@@ -80,7 +97,7 @@ export async function createDirectRequest(params: {
     throw err;
   }
 
-  const { directRequest, booking } = await prisma.$transaction(async (tx) => {
+  const { directRequest, booking, recorded } = await prisma.$transaction(async (tx) => {
     await lockAccountLifecycle(tx, seekerId, providerId);
     if (!(await marketplaceParticipantsEligible(tx, seekerId, providerId))) {
       const err = new Error("Both participants must be eligible for a booking") as Error & { status?: number };
@@ -127,21 +144,15 @@ export async function createDirectRequest(params: {
       },
     });
 
-    return { directRequest, booking };
-  });
-
-  // Notify Provider
-  await prisma.notification.create({
-    data: {
-      userId: providerId,
-      title: "New Direct Booking Request",
+    const recorded = await recordLifecycleNotice(tx, booking, {
+      userId: providerId, title: 'New Direct Booking Request',
       body: `A new Direct Arrangement booking request has arrived for "${service.title}". Review it in Incoming Requests.`,
       link: `/provider/incoming-requests?booking=${booking.id}`,
-    },
+    });
+    return { directRequest, booking, recorded };
   });
-  safeEmit(`user:${providerId}`, "notification", { title: "New Direct Booking Request" });
-  safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "created" });
-  safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "created" });
+
+  publishLifecycleChange(booking, 'created', recorded);
 
   return { ...directRequest, booking };
 }
@@ -201,7 +212,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
   }
 
   if (accept) {
-    const booking = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       if (targetBooking) await lockBookingLifecycle(tx, targetBooking.id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
       const provider = await tx.user.findUnique({
@@ -248,8 +259,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
           where: { id: targetBooking.id },
           data: { status: "ACCEPTED", started: false },
         });
-        await recordBookingProgress(tx, accepted.id, "ACCEPTED", "PROVIDER");
-        return accepted;
+        return recordAgreement(tx, accepted, 'PROVIDER');
       }
 
       const accepted = await tx.booking.create({
@@ -266,39 +276,12 @@ export async function respondToDirectBookingService(requestId: string, providerI
           started: false,
         },
       });
-      await recordBookingProgress(tx, accepted.id, "ACCEPTED", "PROVIDER");
-      return accepted;
+      return recordAgreement(tx, accepted, 'PROVIDER');
     });
 
-    // Notify Seeker
-    await prisma.notification.create({
-      data: {
-        userId: effectiveSeekerId,
-        title: "Booking Accepted! 🎉",
-        body: "Your booking request was accepted! Messaging is now enabled — coordinate details with your provider via chat.",
-        link: `/seeker/seeker-activity?tab=all&booking=${booking.id}`,
-      },
-    });
-    safeEmit(`user:${effectiveSeekerId}`, "notification", { title: "Booking Accepted! 🎉" });
-    safeEmit(`user:${effectiveSeekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
-    safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
-    safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted" });
-
-    // Notify Provider
-    await prisma.notification.create({
-      data: {
-        userId: providerId,
-        title: "Booking Confirmed! 🎉",
-        body: "You accepted the booking request. Messaging is now open to coordinate with the seeker.",
-        link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
-      },
-    });
-    safeEmit(`user:${providerId}`, "notification", { title: "Booking Confirmed! 🎉" });
-
-    // System Message in Conversation
-    await sendMessage(booking.id, providerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", true);
-
-    return booking;
+    publishLifecycleChange(result.booking, 'accepted', result.recorded);
+    safeEmit(`user:${providerId}`, 'notification', { title: 'Booking Confirmed!' });
+    return { ...result.booking, progressEvent: result.progressEvent };
   } else {
     // Decline
     const hasHeldOnlinePayment = targetBooking && ["PAID_HELD", "FROZEN_HELD"].includes(targetBooking.paymentStatus);
@@ -310,63 +293,61 @@ export async function respondToDirectBookingService(requestId: string, providerI
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      if (targetBooking) await lockBookingLifecycle(tx, targetBooking.id);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
-      if (directRequest) {
-        const freshRequest = await tx.directRequest.findUnique({ where: { id: directRequest.id }, select: { status: true } });
-        if (freshRequest?.status !== "PENDING_APPROVAL") {
-          const err = new Error("This booking request has already been processed") as any;
-          err.status = 409;
-          throw err;
+    const result = await prisma.$transaction(async (tx) => {
+      const update = async () => {
+        if (targetBooking) await lockBookingLifecycle(tx, targetBooking.id);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
+        if (directRequest) {
+          const freshRequest = await tx.directRequest.findUnique({ where: { id: directRequest.id }, select: { status: true } });
+          if (freshRequest?.status !== "PENDING_APPROVAL") {
+            const err = new Error("This booking request has already been processed") as any;
+            err.status = 409;
+            throw err;
+          }
         }
-      }
-      if (targetBooking) {
-        const freshBooking = await tx.booking.findUnique({ where: { id: targetBooking.id } });
-        if (hasHeldOnlinePayment && freshBooking?.status === "CANCELED") return freshBooking;
-        if (freshBooking?.status !== "PENDING_APPROVAL") {
-          const err = new Error("This booking request has already been processed") as any;
-          err.status = 409;
-          throw err;
+        if (targetBooking) {
+          const freshBooking = await tx.booking.findUnique({ where: { id: targetBooking.id } });
+          if (hasHeldOnlinePayment && freshBooking?.status === "CANCELED") return freshBooking;
+          if (freshBooking?.status !== "PENDING_APPROVAL") {
+            const err = new Error("This booking request has already been processed") as any;
+            err.status = 409;
+            throw err;
+          }
         }
-      }
-      if (directRequest) {
-        await tx.directRequest.update({
-          where: { id: directRequest.id },
-          data: { status: "DECLINED" },
-        });
-      }
+        if (directRequest) {
+          await tx.directRequest.update({
+            where: { id: directRequest.id },
+            data: { status: "DECLINED" },
+          });
+        }
 
-      if (targetBooking) {
-        const declined = await tx.booking.update({
-          where: { id: targetBooking.id },
-          data: {
-            status: "DECLINED",
-            paymentStatus: hasHeldOnlinePayment ? "REFUNDED" : targetBooking.paymentStatus,
-          },
-        });
-        await recordBookingProgress(tx, declined.id, "DECLINED", "PROVIDER");
-        return declined;
-      }
+        if (targetBooking) {
+          const declined = await tx.booking.update({
+            where: { id: targetBooking.id },
+            data: {
+              status: "DECLINED",
+              paymentStatus: hasHeldOnlinePayment ? "REFUNDED" : targetBooking.paymentStatus,
+            },
+          });
+          await recordBookingProgress(tx, declined.id, "DECLINED", "PROVIDER");
+          return declined;
+        }
 
-      return null;
-    });
-
-    await prisma.notification.create({
-      data: {
-        userId: effectiveSeekerId,
-        title: "Booking Request Declined ❌",
-        body: hasHeldOnlinePayment
-          ? "Your booking request was declined by the provider. Your PayMongo refund was submitted."
-          : "Your booking request was declined by the provider.",
+        return null;
+      };
+      const booking = await update();
+      const recorded = await recordLifecycleNotice(tx, booking || {
+        id: directRequest!.id, seekerId: effectiveSeekerId, providerId,
+      }, {
+        userId: effectiveSeekerId, title: 'Booking Request Declined',
+        body: hasHeldOnlinePayment ? 'Your booking request was declined by the provider. Your PayMongo refund was submitted.' : 'Your booking request was declined by the provider.',
         link: `/seeker/seeker-activity?tab=canceled&booking=${targetBooking?.id || directRequest?.id}`,
-      },
+      });
+      return { booking, recorded };
     });
-    safeEmit(`user:${effectiveSeekerId}`, "notification", { title: "Booking Request Declined ❌" });
-    safeEmit(`user:${effectiveSeekerId}`, "ENGAGEMENT_CHANGED", { bookingId: targetBooking?.id || directRequest?.id, type: "declined" });
-    safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { bookingId: targetBooking?.id || directRequest?.id, type: "declined" });
 
-    return updated;
+    publishLifecycleChange(result.booking || { id: directRequest!.id, seekerId: effectiveSeekerId, providerId }, 'declined', result.recorded);
+    return result.booking;
   }
 }
 
@@ -403,7 +384,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
     throw err;
   }
 
-  const { booking, losingProviderIds } = await prisma.$transaction(async (tx) => {
+  const { booking, losingProviderIds, progressEvent, recorded } = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${offer.requestId}`}))`;
     await lockAccountLifecycle(tx, seekerId, offer.providerId);
     if (!(await marketplaceParticipantsEligible(tx, seekerId, offer.providerId))) {
@@ -492,8 +473,8 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
         status: "ACCEPTED",
       },
     });
-    await recordBookingProgress(tx, booking.id, "ACCEPTED", "SEEKER");
-    return { booking, losingProviderIds };
+    const agreement = await recordAgreement(tx, booking, 'SEEKER');
+    return { ...agreement, losingProviderIds };
   });
 
   for (const providerId of losingProviderIds) {
@@ -501,33 +482,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
     safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { type: "offer_not_selected" });
   }
 
-  // Notify Provider
-  await prisma.notification.create({
-    data: {
-      userId: offer.providerId,
-      title: "Offer Accepted! 💰",
-      body: `Your offer on "${offer.request.title}" was accepted! Messaging is now enabled — chat to coordinate service details.`,
-      link: `/provider/provider-activity?tab=in_progress&booking=${booking.id}`,
-    },
-  });
-  safeEmit(`user:${offer.providerId}`, "notification", { title: "Offer Accepted! 💰" });
-  safeEmit(`user:${offer.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
-  safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
-  safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "accepted_offer" });
-
-  // Notify Seeker
-  await prisma.notification.create({
-    data: {
-      userId: seekerId,
-      title: "Booking Confirmed! 🎉",
-      body: `You accepted the offer for "${offer.request.title}". Messaging is now enabled to coordinate with your provider.`,
-      link: `/seeker/seeker-activity?tab=in_progress&booking=${booking.id}`,
-    },
-  });
-  safeEmit(`user:${seekerId}`, "notification", { title: "Booking Confirmed! 🎉" });
-
-  // Automated System Message
-  await sendMessage(booking.id, seekerId, "🎉 Agreement reached! Direct chat messaging is now enabled for this transaction.", true);
-
-  return booking;
+  publishLifecycleChange(booking, 'accepted_offer', recorded);
+  safeEmit(`user:${seekerId}`, 'notification', { title: 'Booking Confirmed!' });
+  return { ...booking, progressEvent };
 }

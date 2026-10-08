@@ -184,7 +184,7 @@ export async function refundBookingPayment(
     return notifyWaitlistInTransaction(tx, booking.providerId);
   });
   emitWaitlistNotification(waitlistNotification);
-  await emitProviderQueueUpdates(initialBooking.providerId).catch((error) => console.error("Queue refresh event failed", error));
+  void emitProviderQueueUpdates(initialBooking.providerId).catch((error) => console.error("Queue refresh event failed", error));
 
   return {
     refundId: gatewayRefund.id,

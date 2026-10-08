@@ -45,6 +45,8 @@ const protectedRoutes: ProtectedRoute[] = [
   ['POST', '/api/requests'],
   ['GET', '/api/requests'],
   ['GET', '/api/requests/mine'],
+  ['GET', '/api/requests/request-id/repost-template'],
+  ['POST', '/api/requests/request-id/archive'],
   ['PATCH', '/api/requests/request-id'],
   ['DELETE', '/api/requests/request-id'],
   ['POST', '/api/offers'],

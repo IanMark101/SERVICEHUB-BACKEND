@@ -111,14 +111,15 @@ export function emitWaitlistNotification(notification: WaitlistNotification | nu
 }
 
 /** Refresh every affected participant after a committed provider-wide reorder. */
-export async function emitProviderQueueUpdates(providerId: string): Promise<void> {
+export async function emitProviderQueueUpdates(providerId: string, alreadyNotified: readonly string[] = []): Promise<void> {
   const [waiting, services] = await Promise.all([
     prisma.queue.findMany({ where: { providerId, status: "WAITING" }, select: { seekerId: true } }),
     prisma.service.findMany({ where: { providerId, status: "ACTIVE", isAvailable: true }, select: { id: true } }),
   ]);
-  safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { type: "provider_queue_changed" });
+  const skipped = new Set(alreadyNotified);
+  if (!skipped.has(providerId)) safeEmit(`user:${providerId}`, "ENGAGEMENT_CHANGED", { type: "provider_queue_changed" });
   for (const seekerId of new Set(waiting.map((row) => row.seekerId))) {
-    safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { type: "provider_queue_changed" });
+    if (!skipped.has(seekerId)) safeEmit(`user:${seekerId}`, "ENGAGEMENT_CHANGED", { type: "provider_queue_changed" });
   }
   for (const service of services) {
     safeEmit(`service:${service.id}`, "queue_update", { serviceId: service.id, currentSize: waiting.length, delta: 0 });

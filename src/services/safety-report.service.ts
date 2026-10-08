@@ -39,6 +39,9 @@ export async function createSafetyReport(params: {
     await lockAccountLifecycle(tx, booking.seekerId, booking.providerId);
     await assertActiveMarketplaceAccount(tx, params.reporterId);
     if (!ELIGIBLE_STATUSES.includes(booking.status)) throw httpError("This booking is not eligible for a safety report", 409);
+    if (!booking.started && ["POOR_SERVICE_QUALITY", "INCOMPLETE_SERVICE"].includes(params.reason)) {
+      throw httpError("Service quality and incomplete-service reports are available only after the provider starts the job.", 409);
+    }
     await assertNoRefundInProgress(tx, booking.id);
     await assertNoFinancialResolutionReserved(tx, booking.id);
     const reportedUserId = booking.seekerId === params.reporterId ? booking.providerId : booking.seekerId;
@@ -74,7 +77,7 @@ export async function createSafetyReport(params: {
   if (result.created) {
     result.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", { title: "Safety report requires review" }));
     safeEmit("admin", "ADMIN_MODERATION_CHANGED", { type: "safety_report", reportId: result.report.id });
-    result.participantIds.forEach(userId => safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId: params.bookingId }));
+    result.participantIds.forEach(userId => safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId: params.bookingId, type: 'safety_report' }));
   }
   const { evidenceStorageKey: _key, ...safeReport } = result.report;
   return { ...safeReport, hasPrivateEvidence: Boolean(result.report.evidenceStorageKey), created: result.created };

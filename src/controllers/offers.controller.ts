@@ -53,6 +53,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
         providerId: user.id,
       },
       include: {
+        provider: { select: { id: true, name: true, avatarUrl: true } },
         request: {
           select: {
             id: true,
@@ -65,7 +66,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
             status: true,
             paymentMethods: true,
             preferredPaymentMethod: true,
-            seeker: { select: { id: true, name: true, avatarUrl: true } },
+            seeker: { select: { id: true, name: true, avatarUrl: true, trustScore: true } },
             category: { select: { id: true, name: true } },
           },
         },
@@ -75,11 +76,14 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
     const decisions = await prisma.notification.findMany({ where: {
       userId: user.id,
       id: { in: offers.filter(offer => offer.status === 'REJECTED').flatMap(offer => [`offer-declined:${offer.id}`, `offer-not-selected:${offer.id}`]) },
-    }, select: { id: true } });
-    const decisionIds = new Set(decisions.map(item => item.id));
-    res.json({ success: true, data: offers.map(offer => ({ ...offer, decisionReason:
-      decisionIds.has(`offer-declined:${offer.id}`) ? 'DECLINED' : decisionIds.has(`offer-not-selected:${offer.id}`) ? 'NOT_SELECTED' : null,
-    })) });
+    }, select: { id: true, createdAt: true } });
+    const decisionById = new Map(decisions.map(item => [item.id, item]));
+    res.json({ success: true, data: offers.map(offer => {
+      const declined = decisionById.get(`offer-declined:${offer.id}`);
+      const notSelected = decisionById.get(`offer-not-selected:${offer.id}`);
+      return { ...offer, decisionReason: declined ? 'DECLINED' : notSelected ? 'NOT_SELECTED' : null,
+        decisionAt: (declined || notSelected)?.createdAt ?? null };
+    }) });
   } catch (err) {
     next(err);
   }

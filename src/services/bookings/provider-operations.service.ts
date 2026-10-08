@@ -1,10 +1,9 @@
 import { prisma } from "../../lib/prisma";
-import { safeEmit } from "../../lib/socket";
-import { sendMessage } from "../messages.service";
-import { emitProviderQueueUpdates, lockProviderQueue, recalculateQueueInTransaction } from "../queue.service";
+import { lockProviderQueue, recalculateQueueInTransaction } from "../queue.service";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifecycle.service";
 import { paidStartBlockReason } from "./paid-start-readiness";
 import { recordBookingProgress } from "../booking-progress.service";
+import { recordLifecycleNotice, publishLifecycleChange } from './lifecycle-events';
 
 export async function providerStartJob(id: string, providerId: string) {
   const result = await prisma.$transaction(async (tx) => {
@@ -146,27 +145,20 @@ export async function providerStartJob(id: string, providerId: string) {
         ...(queueEntry ? { queuePosition: 1 } : {}),
       },
     });
-    await recordBookingProgress(tx, booking.id, "STARTED", "PROVIDER");
-    await recalculateQueueInTransaction(tx, providerId);
-    return { booking: updatedBooking, queueEntry };
-  });
-
-  const { booking } = result;
-  await emitProviderQueueUpdates(providerId).catch((error) => console.error("Queue refresh event failed", error));
-
-  await prisma.notification.create({
-    data: {
+    const progressEvent = await recordBookingProgress(tx, booking.id, "STARTED", "PROVIDER");
+    // A cash start already holds the queue lock and proved there are no paid
+    // waiting/serving jobs. There is nothing to reorder in that branch.
+    if (queueEntry) await recalculateQueueInTransaction(tx, providerId);
+    const recorded = await recordLifecycleNotice(tx, updatedBooking, {
       userId: booking.seekerId,
       title: "Provider Started Job",
       body: "Your provider has started serving your request. Coordination is active.",
       link: `/seeker/seeker-activity?tab=active&booking=${booking.id}`,
-    },
+    }, { senderId: booking.providerId, content: "Provider started the job." });
+    return { booking: updatedBooking, queueEntry, progressEvent, recorded };
   });
-  safeEmit(`user:${booking.seekerId}`, "notification", { title: "Provider Started Job" });
-  safeEmit(`user:${booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
-  safeEmit(`user:${booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
-  safeEmit(`booking:${booking.id}`, "ENGAGEMENT_CHANGED", { bookingId: booking.id, type: "started" });
-  await sendMessage(booking.id, booking.providerId, "Provider started the job.", true);
 
-  return booking;
+  const { booking } = result;
+  publishLifecycleChange(booking, 'started', result.recorded, !!result.queueEntry);
+  return { ...booking, progressEvent: result.progressEvent };
 }
