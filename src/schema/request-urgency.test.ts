@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { RequestUrgencySchema, ServiceRequestSchema, ServiceRequestUpdateSchema } from './marketplace.schema';
 
-const request = { categoryId: 'ckx1234567890123456789012', title: 'Repair kitchen faucet', description: 'Please fix the leaking kitchen faucet.', budgetMin: 150, budgetMax: 500, paymentMethods: { cash: true, gcash: false } };
+const request = { jobLocation: { latitude: 10.3, longitude: 123.9, label: 'Cebu' }, categoryId: 'ckx1234567890123456789012', title: 'Repair kitchen faucet', description: 'Please fix the leaking kitchen faucet.', budgetMin: 150, budgetMax: 500, paymentMethods: { cash: true, gcash: false } };
 
 test('request creation and urgency edits accept only the five controlled choices', () => {
   for (const urgency of ['ASAP / Today', 'Needs Tomorrow', 'Next 1-2 Days', 'This Week', 'Flexible Schedule']) {

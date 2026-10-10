@@ -1,3 +1,4 @@
+import { JobLocationSchema, TransportationFeeSchema } from './location.schema';
 import { z } from "zod";
 import { VERIFICATION_PRIVACY_NOTICE_VERSION } from "../config/privacy";
 
@@ -13,6 +14,7 @@ export const RequestPaymentMethodsSchema = z.object({
 });
 
 export const DirectBookingSchema = z.object({
+  jobLocation: JobLocationSchema.optional(),
   serviceId: Cuid,
   quantity: z.number().int().min(1).max(40).default(1),
   schedule: Text(500).optional(),
@@ -20,6 +22,8 @@ export const DirectBookingSchema = z.object({
 }).strict();
 
 export const InitiatePaymentSchema = z.object({
+  retryPaymentIntentId: z.string().trim().min(3).max(255).optional(),
+  jobLocation: JobLocationSchema.optional(),
   serviceId: Cuid.optional(),
   offerId: Cuid.optional(),
   quantity: z.number().int().min(1).max(40).default(1),
@@ -46,6 +50,8 @@ export const RequestUrgencySchema = z.enum([
 ], { error: 'Select a valid urgency: ASAP / Today, Needs Tomorrow, Next 1-2 Days, This Week, or Flexible Schedule.' });
 
 export const ServiceRequestSchema = z.object({
+  jobLocation: JobLocationSchema,
+  transportationFee: TransportationFeeSchema.nullable().optional(),
   categoryId: Cuid,
   title: RequestTitle,
   description: Text(2_000).min(10),
@@ -59,6 +65,8 @@ export const ServiceRequestSchema = z.object({
 });
 
 export const ServiceRequestUpdateSchema = z.object({
+  jobLocation: JobLocationSchema.optional(),
+  transportationFee: TransportationFeeSchema.nullable().optional(),
   title: RequestTitle.optional(),
   description: Text(2_000).min(10).optional(),
   budgetMin: Money.optional(),
@@ -104,11 +112,6 @@ const ManagedImageUrl = z.string().url().refine((value) => {
   const url = new URL(value);
   return url.protocol === "https:" && url.hostname.endsWith("res.cloudinary.com");
 }, "Image must be a secure Cloudinary URL");
-
-export const CategorySuggestionSchema = z.object({
-  name: Text(80).min(3),
-  description: Text(500).min(10),
-}).strict();
 
 export const AdminCategoryUpdateSchema = z.object({
   name: Text(80).min(3).optional(),

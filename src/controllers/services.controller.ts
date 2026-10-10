@@ -1,3 +1,4 @@
+import { publicLocation } from '../lib/proximity';
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { CreateServiceSchema, UpdateServiceSchema } from "../schema/services.schema";
@@ -23,7 +24,7 @@ export async function browse(req: Request, res: Response, next: NextFunction) {
       search: search as string | undefined,
       availableOnly: availableOnly === "true",
     });
-    res.json({ success: true, data: services });
+    res.json({ success: true, data: services.map(publicLocation) });
   } catch (err) {
     next(err);
   }
@@ -68,8 +69,8 @@ export async function create(req: Request, res: Response, next: NextFunction) {
     if (err.name === "ZodError") {
       return res.status(400).json({
         success: false,
-        error: err.errors?.[0]?.message || "Validation failed",
-        errors: err.errors,
+        error: err.issues?.[0]?.message || "Validation failed",
+        errors: err.issues,
       });
     }
     next(err);
@@ -89,8 +90,8 @@ export async function update(req: Request, res: Response, next: NextFunction) {
     if (err.name === "ZodError") {
       return res.status(400).json({
         success: false,
-        error: err.errors?.[0]?.message || "Validation failed",
-        errors: err.errors,
+        error: err.issues?.[0]?.message || "Validation failed",
+        errors: err.issues,
       });
     }
     next(err);

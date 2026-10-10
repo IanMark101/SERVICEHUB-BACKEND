@@ -164,8 +164,10 @@ test('public trust and completed request visibility preserve account and booking
     assert.equal(template.budget, 500);
     assert.deepEqual(template.paymentMethods, { cash: true, gcash: false });
     assert.ok(!('urgency' in template));
-    const body = { categoryId: template.categoryId, title: template.title, description: template.description, budgetMin: template.budget, budgetMax: template.budget, paymentMethods: template.paymentMethods };
+    const body = { categoryId: template.categoryId, title: template.title, description: template.description, budgetMin: template.budget, budgetMax: template.budget, paymentMethods: template.paymentMethods, jobLocation: { latitude:10.3, longitude:123.9, label:"Lapu-Lapu City, Cebu" } };
     assert.equal((await call('/requests', 0, 'POST', body)).status, 400);
+    const { jobLocation: _jobLocation, ...withoutLocation } = body;
+    assert.equal((await call('/requests', 0, 'POST', { ...withoutLocation, urgency: 'This Week' })).status, 400);
     const posted = await call('/requests', 0, 'POST', { ...body, urgency: 'This Week' });
     assert.equal(posted.status, 201);
     const fresh = (await posted.json()).data;

@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
-import { safeEmit, safeBroadcast } from "../lib/socket";
+import { isFallbackCategory, OTHER_SERVICES_CATEGORY } from '../lib/category-catalog';
+import { safeBroadcast } from "../lib/socket";
 import { applyPublicContentAction, emitPublicContentAction } from "./public-content-actions.service";
 export async function removePublishedService(id: string, adminId: string, reason: string) {
   const result = await prisma.$transaction(tx => applyPublicContentAction(tx, "SERVICE_LISTING", id, adminId, "REMOVE", reason));
@@ -10,85 +11,6 @@ export async function restoreRemovedService(id: string, adminId: string, reason:
   const result = await prisma.$transaction(tx => applyPublicContentAction(tx, "SERVICE_LISTING", id, adminId, "RESTORE", reason));
   emitPublicContentAction(result);
   return prisma.service.findUniqueOrThrow({ where: { id } });
-}
-
-export async function resolveCategory(
-  suggestionId: string,
-  adminId: string,
-  approve: boolean,
-  adminNotes?: string,
-) {
-  const suggestion = await prisma.$transaction(async (tx) => {
-    const current = await tx.categorySuggested.findUnique({ where: { id: suggestionId } });
-    if (!current) {
-      const error = new Error("Category suggestion not found") as Error & { status?: number };
-      error.status = 404;
-      throw error;
-    }
-    if (current.status !== "PENDING") {
-      const error = new Error("Category suggestion has already been reviewed") as Error & { status?: number };
-      error.status = 409;
-      throw error;
-    }
-
-    const normalizedName = current.name.trim().replace(/\s+/g, " ");
-    if (approve) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(lower(${normalizedName})))`;
-      const duplicate = await tx.category.findFirst({
-        where: { name: { equals: normalizedName, mode: "insensitive" } },
-        select: { id: true },
-      });
-      if (duplicate) {
-        const error = new Error("An equivalent category already exists") as Error & { status?: number };
-        error.status = 409;
-        throw error;
-      }
-      await tx.category.create({ data: { name: normalizedName, isActive: true } });
-    }
-
-    const claimed = await tx.categorySuggested.updateMany({
-      where: { id: suggestionId, status: "PENDING" },
-      data: {
-        name: normalizedName,
-        status: approve ? "APPROVED" : "REJECTED",
-        reviewedAt: new Date(),
-        reviewedById: adminId,
-        adminNotes: adminNotes || null,
-      },
-    });
-    if (claimed.count !== 1) {
-      const error = new Error("Category suggestion has already been reviewed") as Error & { status?: number };
-      error.status = 409;
-      throw error;
-    }
-    await tx.notification.create({
-      data: {
-        userId: current.submitterId,
-        title: approve ? `Category "${normalizedName}" Approved` : "Category Suggestion Not Approved",
-        body: approve
-          ? `Your suggested category "${normalizedName}" is now available in the marketplace.`
-          : `Your suggested category was not approved. Reason: ${adminNotes}`,
-        link: "/seeker/suggest-category",
-      },
-    });
-    await tx.adminAuditLog.create({
-      data: {
-        actorId: adminId,
-        targetUserId: current.submitterId,
-        action: approve ? "CATEGORY_APPROVED" : "CATEGORY_REJECTED",
-        resourceType: "CategorySuggested",
-        resourceId: suggestionId,
-        reason: adminNotes || "Category fits the local-service marketplace",
-      },
-    });
-    return tx.categorySuggested.findUniqueOrThrow({ where: { id: suggestionId } });
-  });
-
-  safeEmit(`user:${suggestion.submitterId}`, "notification", {
-    title: approve ? "Category Suggestion Approved" : "Category Suggestion Rejected",
-  });
-  safeBroadcast("COMMUNITY_CATEGORIES_CHANGED", { id: suggestion.id, approved: approve });
-  return suggestion;
 }
 
 export async function listManagedCategories(page: number, limit: number) {
@@ -158,6 +80,9 @@ export async function updateManagedCategory(
 
     const nextName = input.name?.trim().replace(/\s+/g, " ") ?? current.name;
     const nextIsActive = input.isActive ?? current.isActive;
+    if (isFallbackCategory(current.name) && (nextName !== OTHER_SERVICES_CATEGORY || !nextIsActive)) {
+      throw Object.assign(new Error('Other Services is the system fallback and must keep its name and remain active.'), { status: 409 });
+    }
     if (nextName === current.name && nextIsActive === current.isActive) {
       const error = new Error("No category changes were provided") as Error & { status?: number };
       error.status = 400;

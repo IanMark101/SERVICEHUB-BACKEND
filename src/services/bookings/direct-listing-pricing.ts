@@ -6,6 +6,7 @@ export function calculateDirectListingTerms(
   listedPrice: Prisma.Decimal | null,
   quantity: number,
   listedDurationMins: number,
+  transportationFee: Prisma.Decimal | null = null,
 ) {
   if (!["FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT"].includes(priceType)) {
     throw Object.assign(new Error("This listing needs a provider price confirmation before booking"), { status: 400 });
@@ -15,7 +16,9 @@ export function calculateDirectListingTerms(
     throw Object.assign(new Error("Choose a valid number of hours or days for this listing"), { status: 400 });
   }
   if (!listedPrice) throw Object.assign(new Error("This listing is missing a valid price"), { status: 409 });
-  const amount = listedPrice.mul(quantity);
+  const travel = transportationFee ?? new Prisma.Decimal(0);
+  if (travel.lessThan(0) || travel.greaterThan(5000)) throw Object.assign(new Error('The transportation fee is invalid'), { status: 400 });
+  const amount = listedPrice.mul(quantity).add(travel);
   if (amount.lessThan(50) || amount.greaterThan(50_000)) {
     throw Object.assign(new Error("The booking total must be between ₱50 and ₱50,000"), { status: 400 });
   }

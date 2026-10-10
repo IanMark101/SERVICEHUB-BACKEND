@@ -1,7 +1,7 @@
 {
   "name": "servicehub-backend",
   "version": "1.0.0",
-  "description": "Backend API for ServiceHub Cordova",
+  "description": "Backend API for ServiceHub",
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",

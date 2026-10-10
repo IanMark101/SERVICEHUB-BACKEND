@@ -1,3 +1,5 @@
+import { assertProximityDatabase } from './proximity-db-target';
+import { assertCategoryDevelopmentTarget } from './category-development-target';
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -19,7 +21,7 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
-if (process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1' || process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
+if (process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_PROXIMITY_ONLY === '1' || process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1' || process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
   // Prisma qualifies model queries; raw SQL also needs the disposable schema.
   // Omit public so an unqualified query cannot fall through to live tables.
   isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
@@ -45,6 +47,8 @@ function runNpm(args: string[], env: NodeJS.ProcessEnv) {
 }
 
 async function main() {
+  if (process.env.SERVICEHUB_PROXIMITY_ONLY === '1') assertProximityDatabase();
+  if (process.env.SERVICEHUB_CATEGORY_ONLY === '1') assertCategoryDevelopmentTarget();
   await admin.connect();
   await admin.query(`CREATE SCHEMA "${schemaName}"`);
 
@@ -94,6 +98,16 @@ async function main() {
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
 
+    if (process.env.SERVICEHUB_CATEGORY_ONLY === '1') {
+      assert.equal(tableNames.has('categories_suggested'), false, 'retired category submission table still exists');
+      assert.equal(tableNames.has('categories'), true, 'official category catalog is missing');
+      for (const file of ['category-expansion.test.ts', 'category-source-of-truth.test.ts', 'self-service-deletion.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `fresh-schema ${file} failed`);
+      }
+      return;
+    }
+
     if (process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
       const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/public-trust-request-archive.test.ts'], isolatedEnv);
       assert.equal(result.status, 0, 'public trust and request archive integration failed');
@@ -123,6 +137,20 @@ async function main() {
         const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
         assert.equal(result.status, 0, `fresh-schema ${file} failed`);
       }
+      return;
+    }
+
+    if (process.env.SERVICEHUB_PROXIMITY_ONLY === '1') {
+      const allowed = ['proximity-marketplace', 'booking-flows', 'provider-wide-workload', 'queue-concurrency', 'payment-failure-return', 'public-trust-request-archive', 'communication-concurrency'];
+      const files = process.env.SERVICEHUB_PROXIMITY_SUITES?.split(',') || allowed;
+      assert.ok(files.length > 0 && files.every(file => allowed.includes(file)), 'Unknown proximity regression suite');
+      const failures: string[] = [];
+      for (const file of files) {
+        const suiteEnv = file === 'public-trust-request-archive' ? { ...isolatedEnv, SERVICEHUB_TRUST_REQUEST_ONLY: '1' } : isolatedEnv;
+        const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/'+file+'.test.ts'], suiteEnv);
+        if (result.status !== 0) failures.push(file);
+      }
+      assert.deepEqual(failures, [], 'fresh-schema suites failed: '+failures.join(', '));
       return;
     }
 

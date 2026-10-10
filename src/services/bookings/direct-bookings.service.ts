@@ -1,3 +1,5 @@
+import { assertServiceCoverage, locationFromRecord } from '../../lib/proximity';
+import type { JobLocation } from '../../schema/location.schema';
 import { prisma } from "../../lib/prisma";
 import { safeEmit } from "../../lib/socket";
 import { assertDistinctAccounts } from "../../utils/security";
@@ -33,6 +35,7 @@ export async function createDirectRequest(params: {
   providerId: string;
   serviceId: string;
   quantity?: number;
+  jobLocation?: JobLocation;
   schedule?: string;
   message?: string;
 }) {
@@ -49,6 +52,7 @@ export async function createDirectRequest(params: {
       paymentMethods: true,
       price: true,
       priceType: true,
+      latitude: true, longitude: true, locationLabel: true, coverageRadiusKm: true, transportationFee: true,
       serviceType: true,
       estimatedDurationMins: true,
       isAvailable: true,
@@ -65,7 +69,7 @@ export async function createDirectRequest(params: {
   }
 
   const { amount: fixedPrice, estimatedDurationMins: durationMins } = calculateDirectListingTerms(
-    service.priceType, service.price, quantity, service.estimatedDurationMins,
+    service.priceType, service.price, quantity, service.estimatedDurationMins, service.transportationFee,
   );
   if (!service.provider.isActive || service.provider.moderationStatus !== "ACTIVE" || !service.provider.emailVerified || service.provider.verificationStatus !== "APPROVED") {
     const err = new Error("The provider is not currently eligible to accept a new booking") as any;
@@ -73,6 +77,7 @@ export async function createDirectRequest(params: {
     throw err;
   }
 
+  assertServiceCoverage(service, params.jobLocation);
   const pm = service.paymentMethods as any;
   if (!pm?.cash) {
     const err = new Error("This provider does not accept cash payments") as any;
@@ -114,6 +119,13 @@ export async function createDirectRequest(params: {
       err.status = 409;
       throw err;
     }
+    await tx.$queryRaw`SELECT id FROM services WHERE id = ${serviceId} FOR SHARE`;
+    const currentService = await tx.service.findUnique({ where: { id: serviceId } });
+    if (!currentService || currentService.providerId !== providerId || currentService.status !== 'ACTIVE' || !currentService.isAvailable || !(currentService.paymentMethods as { cash?: boolean })?.cash) {
+      throw Object.assign(new Error('The service changed while sending your request. Review the listing and try again.'), { status: 409 });
+    }
+    assertServiceCoverage(currentService, params.jobLocation);
+    const { amount: fixedPrice, estimatedDurationMins: durationMins } = calculateDirectListingTerms(currentService.priceType, currentService.price, quantity, currentService.estimatedDurationMins, currentService.transportationFee);
     const directRequest = await tx.directRequest.create({
       data: {
         seekerId,
@@ -137,6 +149,8 @@ export async function createDirectRequest(params: {
         originType: "DIRECT_LISTING",
         paymentMethod: "On-site Cash",
         agreedAmount: fixedPrice,
+        jobLocation: params.jobLocation,
+        transportationFee: currentService.transportationFee,
         estimatedDurationMins: durationMins,
         paymentStatus: "UNPAID",
         status: "PENDING_APPROVAL",
@@ -467,7 +481,8 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
         offerId: offer.id,
         originType: "OFFER",
         paymentMethod: "On-site Cash",
-        agreedAmount: offer.offeredPrice,
+        agreedAmount: freshOffer.offeredPrice,
+        jobLocation: locationFromRecord(freshOffer.request),
         estimatedDurationMins: offer.estimatedDuration,
         paymentStatus: "UNPAID",
         status: "ACCEPTED",

@@ -91,7 +91,7 @@ export async function recordAccountCreationBaseline(userId: string): Promise<voi
 }
 
 export async function applyVerificationApprovalTrust(userId: string, actorAdminId?: string, verificationId = userId): Promise<void> {
-  await applyTrustEvent(userId, 5, "Residency & Identity Verification Approved by Cordova Admin", actorAdminId, `verification-approval:${userId}`);
+  await applyTrustEvent(userId, 5, "Residency & Identity Verification Approved by Admin", actorAdminId, `verification-approval:${userId}`);
 }
 
 export async function applyManualTrustAdjustment(input: {

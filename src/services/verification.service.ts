@@ -196,7 +196,7 @@ export async function reviewVerification(
       await applyTrustEventInTransaction(tx, {
         userId: current.userId,
         delta: 5,
-        reason: "Residency & Identity Verification Approved by Cordova Admin",
+        reason: "Residency & Identity Verification Approved by ServiceHub Admin",
         actorAdminId: adminId,
         eventKey: `verification-approval:${current.userId}`,
       });
@@ -207,8 +207,8 @@ export async function reviewVerification(
         userId: current.userId,
         title: approve ? "Verification Approved" : "Verification Rejected",
         body: approve
-          ? `Your Cordova residency verification was approved.${message ? " An admin message is available in your verification decision." : ""}`
-          : "Your Cordova residency verification was not approved. View your verification decision for the reason and next steps.",
+          ? `Your identity and residency verification was approved.${message ? " An admin message is available in your verification decision." : ""}`
+          : "Your identity and residency verification was not approved. View your verification decision for the reason and next steps.",
         link: "/account/settings#verification",
       },
     });

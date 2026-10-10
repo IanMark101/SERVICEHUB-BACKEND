@@ -33,7 +33,7 @@ async function main() {
     initSocket(httpServer);
 
     await listen(httpServer, PORT);
-    console.log(`🚀 ServiceHub Cordova API running on http://localhost:${PORT}`);
+    console.log(`🚀 ServiceHub API running on http://localhost:${PORT}`);
     console.log(`   Environment: ${env.NODE_ENV}`);
     console.log(`   Frontend origin: ${env.FRONTEND_URL}`);
 

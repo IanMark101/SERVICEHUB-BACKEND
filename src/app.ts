@@ -1,3 +1,4 @@
+import locationsRoutes from './routes/locations.routes';
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -49,7 +50,7 @@ app.use(cookieParser());
 // ─── Health Check ───────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "ServiceHub Cordova API", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", service: "ServiceHub API", timestamp: new Date().toISOString() });
 });
 
 // ─── Apply General API Rate Limiting ────────────────────────────────────────
@@ -61,6 +62,7 @@ app.use("/api", apiLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/verifications", verificationRoutes);
 app.use("/api/services", serviceRoutes);
+app.use("/api/locations", locationsRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/requests", requestRoutes);
@@ -87,7 +89,7 @@ app.use((error: unknown, req: express.Request, res: express.Response, _next: exp
   logger.error("request_failed", {
     requestId,
     method: req.method,
-    path: req.originalUrl,
+    path: req.path, // Do not log precise location/search query parameters.
     status,
     code: err.code,
     error: err,

@@ -56,7 +56,7 @@ export async function getOverview(_req: Request, res: Response, next: NextFuncti
       openCompletionEscalations,
       escalatedCancellations,
       pendingBanAppeals,
-      categorySuggestions,
+      activeCategories,
       recentAuditLogs,
       bookingStatusCounts,
       recentUsers,
@@ -70,7 +70,7 @@ export async function getOverview(_req: Request, res: Response, next: NextFuncti
       prisma.completionEscalation.count({ where: { status: { in: ["PENDING", "UNDER_REVIEW"] } } }),
       prisma.cancellationRequest.count({ where: { status: { in: ["ESCALATED", "UNDER_REVIEW"] } } }),
       prisma.banAppeal.count({ where: { status: "PENDING" } }),
-      prisma.categorySuggested.count({ where: { status: "PENDING" } }),
+      prisma.category.count({ where: { isActive: true } }),
       prisma.adminAuditLog.findMany({
         include: { actor: { select: { id: true, name: true } }, targetUser: { select: { id: true, name: true } } },
         orderBy: { createdAt: "desc" },
@@ -104,13 +104,12 @@ export async function getOverview(_req: Request, res: Response, next: NextFuncti
         activeServices,
         pendingVerifications,
         openReports: openReports + openCompletionEscalations + escalatedCancellations,
-        categorySuggestions,
+        activeCategories,
         pendingBanAppeals,
         recentAuditLogs,
         moderationWorkload: [
           { label: "Verifications", count: pendingVerifications, href: "/admin/verifications" },
           { label: "Reports & disputes", count: openReports + openCompletionEscalations + escalatedCancellations, href: "/admin/reports" },
-          { label: "Category requests", count: categorySuggestions, href: "/admin/categories" },
           { label: "Ban appeals", count: pendingBanAppeals, href: "/admin/users?appeals=pending" },
         ],
         bookingLifecycle: [

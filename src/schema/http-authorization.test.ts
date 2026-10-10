@@ -5,6 +5,25 @@ import app from '../app';
 
 type ProtectedRoute = readonly [method: string, path: string];
 
+test('retired category submission URLs no longer expose an API', async (t) => {
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+  t.after(() => new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  }));
+  const { port } = server.address() as AddressInfo;
+  for (const [method, path] of [
+    ['POST', '/api/categories/suggest'],
+    ['GET', '/api/categories/suggestions/mine'],
+  ]) {
+    const response = await fetch(`http://127.0.0.1:${port}${path}`, { method });
+    assert.equal(response.status, 404, `${method} ${path} must be removed`);
+  }
+});
+
 const protectedRoutes: ProtectedRoute[] = [
   ['GET', '/api/auth/me'],
   ['PUT', '/api/auth/profile'],
@@ -20,8 +39,6 @@ const protectedRoutes: ProtectedRoute[] = [
   ['PATCH', '/api/services/service-id'],
   ['PATCH', '/api/services/service-id/toggle'],
   ['DELETE', '/api/services/service-id'],
-  ['POST', '/api/categories/suggest'],
-  ['GET', '/api/categories/suggestions/mine'],
   ['GET', '/api/bookings/my-engagements'],
   ['PATCH', '/api/bookings/booking-id/hide'],
   ['POST', '/api/bookings/direct'],
@@ -80,8 +97,8 @@ const protectedRoutes: ProtectedRoute[] = [
   ['PATCH', '/api/admin/verifications/verification-id'],
   ['PATCH', '/api/admin/services/service-id/review'],
   ['GET', '/api/admin/categories'],
+  ['POST', '/api/admin/categories'],
   ['PATCH', '/api/admin/categories/category-id'],
-  ['PATCH', '/api/admin/categories/suggestions/suggestion-id'],
   ['GET', '/api/admin/reports/report-id/evidence/access'],
   ['PATCH', '/api/admin/reports/report-id/resolve'],
   ['PATCH', '/api/admin/reviews/review-id/moderation'],

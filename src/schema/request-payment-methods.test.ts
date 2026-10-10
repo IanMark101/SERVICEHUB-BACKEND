@@ -3,7 +3,7 @@ import test from 'node:test';
 import { ServiceRequestSchema, ServiceRequestUpdateSchema } from './marketplace.schema';
 import { assertRequestPaymentMethod, getRequestPaymentMethods } from '../services/request-payment-methods';
 
-const request = { categoryId: 'ckx1234567890123456789012', title: 'Kitchen pipe repair', description: 'Repair the leaking pipe under the kitchen sink.', budgetMin: 500, budgetMax: 500, urgency: 'Flexible Schedule' };
+const request = { jobLocation: { latitude: 10.3, longitude: 123.9, label: 'Cebu' }, categoryId: 'ckx1234567890123456789012', title: 'Kitchen pipe repair', description: 'Repair the leaking pipe under the kitchen sink.', budgetMin: 500, budgetMax: 500, urgency: 'Flexible Schedule' };
 
 test('new public requests require a strict, nonempty choice of payment methods', () => {
   for (const paymentMethods of [{ cash: true, gcash: false }, { cash: false, gcash: true }, { cash: true, gcash: true }]) {

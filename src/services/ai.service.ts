@@ -1,3 +1,4 @@
+import { locationBounds, locationFromRecord, inRadius } from '../lib/proximity';
 import { createHash } from "node:crypto";
 import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
@@ -176,14 +177,20 @@ export async function matchProvidersToRequest(requestId: string, seekerId: strin
   try {
     const request = await prisma.serviceRequest.findUnique({ where: { id: requestId, seekerId }, include: { category: true } });
     if (!request) return { suggestions: [], reason: "Request not found or access denied" };
+    const job = locationFromRecord(request);
+    if (!job) return { suggestions: [], reason: 'Add the job location before requesting nearby provider suggestions' };
+    const area = { ...job, radiusKm: 30 };
     if (!env.GEMINI_API_KEY) return { suggestions: [], reason: "AI not configured" };
-    const providers = await prisma.service.findMany({
-      where: { categoryId: request.categoryId, status: "ACTIVE", isAvailable: true, provider: { isActive: true, moderationStatus: "ACTIVE", verificationStatus: "APPROVED", emailVerified: true } },
+    const candidates = await prisma.service.findMany({
+      where: { AND: [locationBounds(area)], providerId: { not: seekerId }, categoryId: request.categoryId, status: "ACTIVE", isAvailable: true, provider: { isActive: true, moderationStatus: "ACTIVE", verificationStatus: "APPROVED", emailVerified: true } },
       include: { provider: { select: { id: true, name: true, trustScore: true, verificationStatus: true } } },
       orderBy: { provider: { trustScore: "desc" } },
-      take: 10,
     });
-    if (!providers.length) return { suggestions: [], reason: "No providers in this category" };
+    const providers = candidates.flatMap(service => {
+      const distance = inRadius(service, area);
+      return distance == null || (service.coverageRadiusKm != null && distance > service.coverageRadiusKm) ? [] : [{ ...service, distance }];
+    }).sort((a, b) => a.distance - b.distance || b.provider.trustScore - a.provider.trustScore).slice(0, 10);
+    if (!providers.length) return { suggestions: [], reason: "No eligible providers within 30 km of this job location" };
     const providerList = providers.map((item) => `Provider: ${item.provider.name} | Trust: ${item.provider.trustScore} | Service: ${item.title} | Listed price: ${item.price ?? "quotation required"}`).join("\n");
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`, {
       method: "POST",

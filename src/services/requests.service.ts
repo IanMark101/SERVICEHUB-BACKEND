@@ -1,3 +1,6 @@
+import { locationData, locationBounds } from '../lib/proximity';
+import { marketplaceSearchConditions } from '../lib/marketplace-search';
+import type { JobLocation, NearbyQuery } from '../schema/location.schema';
 import { prisma } from "../lib/prisma";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
@@ -16,6 +19,8 @@ export async function createRequest(seekerId: string, params: {
   budgetMax: number;
   urgency: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
+  jobLocation?: JobLocation;
+  transportationFee?: number | null;
 }) {
   const { categoryId, title, description, budgetMin, budgetMax, urgency } = params;
   RequestUrgencySchema.parse(urgency);
@@ -59,6 +64,8 @@ export async function createRequest(seekerId: string, params: {
     const request = await tx.serviceRequest.create({
       data: {
         seekerId, categoryId, title, description, budgetMin, budgetMax, urgency,
+        ...(params.jobLocation && { ...locationData(params.jobLocation), privateAddress: params.jobLocation.address || null }),
+        transportationFee: params.transportationFee,
         // Post Request always creates a public job, never a provider assignment.
         targetProviderId: null, targetServiceId: null,
         ...(paymentMethods && { paymentMethods }),
@@ -77,7 +84,7 @@ export async function createRequest(seekerId: string, params: {
   });
 }
 
-export async function listRequests(categoryId?: string, providerId?: string) {
+export async function listRequests(categoryId?: string, providerId?: string, nearby?: NearbyQuery) {
   const requests = await prisma.serviceRequest.findMany({
     where: {
       status: "OPEN",
@@ -90,9 +97,12 @@ export async function listRequests(categoryId?: string, providerId?: string) {
       // Never advertise a request that has already produced a booking.
       offers: { none: { booking: { is: { status: { notIn: ["DECLINED", "CANCELED", "REMOVED"] } } } } },
       ...(categoryId && { categoryId }),
+      ...(nearby && { AND: [locationBounds(nearby), ...marketplaceSearchConditions(nearby.search)] }),
+      ...(nearby?.category && nearby.category !== "All Categories" && { category: { name: { equals: nearby.category, mode: "insensitive" as const } } }),
     },
     include: {
       category: true,
+      _count: { select: { offers: { where: { status: "PENDING" } } } },
       seeker: {
         select: {
           id: true,
@@ -119,6 +129,7 @@ export async function listRequests(categoryId?: string, providerId?: string) {
   })));
   return requests.map(request => ({
     ...request,
+    offersCount: request._count.offers,
     targetProviderId: request.targetServiceId ? request.targetProviderId : null,
     seeker: { ...request.seeker, ...(stats.get(request.seekerId) ?? { clientRating: 0, clientReviewCount: 0 }) },
   }));
@@ -178,6 +189,8 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   status?: "OPEN" | "IN_PROGRESS" | "CLOSED" | "CANCELED";
   urgency?: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
+  jobLocation?: JobLocation;
+  transportationFee?: number | null;
 }) {
   if (params.urgency !== undefined) RequestUrgencySchema.parse(params.urgency);
   if (params.paymentMethods !== undefined) RequestPaymentMethodsSchema.parse(params.paymentMethods);
@@ -254,7 +267,14 @@ export async function updateRequest(requestId: string, seekerId: string, params:
     throw err;
   }
 
-  const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: request.status }, data: params });
+  const { jobLocation, ...changes } = params;
+  if (jobLocation || params.transportationFee !== undefined) {
+    const quoted = await tx.offer.findFirst({ where: { requestId, status: { in: ['PENDING', 'PENDING_PAYMENT', 'ACCEPTED'] } }, select: { id: true } });
+    if (quoted) throw Object.assign(new Error('This request already has offers. Keep the agreed location and travel budget, or post a new request.'), { status: 409 });
+  }
+  const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: request.status }, data: {
+    ...changes, ...(jobLocation && { ...locationData(jobLocation), privateAddress: jobLocation.address || null }),
+  } });
   if (changed.count !== 1) {
     const err = new Error("The request changed before it could be updated") as Error & { status?: number };
     err.status = 409;
@@ -335,6 +355,8 @@ export async function getRequestRepostTemplate(requestId: string, seekerId: stri
   return {
     title: request.title, description: request.description,
     categoryId: request.category.isActive ? request.categoryId : '', categoryName: request.category.name,
+    jobLocation: request.latitude == null || request.longitude == null || !request.locationLabel ? undefined : { latitude: request.latitude, longitude: request.longitude, label: request.locationLabel, address: request.privateAddress || undefined },
+    transportationFee: request.transportationFee == null ? null : Number(request.transportationFee),
     budget: Number(request.budgetMax), paymentMethods: paymentMethods.success ? paymentMethods.data : null,
   };
 }

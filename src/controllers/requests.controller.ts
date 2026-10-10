@@ -1,3 +1,4 @@
+import { publicLocation } from '../lib/proximity';
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import {
@@ -15,7 +16,7 @@ import { ServiceRequestSchema, ServiceRequestUpdateSchema } from "../schema/mark
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { categoryId, title, description, budgetMin, budgetMax, urgency, paymentMethods } = ServiceRequestSchema.parse(req.body);
+    const { categoryId, title, description, budgetMin, budgetMax, urgency, paymentMethods, jobLocation, transportationFee } = ServiceRequestSchema.parse(req.body);
 
     const request = await createRequest(user.id, {
       categoryId,
@@ -24,10 +25,10 @@ export async function create(req: Request, res: Response, next: NextFunction) {
       budgetMin,
       budgetMax,
       urgency,
-      paymentMethods,
+      paymentMethods, jobLocation, transportationFee,
     });
 
-    safeBroadcast("SERVICE_REQUEST_CREATED", request);
+    safeBroadcast("SERVICE_REQUEST_CREATED", publicLocation(request));
     safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id });
 
     res.status(201).json({ success: true, data: request });
@@ -43,7 +44,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     const { categoryId } = req.query;
     const requests = await listRequests(categoryId as string | undefined, (req as AuthenticatedRequest).user.id);
-    res.json({ success: true, data: requests });
+    res.json({ success: true, data: requests.map(publicLocation) });
   } catch (err) {
     next(err);
   }
@@ -62,7 +63,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
 export async function update(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { title, description, budgetMin, budgetMax, status, paymentMethods, urgency } = ServiceRequestUpdateSchema.parse(req.body);
+    const { title, description, budgetMin, budgetMax, status, paymentMethods, urgency, jobLocation, transportationFee } = ServiceRequestUpdateSchema.parse(req.body);
 
     const request = await updateRequest(req.params.id as string, user.id, {
       ...(title !== undefined && { title }),
@@ -72,9 +73,11 @@ export async function update(req: Request, res: Response, next: NextFunction) {
       ...(status !== undefined && { status }),
       ...(paymentMethods !== undefined && { paymentMethods }),
       ...(urgency !== undefined && { urgency }),
+      ...(jobLocation !== undefined && { jobLocation }),
+      ...(transportationFee !== undefined && { transportationFee }),
     });
 
-    safeBroadcast("SERVICE_REQUEST_UPDATED", request);
+    safeBroadcast("SERVICE_REQUEST_UPDATED", publicLocation(request));
     safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id, status: request.status });
 
     res.json({ success: true, data: request });
