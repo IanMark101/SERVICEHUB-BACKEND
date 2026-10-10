@@ -1,7 +1,7 @@
+import locationsRoutes from './routes/locations.routes';
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { env } from "./config/env";
 import { getAllowedFrontendOrigins } from "./config/frontend-origins";
 
 // Route imports
@@ -26,6 +26,7 @@ import { apiLimiter, webhookLimiter } from "./middlewares/rateLimiter.middleware
 import { receivePaymongoWebhook } from "./controllers/payments.controller";
 import { requestContext } from "./middlewares/requestContext.middleware";
 import { logger } from "./utils/logger";
+import { getDatabaseAvailabilityError } from "./utils/databaseAvailability";
 
 const app = express();
 app.disable("x-powered-by");
@@ -49,7 +50,7 @@ app.use(cookieParser());
 // ─── Health Check ───────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "ServiceHub Cordova API", timestamp: new Date().toISOString() });
+  res.json({ status: "ok", service: "ServiceHub API", timestamp: new Date().toISOString() });
 });
 
 // ─── Apply General API Rate Limiting ────────────────────────────────────────
@@ -61,6 +62,7 @@ app.use("/api", apiLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/verifications", verificationRoutes);
 app.use("/api/services", serviceRoutes);
+app.use("/api/locations", locationsRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/requests", requestRoutes);
@@ -80,13 +82,14 @@ app.use("/api/content-cases", contentCasesRoutes);
 
 app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const err = error as Error & { status?: number; statusCode?: number; errors?: unknown; issues?: unknown; code?: string; field?: string };
-  const status = err.name === "ZodError" ? 400 : err.status || err.statusCode || 500;
+  const databaseFailure = getDatabaseAvailabilityError(error);
+  const status = err.name === "ZodError" ? 400 : databaseFailure?.status || err.status || err.statusCode || 500;
   const requestId = String(res.locals.requestId || "unknown");
 
   logger.error("request_failed", {
     requestId,
     method: req.method,
-    path: req.originalUrl,
+    path: req.path, // Do not log precise location/search query parameters.
     status,
     code: err.code,
     error: err,
@@ -95,11 +98,11 @@ app.use((error: unknown, req: express.Request, res: express.Response, _next: exp
   if (err.name === "ZodError") {
     return res.status(400).json({ success: false, error: "Validation failed", errors: err.issues || err.errors, requestId });
   }
-  const message = env.NODE_ENV === "production" && status >= 500 ? "Internal server error" : err.message;
+  const message = databaseFailure?.error || (status >= 500 ? "Internal server error" : err.message);
   const moderationField = err.code === "CONTENT_REVISION_REQUIRED" && ["title", "description", "category"].includes(err.field || "") ? err.field : undefined;
   const passwordCode = ["CURRENT_PASSWORD_INCORRECT", "CURRENT_PASSWORD_CHANGED", "PASSWORD_NOT_SET", "PASSWORD_ALREADY_SET", "GOOGLE_VERIFICATION_EXPIRED", "GOOGLE_VERIFICATION_FAILED", "GOOGLE_NOT_CONNECTED", "GOOGLE_UNAVAILABLE", "SIGN_IN_METHODS_CHANGED", "SESSION_EXPIRED"].includes(err.code || "") ? err.code : undefined;
   const offerCode = ['REQUEST_RESERVED', 'REQUEST_LISTING_REQUIRED', 'OFFER_LISTING_UNAVAILABLE', 'DUPLICATE_OFFER', 'REQUEST_ALREADY_MATCHED', 'REQUEST_DELETE_BLOCKED', 'REQUEST_STATE_CHANGED', 'PARTICIPANT_INELIGIBLE', 'SEEKER_UNAVAILABLE', 'SELF_TRANSACTION_NOT_ALLOWED', 'ACCOUNT_SUSPENDED', 'ACCOUNT_BANNED', 'EMAIL_NOT_VERIFIED', 'VERIFICATION_REQUIRED'].includes(err.code || '') ? err.code : undefined;
-  res.status(status).json({ success: false, error: message || "Request failed", ...(moderationField ? { code: "CONTENT_REVISION_REQUIRED", field: moderationField } : {}), ...((passwordCode || offerCode) ? { code: passwordCode || offerCode } : {}), requestId });
+  res.status(status).json({ success: false, error: message || "Request failed", ...(databaseFailure ? { code: databaseFailure.code } : {}), ...(moderationField ? { code: "CONTENT_REVISION_REQUIRED", field: moderationField } : {}), ...((passwordCode || offerCode) ? { code: passwordCode || offerCode } : {}), requestId });
 });
 
 export default app;

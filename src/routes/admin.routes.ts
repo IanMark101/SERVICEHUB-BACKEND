@@ -14,8 +14,6 @@ import {
   listCategories,
   createCategory,
   updateCategory,
-  listCategorySuggestions,
-  resolveCategorySuggestion,
   listReports,
   resolveReport,
   accessReportEvidence,
@@ -94,12 +92,10 @@ router.get("/content/marketplace", listMarketplaceContent);
 router.get("/content/marketplace/:type/:id", getMarketplaceContent);
 router.post("/content/marketplace/:type/:id/action", actOnMarketplaceContent);
 
-// Category Suggestions
+// Admin-managed marketplace categories
 router.get("/categories", listCategories);
 router.post("/categories", createCategory);
 router.patch("/categories/:id", updateCategory);
-router.get("/categories/suggestions", listCategorySuggestions);
-router.patch("/categories/suggestions/:id", resolveCategorySuggestion);
 
 // Reports / Moderation
 router.get("/reports", listReports);

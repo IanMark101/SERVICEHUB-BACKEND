@@ -18,9 +18,7 @@ export {
   listServices,
   listCategories,
   createCategory,
-  updateCategory,
-  listCategorySuggestions,
-  resolveCategorySuggestion
+  updateCategory
 } from "./admin/marketplace-moderation.controller";
 export { listReports, resolveReport, accessReportEvidence } from "./admin/reports.controller";
 export { removeServiceContent, restoreServiceContent } from "./admin/marketplace-moderation.controller";

@@ -37,7 +37,6 @@ export async function purgeAccountData(tx: Prisma.TransactionClient, userId: str
     UNION SELECT id FROM completion_escalations WHERE "requestedBy" = ${userId} OR "bookingId" IN (${Prisma.join(relatedIds)})
     UNION SELECT id FROM payment_refunds WHERE "requestedById" = ${userId} OR "bookingId" IN (${Prisma.join(relatedIds)}) OR "paymentAttemptId" IN (${Prisma.join(relatedIds)})
     UNION SELECT id FROM messages WHERE "senderId" = ${userId} OR "receiverId" = ${userId} OR "bookingId" IN (${Prisma.join(relatedIds)})
-    UNION SELECT id FROM categories_suggested WHERE "submitterId" = ${userId}
     UNION SELECT id FROM ban_appeals WHERE "userId" = ${userId}
     UNION SELECT id FROM announcements WHERE "authorId" = ${userId}`);
   relatedIds.push(...extraResources.map(item => item.id));

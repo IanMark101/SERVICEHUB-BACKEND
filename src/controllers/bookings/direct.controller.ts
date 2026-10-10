@@ -27,7 +27,7 @@ import { prisma } from "../../lib/prisma";
 export async function bookDirect(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { serviceId, quantity, schedule, message } = DirectBookingSchema.parse(req.body);
+    const { serviceId, quantity, schedule, message, jobLocation } = DirectBookingSchema.parse(req.body);
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
@@ -43,6 +43,7 @@ export async function bookDirect(req: Request, res: Response, next: NextFunction
       providerId: service.providerId,
       serviceId,
       quantity,
+      jobLocation,
       schedule,
       message,
     });

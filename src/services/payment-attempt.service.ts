@@ -1,7 +1,10 @@
+import { assertServiceCoverage, locationFromRecord } from '../lib/proximity';
+import { JobLocationSchema, type JobLocation } from '../schema/location.schema';
 import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
+import { recordBookingProgress } from "./booking-progress.service";
 import { safeEmit } from "../lib/socket";
 import {
   attachPaymentMethod,
@@ -10,11 +13,12 @@ import {
   createRefund,
   getPaymentIntent,
 } from "./paymongo.service";
-import { emitProviderQueueUpdates, lockProviderQueue, recalculateQueueInTransaction } from "./queue.service";
+import { lockProviderQueue, recalculateQueueInTransaction } from "./queue.service";
 import { lockAccountLifecycle, marketplaceParticipantsEligible } from "./account-lifecycle.service";
 import { rejectSiblingOffersAndNotify } from "./offer-selection-notifications.service";
 import { calculateDirectListingTerms } from "./bookings/direct-listing-pricing";
 import { assertRequestPaymentMethod } from "./request-payment-methods";
+import { recordLifecycleNotice, publishLifecycleChange } from './bookings/lifecycle-events';
 
 const ATTEMPT_TTL_MS = 15 * 60 * 1000;
 type OnlineMethod = "gcash";
@@ -56,10 +60,18 @@ export async function initiateOnlinePayment(params: {
   serviceId?: string;
   offerId?: string;
   quantity?: number;
+  jobLocation?: JobLocation;
+  retryPaymentIntentId?: string;
   paymentMethod: OnlineMethod;
 }) {
   if (!env.PAYMONGO_PUBLIC_KEY || !env.PAYMONGO_SECRET_KEY || !env.PAYMONGO_WEBHOOK_SECRET) {
     throw httpError("Online payment is unavailable until PayMongo Test Mode and its webhook are fully configured", 503, "PAYMENT_NOT_CONFIGURED");
+  }
+  if (params.retryPaymentIntentId) {
+    const previous = await prisma.paymentAttempt.findUnique({ where: { providerIntentId: params.retryPaymentIntentId } });
+    if (!previous || previous.seekerId !== params.seekerId || previous.offerId !== (params.offerId || null) || (!params.offerId && previous.serviceId !== params.serviceId)) throw httpError('Previous payment attempt not found', 404);
+    if (!['FAILED', 'EXPIRED'].includes(previous.status)) throw httpError('Check the previous payment before trying again', 409);
+    if (!params.offerId && !params.jobLocation && previous.jobLocation) params.jobLocation = JobLocationSchema.parse(previous.jobLocation);
   }
   const expiresAt = new Date(Date.now() + ATTEMPT_TTL_MS);
   const targetOffer = params.offerId
@@ -109,10 +121,12 @@ export async function initiateOnlinePayment(params: {
       },
     });
     if (existing) {
+      if (!params.offerId && params.jobLocation && (!existing.jobLocation || JSON.stringify(JobLocationSchema.parse(existing.jobLocation)) !== JSON.stringify(JobLocationSchema.parse(params.jobLocation)))) throw httpError('A payment is already pending for another job location. Finish or cancel that payment first.', 409);
       if (existing.quantity !== quantity) throw httpError("A payment is already pending for a different quantity", 409);
       return { attempt: existing, reused: true };
     }
 
+    if (!params.offerId && serviceId) await tx.$queryRaw`SELECT id FROM services WHERE id = ${serviceId} FOR SHARE`;
     const service = !params.offerId && serviceId ? await tx.service.findUnique({
       where: { id: serviceId },
       select: {
@@ -122,6 +136,7 @@ export async function initiateOnlinePayment(params: {
         categoryId: true,
         price: true,
         priceType: true,
+        latitude: true, longitude: true, locationLabel: true, coverageRadiusKm: true, transportationFee: true,
         serviceType: true,
         estimatedDurationMins: true,
         paymentMethods: true,
@@ -139,7 +154,8 @@ export async function initiateOnlinePayment(params: {
       throw httpError("Both participants must be eligible for a new payment", 409, "PARTICIPANT_INELIGIBLE");
     }
     if (providerId === params.seekerId) throw httpError("You cannot book your own offer or service", 403, "SELF_TRANSACTION_NOT_ALLOWED");
-    const directTerms = service ? calculateDirectListingTerms(service.priceType, service.price, quantity, service.estimatedDurationMins) : null;
+    const directTerms = service ? calculateDirectListingTerms(service.priceType, service.price, quantity, service.estimatedDurationMins, service.transportationFee) : null;
+    if (service) assertServiceCoverage(service, params.jobLocation);
     if (service && (service.status !== "ACTIVE" || !service.isAvailable)) throw httpError("This service is not available", 409);
     const provider = await tx.user.findUnique({ where: { id: providerId }, select: { isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true, onlineQueueLimit: true } });
     if (!provider?.isActive || provider.moderationStatus !== "ACTIVE" || !provider.emailVerified || provider.verificationStatus !== "APPROVED") {
@@ -163,6 +179,8 @@ export async function initiateOnlinePayment(params: {
     const waitingCount = await tx.queue.count({ where: { providerId, status: "WAITING" } });
     if (waitingCount >= provider.onlineQueueLimit) throw httpError("The provider's paid work queue is full", 409, "QUEUE_FULL");
 
+    let jobLocation = params.jobLocation;
+    let estimatedDurationMins = directTerms?.estimatedDurationMins;
     let amount = directTerms ? Number(directTerms.amount) : Number.NaN;
     let offerRequestId: string | undefined;
     if (params.offerId) {
@@ -171,6 +189,7 @@ export async function initiateOnlinePayment(params: {
         where: { id: params.offerId },
         include: { request: { select: {
           id: true, seekerId: true, categoryId: true, status: true, targetServiceId: true, preferredPaymentMethod: true, paymentMethods: true,
+          latitude: true, longitude: true, locationLabel: true, privateAddress: true,
         } } },
       });
       if (!offer || offer.status !== "PENDING" || offer.request.status !== "OPEN" || offer.request.seekerId !== params.seekerId || offer.providerId !== providerId || offer.serviceId !== (serviceId || null)) {
@@ -186,6 +205,8 @@ export async function initiateOnlinePayment(params: {
           throw httpError("This listing no longer accepts GCash", 409);
         }
       }
+      jobLocation = locationFromRecord(offer.request);
+      estimatedDurationMins = offer.estimatedDuration;
       amount = Number(offer.offeredPrice);
       offerRequestId = offer.requestId;
       await tx.offer.update({
@@ -206,6 +227,8 @@ export async function initiateOnlinePayment(params: {
         quantity,
         offerId: params.offerId || null,
         amount,
+        jobLocation, estimatedDurationMins,
+        transportationFee: service?.transportationFee,
         paymentMethod: params.paymentMethod,
         expiresAt,
       },
@@ -231,7 +254,7 @@ export async function initiateOnlinePayment(params: {
     const attempt = prepared.attempt;
     const intent = await createPaymentIntent({
       amount: Number(attempt.amount),
-      description: `ServiceHub Cordova ${attempt.offerId ? "offer" : "service"} booking`,
+      description: `ServiceHub ${attempt.offerId ? "offer" : "service"} booking`,
       paymentMethod: attempt.paymentMethod as OnlineMethod,
       idempotencyKey: attempt.idempotencyKey,
       metadata: {
@@ -487,7 +510,7 @@ export async function finalizeSuccessfulPayment(params: {
 
     const position = servingCount + waitingCount + 1;
     const offerTerms = fresh.offerId ? await tx.offer.findUnique({ where: { id: fresh.offerId }, select: { estimatedDuration: true, request: { select: { title: true } } } }) : null;
-    const estimatedDurationMins = offerTerms?.estimatedDuration ?? (service?.priceType === "PER_HOUR" ? 60 * fresh.quantity : service?.priceType === "PER_DAY" ? 480 * fresh.quantity : service?.estimatedDurationMins ?? 60);
+    const estimatedDurationMins = fresh.estimatedDurationMins ?? offerTerms?.estimatedDuration ?? (service?.priceType === "PER_HOUR" ? 60 * fresh.quantity : service?.priceType === "PER_DAY" ? 480 * fresh.quantity : service?.estimatedDurationMins ?? 60);
     const booking = await tx.booking.create({
       data: {
         seekerId: fresh.seekerId,
@@ -498,6 +521,8 @@ export async function finalizeSuccessfulPayment(params: {
         paymentAttemptId: fresh.id,
         paymentMethod: displayMethod(fresh.paymentMethod),
         agreedAmount: fresh.amount,
+        ...(fresh.jobLocation && { jobLocation: fresh.jobLocation as Prisma.InputJsonValue }),
+        transportationFee: fresh.transportationFee,
         estimatedDurationMins,
         paymentStatus: "PAID_HELD",
         status: "ACCEPTED",
@@ -505,6 +530,8 @@ export async function finalizeSuccessfulPayment(params: {
         started: false,
       },
     });
+    // Paid bookings become accepted automatically after payment confirmation.
+    await recordBookingProgress(tx, booking.id, "ACCEPTED", "SYSTEM");
     const queue = await tx.queue.create({
       data: {
         providerId: fresh.providerId,
@@ -533,7 +560,15 @@ export async function finalizeSuccessfulPayment(params: {
       losingProviderIds = await rejectSiblingOffersAndNotify(tx, offer.requestId, offer.id, offerTerms?.request.title ?? 'service request');
       await tx.serviceRequest.update({ where: { id: offer.requestId }, data: { status: "IN_PROGRESS" } });
     }
-    return { booking, queue, created: true, refundRequired: false, title: offerTerms?.request.title ?? service?.title ?? "your service", losingProviderIds };
+    const title = offerTerms?.request.title ?? service?.title ?? 'your service';
+    const recorded = await recordLifecycleNotice(tx, booking, {
+      userId: booking.providerId, title: 'Paid booking ready to start',
+      body: queue.position === 1
+        ? `Payment was confirmed for "${title}". This seeker is first in your paid work queue and ready for you to start.`
+        : `Payment was confirmed for "${title}". This seeker is now in your paid work queue at position ${queue.position}.`,
+      link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
+    });
+    return { booking, queue, created: true, refundRequired: false, title, losingProviderIds, recorded };
   });
 
   if (result.created && result.booking && result.queue) {
@@ -543,22 +578,9 @@ export async function finalizeSuccessfulPayment(params: {
         safeEmit(`user:${providerId}`, 'ENGAGEMENT_CHANGED', { type: 'offer_not_selected' });
       }
     }
-    await emitProviderQueueUpdates(result.booking.providerId).catch((error) => console.error("Queue refresh event failed", error));
-    await prisma.notification.create({
-      data: {
-        userId: result.booking.providerId,
-        title: "Paid booking ready to start",
-        body: result.queue.position === 1
-          ? `Payment was confirmed for "${result.title}". This customer is first in your paid work queue and ready for you to start.`
-          : `Payment was confirmed for "${result.title}". This customer is now in your paid work queue at position ${result.queue.position}.`,
-        link: `/provider/provider-activity?tab=waiting&booking=${result.booking.id}`,
-      },
-    });
-    safeEmit(`user:${result.booking.providerId}`, "notification", { title: "Paid booking ready to start" });
+    if ('recorded' in result) publishLifecycleChange(result.booking, 'queue_created', result.recorded, true);
     safeEmit(`user:${result.booking.providerId}`, "queue_update", { providerId: result.booking.providerId });
     if (result.booking.serviceId) safeEmit(`service:${result.booking.serviceId}`, "queue_update", { serviceId: result.booking.serviceId });
-    safeEmit(`user:${result.booking.providerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });
-    safeEmit(`user:${result.booking.seekerId}`, "ENGAGEMENT_CHANGED", { bookingId: result.booking.id, type: "queue_created" });
   }
   return result;
 }

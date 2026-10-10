@@ -21,7 +21,7 @@ function getTransporter(): { transporter: Transporter; emailFrom: string } | nul
   const smtpUser = process.env.SMTP_USER || env.SMTP_USER;
   const rawPass = process.env.SMTP_PASS || env.SMTP_PASS || "";
   const smtpPass = rawPass.replace(/\s+/g, "");
-  const emailFrom = smtpUser ? `ServiceHub Cordova <${smtpUser}>` : (process.env.EMAIL_FROM || env.EMAIL_FROM || "no-reply@servicehub.com");
+  const emailFrom = smtpUser ? `ServiceHub <${smtpUser}>` : (process.env.EMAIL_FROM || env.EMAIL_FROM || "no-reply@servicehub.com");
 
   if (!smtpHost || !smtpUser || !smtpPass) {
     return null;
@@ -215,15 +215,15 @@ function buildEmailTemplate(contentHtml: string, title: string): string {
         <div class="email-container">
           <div class="header">
             <img class="brand-logo" src="${process.env.FRONTEND_URL || 'http://localhost:3000'}/logo.png" alt="ServiceHub Logo" />
-            <div class="logo">ServiceHub <span class="highlight">Cordova</span></div>
-            <div class="logo-sub">Hyperlocal Service Marketplace</div>
+            <div class="logo">ServiceHub</div>
+            <div class="logo-sub">Nearby Service Marketplace</div>
           </div>
           <div class="content">
             ${contentHtml}
           </div>
           <div class="footer">
-            <p>© ${currentYear} ServiceHub Cordova. All rights reserved.</p>
-            <p style="margin-top: 4px;">Connecting Seekers and Verified Providers in Cordova, Cebu.</p>
+            <p>© ${currentYear} ServiceHub. All rights reserved.</p>
+            <p style="margin-top: 4px;">Connecting Seekers and Verified Providers in nearby communities.</p>
           </div>
         </div>
       </body>
@@ -238,7 +238,7 @@ export async function sendVerificationEmail(email: string, name: string, token: 
   const htmlContent = `
     <h1>Verify Your Account</h1>
     <p>Hi <strong>${name}</strong>,</p>
-    <p>Welcome to ServiceHub Cordova! Before you can post services or hire local providers, we need to verify your email address to ensure your account security.</p>
+    <p>Welcome to ServiceHub! Before you can post services or hire local providers, we need to verify your email address to ensure your account security.</p>
     <div class="btn-container">
       <a href="${link}" class="btn">Confirm Email Address</a>
     </div>
@@ -248,7 +248,7 @@ export async function sendVerificationEmail(email: string, name: string, token: 
   `;
   await sendEmail({
     to: email,
-    subject: "Verify your ServiceHub Cordova account",
+    subject: "Verify your ServiceHub account",
     html: buildEmailTemplate(htmlContent, "Verify Email")
   });
 }
@@ -268,7 +268,7 @@ export async function sendPasswordResetEmail(email: string, name: string, token:
   `;
   await sendEmail({
     to: email,
-    subject: "Reset your ServiceHub Cordova password",
+    subject: "Reset your ServiceHub password",
     html: buildEmailTemplate(htmlContent, "Reset Password")
   });
 }

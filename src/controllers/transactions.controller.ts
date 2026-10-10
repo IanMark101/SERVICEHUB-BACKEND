@@ -1,6 +1,19 @@
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { prisma } from "../lib/prisma";
+import { ProviderPaymentRecordsQuerySchema } from '../schema/provider-payment-records.schema';
+import { getProviderPaymentRecords } from '../services/provider-payment-records.service';
+
+export async function getMyProviderPaymentRecords(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = (req as AuthenticatedRequest).user;
+    const query = ProviderPaymentRecordsQuerySchema.parse(req.query);
+    const data = await getProviderPaymentRecords(prisma, user.id, query);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
 
 // ── GET /transactions ─────────────────────────────────────────────────────────
 // Returns the authenticated user's wallet transaction history (earnings, refunds, withdrawals)

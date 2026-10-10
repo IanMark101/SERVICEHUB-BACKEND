@@ -200,7 +200,7 @@ export function requireVerification(req: Request, res: Response, next: NextFunct
       success: false,
       error: isPending
         ? "Verification under review — usually within 24 hours. You cannot perform this action yet."
-        : "Please verify your Cordova residency to perform this action.",
+        : "Please complete identity and residency verification to perform this action.",
       code: "VERIFICATION_REQUIRED",
       verificationStatus: user.verificationStatus,
     });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CreateServiceSchema } from './services.schema';
 
-const listing = {
+const listing = { serviceLocation: { latitude: 10.3, longitude: 123.9, label: 'Cebu' },
   categoryId: 'category-id',
   title: 'House cleaning service',
   description: 'I will clean the home and bring basic cleaning supplies.',

@@ -6,6 +6,8 @@ import app from '../app';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { invalidateReviewSummaries, summarizeProviderReviews, summarizeSeekerReviews } from '../services/ai.service';
+import { getUserPublicProfile } from '../services/auth/profile.service';
+import { listRequests } from '../services/requests.service';
 
 test('review digests remain grounded and isolated by booking role', async t => {
   const schema = new URL(env.DATABASE_URL).searchParams.get('schema');
@@ -45,10 +47,37 @@ test('review digests remain grounded and isolated by booking role', async t => {
     assert.equal(provider.averageRating, 5); assert.equal(provider.reviewCount, 1);
     assert.match(provider.summary!, /Friendly \(1 review\)/);
     assert.equal(client.averageRating, 2); assert.equal(client.reviewCount, 1);
-    assert.match(client.summary!, /this client/);
+    assert.match(client.summary!, /this service seeker/);
     assert.match(client.summary!, /Respectful/);
     const persisted = await prisma.aiReviewSummary.findUniqueOrThrow({ where: { providerId: a.id } });
-    assert.match(persisted.summary, /this provider/);
+    assert.match(persisted.summary, /this service provider/);
+    const profile = await getUserPublicProfile(a.id);
+    assert.equal(profile.reviews.length, 2);
+    assert.deepEqual(profile.reviews.map(review => review.reviewContext).sort(), ['PROVIDER', 'SEEKER']);
+    assert.equal(profile.reviewStats.PROVIDER.reviewCount, 1);
+    assert.equal(profile.reviewStats.PROVIDER.averageRating, 5);
+    assert.equal(profile.reviewStats.SEEKER.reviewCount, 1);
+    assert.equal(profile.reviewStats.SEEKER.averageRating, 2);
+  });
+  await t.test('Browse Jobs seeker ratings match profile totals and exclude opposite-role and ineligible feedback', async () => {
+    await add('seeker', 1, { hidden: true });
+    await add('seeker', 1, { wrongAuthor: true });
+    await add('seeker', 1, { incomplete: true });
+    const category = await prisma.category.create({ data: { name: `Review parity ${suffix}` } });
+    for (const seekerId of [a.id, outsider.id]) await prisma.serviceRequest.create({ data: {
+      seekerId, categoryId: category.id, title: 'Repair a door', description: 'The door needs repair.', budgetMin: 100, budgetMax: 100, urgency: 'Flexible Schedule',
+    } });
+    const requests = await listRequests(category.id, b.id);
+    assert.equal(requests.length, 2);
+    const rated = requests.find(request => request.seekerId === a.id)!;
+    const unreviewed = requests.find(request => request.seekerId === outsider.id)!;
+    const profile = await getUserPublicProfile(a.id);
+    assert.equal(rated.seeker.clientReviewCount, profile.reviewStats.SEEKER.reviewCount);
+    assert.equal(rated.seeker.clientRating, profile.reviewStats.SEEKER.averageRating);
+    assert.equal(rated.seeker.clientReviewCount, 1);
+    assert.equal(rated.seeker.clientRating, 2);
+    assert.equal(unreviewed.seeker.clientReviewCount, 0);
+    assert.equal(unreviewed.seeker.clientRating, 0);
   });
   await t.test('client edits and moderation invalidate facts even with an existing memory cache', async () => {
     const r = await add('seeker', 4);
@@ -82,7 +111,27 @@ test('review digests remain grounded and isolated by booking role', async t => {
     for (let i = 0; i < 21; i++) await add('provider', i === 0 ? 1 : 4, { createdAt: new Date(Date.now() + i * 1000) });
     const digest = await summarizeProviderReviews(a.id);
     assert.equal(digest.reviewCount, 20); assert.equal(digest.averageRating, 4);
-    assert.match(digest.summary!, /20 recent client reviews/);
+    assert.match(digest.summary!, /20 recent service seeker reviews/);
+    const profile = await getUserPublicProfile(a.id);
+    assert.equal(profile.reviews.filter(review => review.reviewContext === 'PROVIDER').length, 10);
+    assert.equal(profile.reviewStats.PROVIDER.reviewCount, 22);
+    assert.equal(profile.reviewStats.PROVIDER.averageRating, 3.9);
+    assert.equal(profile.reviewStats.PROVIDER.ratingDistribution.find(bucket => bucket.star === 4)?.count, 20);
+  });
+  await t.test('a client-only rating stays visible on the profile without becoming a service rating', async () => {
+    const booking = await prisma.booking.create({ data: { seekerId: outsider.id, providerId: b.id, status: 'COMPLETED', agreedAmount: 500, paymentMethod: 'On-site Cash', paymentStatus: 'CASH_CONFIRMED' } });
+    const completed = await prisma.completedService.create({ data: { seekerId: outsider.id, providerId: b.id, bookingId: booking.id, finalPrice: 500, paymentStatus: 'CASH_CONFIRMED' } });
+    await prisma.review.create({ data: { completedServiceId: completed.id, authorId: b.id, targetId: outsider.id, rating: 5, text: 'kunohay', editableUntil: new Date(Date.now() + 86400000) } });
+    const profile = await getUserPublicProfile(outsider.id);
+    const digest = await summarizeProviderReviews(outsider.id);
+    assert.equal(profile.averageRating, 0);
+    assert.equal(profile.reviewStats.PROVIDER.reviewCount, 0);
+    assert.equal(profile.reviewStats.SEEKER.reviewCount, 1);
+    assert.equal(profile.reviewStats.SEEKER.averageRating, 5);
+    assert.equal(profile.reviews[0].reviewContext, 'SEEKER');
+    assert.equal(profile.reviews[0].comment, 'kunohay');
+    assert.equal(digest.source, 'empty');
+    assert.equal(digest.reviewCount, profile.reviewStats.PROVIDER.reviewCount);
   });
   await t.test('AI output selects original excerpts and keeps computed rating facts', async () => {
     for (let i = 0; i < 5; i++) await add('seeker', i === 0 ? 1 : 5, { text: i === 0 ? 'The scope changed after we agreed.' : 'Instructions were clear and payment was prompt.' });
@@ -118,5 +167,27 @@ test('review digests remain grounded and isolated by booking role', async t => {
     release();
     const result = await pending;
     assert.equal(result.source, 'empty'); assert.equal(result.summary, null);
+  });
+  await t.test('failed persistence cannot recover an obsolete pre-moderation digest', async () => {
+    for (let i = 0; i < 5; i++) await add('seeker', 5, { text: 'The original job instructions were clear.' });
+    invalidateReviewSummaries(a.id);
+    const originalTransaction = prisma.$transaction;
+    globalThis.fetch = async (_input, init) => {
+      const prompt = JSON.parse(String(init?.body)).contents[0].parts[0].text;
+      const rows = JSON.parse(prompt.split('\n\n').at(-1)!);
+      await prisma.review.updateMany({ where: { targetId: a.id, completedService: { seekerId: a.id } }, data: { visibility: 'HIDDEN', contentVersion: { increment: 1 } } });
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ reviewIds: [rows[0].reviewId] }) }] } }] }));
+    };
+    // Simulate a transaction failure after the review set changed. The fresh
+    // read remains available and must replace the snapshot used for Gemini.
+    prisma.$transaction = (() => Promise.reject(new Error('Test-only persistence failure'))) as typeof prisma.$transaction;
+    try {
+      const digest = await summarizeSeekerReviews(a.id);
+      assert.equal(digest.source, 'empty');
+      assert.equal(digest.reviewCount, 0);
+      assert.equal(digest.summary, null);
+    } finally {
+      prisma.$transaction = originalTransaction;
+    }
   });
 });

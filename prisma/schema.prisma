@@ -1,4 +1,4 @@
-// ServiceHub Cordova — Prisma Schema
+// ServiceHub — Prisma Schema
 // Single source of truth for all database models.
 // Mirrors every entity in Master Prompt Section 18 exactly.
 
@@ -128,11 +128,6 @@ enum ReportStatus {
   DISMISSED
 }
 
-enum CategorySuggestionStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
 
 enum TransactionType {
   EARNING
@@ -264,8 +259,6 @@ model User {
   // Official Community Hub announcements (admin authored only)
   announcementsAuthored Announcement[] @relation("AnnouncementAuthor")
 
-  // Category suggestions
-  categorySuggestions CategorySuggested[]
   contentModerationCases ContentModerationCase[]
 
   // Trust Score audit log
@@ -275,7 +268,6 @@ model User {
   trustEventsAuthored    TrustScoreEvent[]       @relation("TrustEventAdmin")
   reportsResolved        Report[]                @relation("ReportAdmin")
   servicesReviewed       Service[]               @relation("ServiceReviewer")
-  categoriesReviewed     CategorySuggested[]     @relation("CategoryReviewer")
   cancellationsResolved  CancellationRequest[]   @relation("CancellationAdmin")
   cancellationResponses  CancellationRequest[]   @relation("CancellationResponder")
   refundsRequested       PaymentRefund[]         @relation("RefundAdmin")
@@ -375,21 +367,6 @@ model Category {
   @@map("categories")
 }
 
-model CategorySuggested {
-  id           String                   @id @default(cuid())
-  submitterId  String
-  submitter    User                     @relation(fields: [submitterId], references: [id], onDelete: Cascade)
-  name         String
-  description  String
-  status       CategorySuggestionStatus @default(PENDING)
-  submittedAt  DateTime                 @default(now())
-  reviewedAt   DateTime?
-  reviewedById String?
-  reviewedBy   User?                    @relation("CategoryReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  adminNotes   String?
-
-  @@map("categories_suggested")
-}
 
 // ─────────────────────────────────────────────
 // SERVICES (Provider Listings)
@@ -406,6 +383,11 @@ model Service {
   description           String
   price                 Decimal?      @db.Decimal(10, 2)
   priceType             PriceType     @default(FIXED)
+  latitude              Float?
+  longitude             Float?
+  locationLabel         String?
+  coverageRadiusKm      Float?
+  transportationFee     Decimal?      @db.Decimal(10, 2)
   // Every booking is an independent ONE_TIME engagement. The listing itself
   // remains reusable after that booking becomes terminal.
   serviceType           ServiceType   @default(ONE_TIME)
@@ -433,6 +415,7 @@ model Service {
 
   @@index([providerId, status])
   @@index([status, publishedAt])
+  @@index([latitude, longitude])
   @@map("services")
 }
 
@@ -456,6 +439,11 @@ model ServiceRequest {
   description String
   budgetMin   Decimal       @db.Decimal(10, 2)
   budgetMax   Decimal       @db.Decimal(10, 2)
+  latitude    Float?
+  longitude   Float?
+  locationLabel String?
+  privateAddress String?
+  transportationFee Decimal? @db.Decimal(10, 2)
   urgency     String // New writes use RequestUrgencySchema; String retains historical free-text readability.
   status      RequestStatus @default(OPEN)
   moderationPolicyVersion String?
@@ -465,12 +453,14 @@ model ServiceRequest {
   reviewedById String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  archivedAt  DateTime? // Owner hides a completed listing; booking and offer history stay intact.
 
   offers Offer[]
 
   @@index([targetProviderId, status])
   @@index([seekerId, targetServiceId, status])
   @@map("service_requests")
+  @@index([latitude, longitude])
 }
 
 model ContentModerationEvent {
@@ -631,6 +621,8 @@ model Booking {
   paymentAttemptId    String?            @unique
   paymentMethod       String // "GCash" | "On-site Cash"
   agreedAmount        Decimal?           @db.Decimal(10, 2) // immutable price snapshot at booking/payment time
+  jobLocation Json?
+  transportationFee Decimal? @db.Decimal(10, 2)
   estimatedDurationMins Int?             // job-specific snapshot; later listing edits do not change the forecast
   paymentStatus       PaymentStatus      @default(PAID_HELD)
   status              BookingStatus      @default(WAITING)
@@ -653,11 +645,28 @@ model Booking {
   cancellationRequests  CancellationRequest[]
   completionEscalations CompletionEscalation[]
   refund                PaymentRefund?
+  progressEvents        BookingProgressEvent[]
 
   // The database migration also enforces one ONGOING booking per provider.
   @@index([providerId, status])
   @@index([serviceId, status])
   @@map("bookings")
+}
+
+// Action times are separate from updatedAt, scheduling, and duration estimates.
+// Written with the successful lifecycle mutation in the same transaction.
+model BookingProgressEvent {
+  id         String   @id @default(cuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  kind       String
+  actorRole  String
+  eventKey   String
+  occurredAt DateTime @default(now())
+
+  @@unique([bookingId, eventKey])
+  @@index([bookingId, occurredAt])
+  @@map("booking_progress_events")
 }
 
 // ─────────────────────────────────────────────
@@ -972,6 +981,9 @@ model PaymentAttempt {
   providerClientKey String?
   redirectUrl       String?
   amount            Decimal              @db.Decimal(10, 2)
+  jobLocation Json?
+  transportationFee Decimal? @db.Decimal(10, 2)
+  estimatedDurationMins Int?
   currency          String               @default("PHP")
   paymentMethod     String
   status            PaymentAttemptStatus @default(PENDING)

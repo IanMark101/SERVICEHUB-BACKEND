@@ -75,7 +75,7 @@ test("online initiation derives the exact listing total on the server", () => {
   assert.ok(initiationContract, "initiateOnlinePayment input contract should be present");
   assert.match(source, /PAYMENT_NOT_CONFIGURED/);
   assert.match(source, /price: true/);
-  assert.match(source, /calculateDirectListingTerms\(service\.priceType, service\.price, quantity, service\.estimatedDurationMins\)/);
+  assert.match(source, /calculateDirectListingTerms\(service\.priceType, service\.price, quantity, service\.estimatedDurationMins, service\.transportationFee\)/);
   assert.match(source, /Number\(directTerms\.amount\)/);
   assert.match(source, /onlineQueueLimit/);
   assert.doesNotMatch(initiationContract[0], /amount\s*:/);
@@ -83,9 +83,10 @@ test("online initiation derives the exact listing total on the server", () => {
 
 test("new listings are reusable one-time engagements with exact prices", () => {
   const directSource = fs.readFileSync(path.join(process.cwd(), "src/services/bookings/direct-bookings.service.ts"), "utf8");
-  assert.match(directSource, /agreedAmount: offer\.offeredPrice/);
+  assert.match(directSource, /agreedAmount: freshOffer\.offeredPrice/);
   assert.doesNotMatch(directSource, /SESSION_SCHEDULING_NOT_AVAILABLE/);
   const base = {
+    serviceLocation: { latitude: 10.3, longitude: 123.9, label: 'Cebu' },
     categoryId: "category-id",
     title: "Mathematics tutoring",
     description: "Individual tutoring requested as a reusable one-time engagement.",

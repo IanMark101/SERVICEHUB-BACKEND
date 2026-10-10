@@ -1,3 +1,4 @@
+import { assertServiceCoverage, locationFromRecord } from '../lib/proximity';
 import { prisma } from "../lib/prisma";
 import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
@@ -18,7 +19,7 @@ export async function submitOffer(providerId: string, params: {
   // Check request is open and accepting offers
   const request = await tx.serviceRequest.findUnique({
     where: { id: requestId },
-    select: { status: true, seekerId: true, categoryId: true, targetProviderId: true, targetServiceId: true },
+    select: { status: true, seekerId: true, categoryId: true, targetProviderId: true, targetServiceId: true, latitude: true, longitude: true, locationLabel: true },
   });
 
   if (!request) {
@@ -55,13 +56,14 @@ export async function submitOffer(providerId: string, params: {
   if (serviceId) {
     const service = await tx.service.findUnique({
       where: { id: serviceId },
-      select: { providerId: true, categoryId: true, status: true, isAvailable: true },
+      select: { providerId: true, categoryId: true, status: true, isAvailable: true, latitude: true, longitude: true, coverageRadiusKm: true },
     });
     if (!service || service.providerId !== providerId || service.categoryId !== request.categoryId || service.status !== "ACTIVE" || !service.isAvailable) {
       throw Object.assign(new Error(request.targetServiceId
         ? 'The requested listing is no longer available. Ask the seeker to choose an available listing or post a new request.'
         : 'That listing is unavailable or does not match this request. Choose an active listing in this category, or select “No listing” to send a custom offer.'), { status: 400, code: 'OFFER_LISTING_UNAVAILABLE' });
     }
+    assertServiceCoverage(service, locationFromRecord(request));
   }
 
   // Prevent duplicate offer from same provider

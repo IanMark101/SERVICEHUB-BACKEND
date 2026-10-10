@@ -1,27 +1,11 @@
 import { prisma } from "../src/lib/prisma";
 import bcrypt from "bcryptjs";
+import { ensureDefaultServiceCategories } from '../src/services/category-catalog.service';
 
 async function main() {
   console.log("Seeding essential system categories...");
 
-  const categories = [
-    "Plumbing",
-    "Electrical Repair",
-    "House Cleaning",
-    "Lawn Care",
-    "Tutoring",
-    "Aircon Service",
-    "Appliance Repair",
-    "Carpentry & Woodwork",
-  ];
-
-  for (const name of categories) {
-    await prisma.category.upsert({
-      where: { name },
-      update: { isActive: true },
-      create: { name, isActive: true },
-    });
-  }
+  await ensureDefaultServiceCategories();
   console.log("Seeded core system categories.");
 
   // Administrator bootstrapping is opt-in and requires deployment-provided

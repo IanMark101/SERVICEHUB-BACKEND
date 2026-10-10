@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { toPublicTrustEvent } from "../lib/public-trust-history";
 
 type TrustEventInput = {
   userId: string;
@@ -90,7 +91,7 @@ export async function recordAccountCreationBaseline(userId: string): Promise<voi
 }
 
 export async function applyVerificationApprovalTrust(userId: string, actorAdminId?: string, verificationId = userId): Promise<void> {
-  await applyTrustEvent(userId, 5, "Residency & Identity Verification Approved by Cordova Admin", actorAdminId, `verification-approval:${userId}`);
+  await applyTrustEvent(userId, 5, "Residency & Identity Verification Approved by Admin", actorAdminId, `verification-approval:${userId}`);
 }
 
 export async function applyManualTrustAdjustment(input: {
@@ -162,4 +163,14 @@ export async function applyReportPenaltyTrust(userId: string, actorAdminId?: str
 
 export async function getTrustHistory(userId: string) {
   return prisma.trustScoreEvent.findMany({ where: { userId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+}
+
+export async function getPublicTrustHistory(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
+  const events = await prisma.trustScoreEvent.findMany({
+    where: { userId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true, delta: true, reason: true, scoreBefore: true, scoreAfter: true, createdAt: true, eventKey: true },
+  });
+  return events.map(toPublicTrustEvent);
 }

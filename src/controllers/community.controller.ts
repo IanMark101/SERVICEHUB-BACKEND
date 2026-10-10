@@ -16,13 +16,13 @@ const RECENT_CONTENT_WINDOW_DAYS = 30;
  * Serves all live public marketplace & community data for the Community Hub:
  *   - Top Providers leaderboard (publicly discoverable providers with active services, ranked deterministically)
  *   - Platform-wide community stats (Services Completed, Verified Residents, Active Providers, Active Listings)
- *   - Newly approved categories (approved suggestions verified against active marketplace categories)
+ *   - Recently added active categories created by administrators
  *   - Recently published public service listings
  *   - Official administration announcements
  */
 export async function getCommunityStats(_req: Request, res: Response, next: NextFunction) {
   try {
-    // Use Cordova/Philippine time explicitly so deployment-host timezone does
+    // Use Philippine time explicitly so deployment-host timezone does
     // not move the weekly boundary. The Philippines is UTC+8 with no DST.
     const philippineOffsetMs = 8 * 60 * 60 * 1000;
     const philippineNow = new Date(Date.now() + philippineOffsetMs);
@@ -39,7 +39,7 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
       activeProviders,
       activeListings,
       activeCategories,
-      approvedSuggestions,
+      categoryCreationEvents,
       recentlyPublishedServices,
       announcements,
     ] = await Promise.all([
@@ -92,21 +92,17 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
       // ── 6. Active Categories in Marketplace ────────────────────────────────
       prisma.category.findMany({
         where: { isActive: true },
-        select: { name: true },
+        select: { id: true, name: true },
       }),
 
-      // ── 7. Recently Approved Category Suggestions ──────────────────────────
-      prisma.categorySuggested.findMany({
+      // Recent category additions use the recorded Admin creation time.
+      prisma.adminAuditLog.findMany({
         where: {
-          status: "APPROVED",
-          reviewedAt: {
-            not: null,
-            gte: new Date(Date.now() - RECENT_CONTENT_WINDOW_DAYS * 24 * 60 * 60 * 1000),
-          },
+          action: "CATEGORY_CREATED", resourceType: "Category",
+          createdAt: { gte: new Date(Date.now() - RECENT_CONTENT_WINDOW_DAYS * 24 * 60 * 60 * 1000) },
         },
-        orderBy: { reviewedAt: "desc" },
-        take: 6,
-        select: { id: true, name: true, description: true, reviewedAt: true },
+        orderBy: { createdAt: "desc" },
+        select: { resourceId: true, createdAt: true },
       }),
 
       getRecentlyPublishedServices(
@@ -132,11 +128,11 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
       }),
     ]);
 
-    // Ensure approved suggestions are actually active categories
-    const activeCategoryNames = new Set(activeCategories.map((c) => c.name.toLowerCase()));
-    const recentCategories = approvedSuggestions.filter((s) =>
-      activeCategoryNames.has(s.name.toLowerCase())
-    );
+    const categoryById = new Map(activeCategories.map(category => [category.id, category]));
+    const recentCategories = categoryCreationEvents.flatMap(event => {
+      const category = event.resourceId ? categoryById.get(event.resourceId) : undefined;
+      return category ? [{ ...category, addedAt: event.createdAt }] : [];
+    }).slice(0, 6);
 
     // Process top providers & aggregate ratings
     const leaderboard = topProvidersRaw.map((p, idx) => {

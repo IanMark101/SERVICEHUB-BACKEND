@@ -26,8 +26,8 @@ export async function assertOfferParticipant(tx: Prisma.TransactionClient, userI
   else if (!user.emailVerified) { reason = 'Verify your email address before sending an offer.'; code = 'EMAIL_NOT_VERIFIED'; }
   else if (user.verificationStatus !== 'APPROVED') {
     reason = user.verificationStatus === 'PENDING_REVIEW'
-      ? 'Your residency verification is under review. Wait for approval before sending an offer.'
-      : 'Verify your Cordova residency before sending an offer.';
+      ? 'Your identity and residency verification is under review. Wait for approval before sending an offer.'
+      : 'Complete identity and residency verification before sending an offer.';
     code = 'VERIFICATION_REQUIRED';
   }
   if (reason) throw Object.assign(new Error(participant === 'provider' ? reason : 'The seeker is no longer eligible to receive offers. Choose another request.'), { status: 403, code: participant === 'provider' ? code : 'SEEKER_UNAVAILABLE' });

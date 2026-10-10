@@ -169,6 +169,7 @@ export async function reviewVerification(
   adminNotes?: string,
 ) {
   const newStatus = approve ? "APPROVED" : "REJECTED";
+  const message = adminNotes?.trim() || null;
   const initial = await prisma.serviceVerification.findUnique({ where: { id: verificationId }, select: { userId: true } });
   if (!initial) throw httpError("Verification not found", 404);
   const verification = await prisma.$transaction(async (tx) => {
@@ -182,7 +183,7 @@ export async function reviewVerification(
     const reviewedAt = new Date();
     const claimed = await tx.serviceVerification.updateMany({
       where: { id: verificationId, status: "PENDING_REVIEW" },
-      data: { status: newStatus, adminId, adminNotes: adminNotes || null, reviewedAt, retentionUntil: verificationRetentionDeadline(reviewedAt) },
+      data: { status: newStatus, adminId, adminNotes: message, reviewedAt, retentionUntil: verificationRetentionDeadline(reviewedAt) },
     });
     if (claimed.count !== 1) throw httpError("Verification has already been reviewed", 409);
     await tx.user.update({ where: { id: current.userId }, data: { verificationStatus: newStatus } });
@@ -195,7 +196,7 @@ export async function reviewVerification(
       await applyTrustEventInTransaction(tx, {
         userId: current.userId,
         delta: 5,
-        reason: "Residency & Identity Verification Approved by Cordova Admin",
+        reason: "Residency & Identity Verification Approved by ServiceHub Admin",
         actorAdminId: adminId,
         eventKey: `verification-approval:${current.userId}`,
       });
@@ -205,8 +206,10 @@ export async function reviewVerification(
       data: {
         userId: current.userId,
         title: approve ? "Verification Approved" : "Verification Rejected",
-        body: approve ? "You are now a verified Cordova resident." : `Your verification was not approved. Reason: ${adminNotes}`,
-        link: `/seeker/user-profile?id=${current.userId}`,
+        body: approve
+          ? `Your identity and residency verification was approved.${message ? " An admin message is available in your verification decision." : ""}`
+          : "Your identity and residency verification was not approved. View your verification decision for the reason and next steps.",
+        link: "/account/settings#verification",
       },
     });
     await tx.adminAuditLog.create({
@@ -216,7 +219,7 @@ export async function reviewVerification(
         action: approve ? "VERIFICATION_APPROVED" : "VERIFICATION_REJECTED",
         resourceType: "ServiceVerification",
         resourceId: verificationId,
-        reason: adminNotes || "Verification requirements satisfied",
+        reason: message || "Verification requirements satisfied",
       },
     });
     return current;

@@ -1,3 +1,4 @@
+import { LocationPointSchema, CoverageRadiusSchema, TransportationFeeSchema } from './location.schema';
 import { z } from "zod";
 
 export const PriceTypeValues = [
@@ -38,6 +39,9 @@ export const CreateServiceSchema = z.object({
   title,
   description,
   price,
+  serviceLocation: LocationPointSchema,
+  coverageRadiusKm: CoverageRadiusSchema.nullable().optional(),
+  transportationFee: TransportationFeeSchema.nullable().optional(),
   priceType: z.enum(PriceTypeValues).default("FIXED"),
   serviceType: z.enum(ServiceTypeValues).default("ONE_TIME"),
   estimatedDurationMins: z.number().min(15).max(480),
@@ -52,6 +56,9 @@ export const UpdateServiceSchema = z.object({
   title: title.optional(),
   description: description.optional(),
   price: price.optional(),
+  serviceLocation: LocationPointSchema.optional(),
+  coverageRadiusKm: CoverageRadiusSchema.nullable().optional(),
+  transportationFee: TransportationFeeSchema.nullable().optional(),
   priceType: z.enum(PriceTypeValues).optional(),
   serviceType: z.enum(ServiceTypeValues).optional(),
   estimatedDurationMins: z.number().min(15).max(480).optional(),

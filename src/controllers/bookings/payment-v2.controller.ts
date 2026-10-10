@@ -9,9 +9,11 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
     const input = InitiatePaymentSchema.parse(req.body);
     const attempt = await initiateOnlinePayment({
       seekerId: user.id,
+      retryPaymentIntentId: input.retryPaymentIntentId,
       serviceId: input.serviceId,
       offerId: input.offerId,
       quantity: input.quantity,
+      jobLocation: input.jobLocation,
       paymentMethod: input.paymentMethodType,
     });
     return res.json({
@@ -27,7 +29,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
       },
     });
   } catch (error: any) {
-    if (error?.name === "ZodError") return res.status(400).json({ success: false, error: "Validation failed", errors: error.errors });
+    if (error?.name === "ZodError") return res.status(400).json({ success: false, error: "Validation failed", errors: error.issues });
     next(error);
   }
 }
@@ -48,7 +50,7 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
       data: attempt,
     });
   } catch (error: any) {
-    if (error?.name === "ZodError") return res.status(400).json({ success: false, error: "Validation failed", errors: error.errors });
+    if (error?.name === "ZodError") return res.status(400).json({ success: false, error: "Validation failed", errors: error.issues });
     next(error);
   }
 }

@@ -1,9 +1,15 @@
+import { locationData, locationBounds } from '../lib/proximity';
+import { marketplaceSearchConditions } from '../lib/marketplace-search';
+import type { JobLocation, NearbyQuery } from '../schema/location.schema';
 import { prisma } from "../lib/prisma";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
 import { RequestPaymentMethodsSchema, RequestUrgencySchema } from "../schema/marketplace.schema";
 import { getSeekerReviewStats } from "../lib/seeker-review-stats";
+import { Prisma } from '@prisma/client';
+import { reviewEligibilitySql } from '../lib/review-eligibility';
 import { protectedRequestPaymentStatuses, requestDeletionEligibility } from "../lib/request-deletion";
+import { canArchiveCompletedRequest } from '../lib/request-archive';
 
 export async function createRequest(seekerId: string, params: {
   categoryId: string;
@@ -13,6 +19,8 @@ export async function createRequest(seekerId: string, params: {
   budgetMax: number;
   urgency: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
+  jobLocation?: JobLocation;
+  transportationFee?: number | null;
 }) {
   const { categoryId, title, description, budgetMin, budgetMax, urgency } = params;
   RequestUrgencySchema.parse(urgency);
@@ -45,17 +53,19 @@ export async function createRequest(seekerId: string, params: {
     await assertActiveMarketplaceAccount(tx, seekerId);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seeker-requests:${seekerId}`}))`;
     const activeRequests = await tx.serviceRequest.findMany({
-      where: { seekerId, categoryId, status: { in: ["OPEN", "PAYMENT_PENDING", "IN_PROGRESS"] } },
-      select: { title: true },
+      where: { seekerId, categoryId, archivedAt: null, status: { in: ["OPEN", "PAYMENT_PENDING", "IN_PROGRESS"] } },
+      select: { title: true, offers: { select: { status: true, booking: { select: { status: true } } } } },
     });
     const normalizedTitle = title.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
-    if (activeRequests.some((item) => item.title.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalizedTitle)) {
+    if (activeRequests.some((item) => !canArchiveCompletedRequest(item.offers) && item.title.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalizedTitle)) {
       throw Object.assign(new Error("You already have an active request with this title and category."), { status: 409, code: "DUPLICATE_REQUEST" });
     }
 
     const request = await tx.serviceRequest.create({
       data: {
         seekerId, categoryId, title, description, budgetMin, budgetMax, urgency,
+        ...(params.jobLocation && { ...locationData(params.jobLocation), privateAddress: params.jobLocation.address || null }),
+        transportationFee: params.transportationFee,
         // Post Request always creates a public job, never a provider assignment.
         targetProviderId: null, targetServiceId: null,
         ...(paymentMethods && { paymentMethods }),
@@ -74,10 +84,11 @@ export async function createRequest(seekerId: string, params: {
   });
 }
 
-export async function listRequests(categoryId?: string, providerId?: string) {
+export async function listRequests(categoryId?: string, providerId?: string, nearby?: NearbyQuery) {
   const requests = await prisma.serviceRequest.findMany({
     where: {
       status: "OPEN",
+      archivedAt: null,
       // A provider ID alone on an older public post must not restrict visibility.
       // Keep genuine listing inquiries limited to their participants.
       OR: [{ targetServiceId: null }, ...(providerId ? [{ targetProviderId: providerId }, { seekerId: providerId }] : [])],
@@ -86,9 +97,12 @@ export async function listRequests(categoryId?: string, providerId?: string) {
       // Never advertise a request that has already produced a booking.
       offers: { none: { booking: { is: { status: { notIn: ["DECLINED", "CANCELED", "REMOVED"] } } } } },
       ...(categoryId && { categoryId }),
+      ...(nearby && { AND: [locationBounds(nearby), ...marketplaceSearchConditions(nearby.search)] }),
+      ...(nearby?.category && nearby.category !== "All Categories" && { category: { name: { equals: nearby.category, mode: "insensitive" as const } } }),
     },
     include: {
       category: true,
+      _count: { select: { offers: { where: { status: "PENDING" } } } },
       seeker: {
         select: {
           id: true,
@@ -102,18 +116,20 @@ export async function listRequests(categoryId?: string, providerId?: string) {
     orderBy: { createdAt: "desc" },
   });
   const seekerIds = [...new Set(requests.map(request => request.seekerId))];
-  if (!seekerIds.length) return requests;
-  const reviews = await prisma.review.findMany({
-    where: {
-      targetId: { in: seekerIds },
-      visibility: "VISIBLE",
-      completedService: { seekerId: { in: seekerIds } },
-    },
-    select: { targetId: true, rating: true, completedService: { select: { seekerId: true } } },
-  });
-  const stats = getSeekerReviewStats(reviews);
+  if (!seekerIds.length) return [];
+  // Batch all authors using the same counterparty/completion checks as profiles.
+  const reviews = await prisma.$queryRaw<Array<{ targetId: string; rating: number; seekerId: string }>>(Prisma.sql`
+    SELECT r."targetId", r.rating, cs."seekerId"
+    FROM reviews r JOIN completed_services cs ON cs.id = r."completedServiceId"
+    LEFT JOIN bookings b ON b.id = cs."bookingId"
+    WHERE r."targetId" IN (${Prisma.join(seekerIds)})
+      AND ${reviewEligibilitySql(Prisma.sql`r."targetId"`, 'seeker')}`);
+  const stats = getSeekerReviewStats(reviews.map(review => ({
+    ...review, completedService: { seekerId: review.seekerId },
+  })));
   return requests.map(request => ({
     ...request,
+    offersCount: request._count.offers,
     targetProviderId: request.targetServiceId ? request.targetProviderId : null,
     seeker: { ...request.seeker, ...(stats.get(request.seekerId) ?? { clientRating: 0, clientReviewCount: 0 }) },
   }));
@@ -124,6 +140,7 @@ export async function getMyRequests(seekerId: string) {
     where: {
       seekerId,
       status: { not: "CANCELED" },
+      archivedAt: null,
     },
     include: {
       category: true,
@@ -144,14 +161,19 @@ export async function getMyRequests(seekerId: string) {
     },
     orderBy: { createdAt: "desc" },
   });
-  const offerIds = requests.flatMap(request => request.offers.map(offer => offer.id));
+  // Once a booking exists, manage the work in Activity rather than the listing manager.
+  // Unaccepted offers and pending payments without a booking remain here.
+  const managedRequests = requests.filter(request => !request.offers.some(offer =>
+    offer.booking && !['DECLINED', 'CANCELED', 'REMOVED'].includes(offer.booking.status)));
+  const offerIds = managedRequests.flatMap(request => request.offers.map(offer => offer.id));
   const payments = offerIds.length ? await prisma.paymentAttempt.findMany({
     where: { offerId: { in: offerIds }, status: { in: protectedRequestPaymentStatuses } },
     select: { offerId: true, status: true },
   }) : [];
   const paymentsByOffer = new Map(payments.map(payment => [payment.offerId, payment]));
-  return requests.map(request => ({
+  return managedRequests.map(request => ({
     ...request,
+    canArchive: canArchiveCompletedRequest(request.offers),
     ...requestDeletionEligibility(request, request.offers.flatMap(offer => {
       const payment = paymentsByOffer.get(offer.id);
       return payment ? [payment] : [];
@@ -167,6 +189,8 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   status?: "OPEN" | "IN_PROGRESS" | "CLOSED" | "CANCELED";
   urgency?: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
+  jobLocation?: JobLocation;
+  transportationFee?: number | null;
 }) {
   if (params.urgency !== undefined) RequestUrgencySchema.parse(params.urgency);
   if (params.paymentMethods !== undefined) RequestPaymentMethodsSchema.parse(params.paymentMethods);
@@ -184,6 +208,8 @@ export async function updateRequest(requestId: string, seekerId: string, params:
     err.status = 404;
     throw err;
   }
+
+  if (request.archivedAt) throw Object.assign(new Error('An archived request cannot be edited or reopened. Repost it as a new request.'), { status: 409 });
 
   if (request.targetServiceId && params.paymentMethods !== undefined) {
     throw Object.assign(new Error("The payment method for a direct service inquiry cannot be changed here."), { status: 409 });
@@ -241,7 +267,14 @@ export async function updateRequest(requestId: string, seekerId: string, params:
     throw err;
   }
 
-  const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: request.status }, data: params });
+  const { jobLocation, ...changes } = params;
+  if (jobLocation || params.transportationFee !== undefined) {
+    const quoted = await tx.offer.findFirst({ where: { requestId, status: { in: ['PENDING', 'PENDING_PAYMENT', 'ACCEPTED'] } }, select: { id: true } });
+    if (quoted) throw Object.assign(new Error('This request already has offers. Keep the agreed location and travel budget, or post a new request.'), { status: 409 });
+  }
+  const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: request.status }, data: {
+    ...changes, ...(jobLocation && { ...locationData(jobLocation), privateAddress: jobLocation.address || null }),
+  } });
   if (changed.count !== 1) {
     const err = new Error("The request changed before it could be updated") as Error & { status?: number };
     err.status = 409;
@@ -289,4 +322,41 @@ export async function cancelRequest(requestId: string, seekerId: string) {
     await tx.offer.updateMany({ where: { requestId, status: "PENDING" }, data: { status: "REJECTED" } });
     return tx.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
   });
+}
+
+export async function archiveCompletedRequest(requestId: string, seekerId: string) {
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${requestId}`}))`;
+    await lockAccountLifecycle(tx, seekerId);
+    await assertActiveMarketplaceAccount(tx, seekerId);
+    const request = await tx.serviceRequest.findFirst({
+      where: { id: requestId, seekerId },
+      include: { offers: { select: { status: true, booking: { select: { status: true } } } } },
+    });
+    if (!request) throw Object.assign(new Error('Request not found or access denied'), { status: 404 });
+    if (!canArchiveCompletedRequest(request.offers)) {
+      throw Object.assign(new Error('Only completed requests without an active booking can be archived.'), { status: 409 });
+    }
+    if (request.archivedAt) return request;
+    return tx.serviceRequest.update({ where: { id: request.id }, data: { archivedAt: new Date() } });
+  });
+}
+
+export async function getRequestRepostTemplate(requestId: string, seekerId: string) {
+  const request = await prisma.serviceRequest.findFirst({
+    where: { id: requestId, seekerId },
+    include: { category: { select: { name: true, isActive: true } }, offers: { select: { status: true, booking: { select: { status: true } } } } },
+  });
+  if (!request) throw Object.assign(new Error('Request not found or access denied'), { status: 404 });
+  if (request.targetServiceId || !canArchiveCompletedRequest(request.offers)) {
+    throw Object.assign(new Error('Only completed public requests can be reposted.'), { status: 409 });
+  }
+  const paymentMethods = RequestPaymentMethodsSchema.safeParse(request.paymentMethods);
+  return {
+    title: request.title, description: request.description,
+    categoryId: request.category.isActive ? request.categoryId : '', categoryName: request.category.name,
+    jobLocation: request.latitude == null || request.longitude == null || !request.locationLabel ? undefined : { latitude: request.latitude, longitude: request.longitude, label: request.locationLabel, address: request.privateAddress || undefined },
+    transportationFee: request.transportationFee == null ? null : Number(request.transportationFee),
+    budget: Number(request.budgetMax), paymentMethods: paymentMethods.success ? paymentMethods.data : null,
+  };
 }

@@ -1,3 +1,6 @@
+import { locationData, locationBounds, publicLocation } from '../lib/proximity';
+import type { NearbyQuery } from '../schema/location.schema';
+import { marketplaceSearchConditions } from '../lib/marketplace-search';
 import { Prisma, ServiceStatus, type PriceType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
@@ -50,7 +53,7 @@ export const PUBLIC_PROVIDER_WHERE = {
 
 async function attachEligibleProviderRatings<T extends { providerId: string; provider: Record<string, unknown> }>(services: T[]) {
   const providerIds = [...new Set(services.map((service) => service.providerId))];
-  if (!providerIds.length) return services;
+  if (!providerIds.length) return services.map(service => ({ ...service, provider: { ...service.provider, reviewsReceived: [] as Array<{ rating: number }> } }));
   const reviews = await prisma.review.findMany({
     where: {
       targetId: { in: providerIds },
@@ -74,7 +77,7 @@ async function attachEligibleProviderRatings<T extends { providerId: string; pro
 
 async function attachProviderWorkload<T extends { providerId: string }>(services: T[]) {
   const providerIds = [...new Set(services.map((service) => service.providerId))];
-  if (!providerIds.length) return services;
+  if (!providerIds.length) return services.map(service => ({ ...service, queueLimit: 5, queueEntries: [], providerWaitingCount: 0 }));
   const [providers, entries] = await Promise.all([
     prisma.user.findMany({ where: { id: { in: providerIds } }, select: { id: true, onlineQueueLimit: true } }),
     prisma.queue.findMany({ where: { providerId: { in: providerIds }, status: { in: ["WAITING", "SERVING"] } }, select: { providerId: true, status: true, position: true, estimatedWait: true } }),
@@ -138,6 +141,8 @@ export async function browseServices(params: {
   search?: string;
   availableOnly?: boolean;
   excludeProviderId?: string;
+  nearby?: NearbyQuery;
+  categoryName?: string;
 }) {
   const { categoryId, search, availableOnly, excludeProviderId } = params;
 
@@ -145,12 +150,16 @@ export async function browseServices(params: {
     where: {
       ...PUBLIC_SERVICE_WHERE,
       ...(categoryId && { categoryId }),
+      ...(params.nearby && { AND: [locationBounds(params.nearby), ...marketplaceSearchConditions(search)] }),
+      ...(params.categoryName && params.categoryName !== "All Categories" && { category: { name: { equals: params.categoryName, mode: "insensitive" as const } } }),
       ...(availableOnly && { isAvailable: true }),
       ...(excludeProviderId && { providerId: { not: excludeProviderId } }),
-      ...(search && {
+      ...(search && !params.nearby && {
         OR: [
           { title: { contains: search, mode: "insensitive" } },
           { description: { contains: search, mode: "insensitive" } },
+          { provider: { name: { contains: search, mode: "insensitive" } } },
+          { category: { name: { contains: search, mode: "insensitive" } } },
         ],
       }),
     },
@@ -215,7 +224,7 @@ export async function getServiceById(id: string) {
     throw err;
   }
 
-  return (await attachProviderWorkload([service]))[0];
+  return publicLocation((await attachProviderWorkload([service]))[0]);
 }
 
 // ── Create Listing (publish after validation; failures require revision) ─────
@@ -260,6 +269,9 @@ export async function createService(providerId: string, input: CreateServiceInpu
           title: input.title,
           titleNormalized: normalizeServiceTitle(input.title),
           description: input.description,
+          ...locationData(input.serviceLocation),
+          coverageRadiusKm: input.coverageRadiusKm,
+          transportationFee: input.transportationFee,
           price: input.price,
           priceType: input.priceType,
           serviceType: input.serviceType,
@@ -365,10 +377,13 @@ export async function updateService(serviceId: string, providerId: string, input
         }
       }
 
+      const { serviceLocation, ...updatedInput } = input;
+      if (input.coverageRadiusKm != null && !serviceLocation && service.latitude == null) throw Object.assign(new Error("Choose a service base location before adding coverage."), { status: 400 });
       const updated = await tx.service.update({
         where: { id: serviceId },
         data: {
-          ...input,
+          ...updatedInput,
+          ...(serviceLocation && locationData(serviceLocation)),
           title: nextTitle,
           titleNormalized: normalizeServiceTitle(nextTitle),
           categoryId,

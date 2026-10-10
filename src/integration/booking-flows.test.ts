@@ -280,9 +280,9 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   await providerStartJob(thirdFinalized.booking!.id, provider.id);
   await markJobComplete(thirdFinalized.booking!.id, provider.id);
 
-  const suspensionReport = await prisma.report.create({ data: { bookingId: capacityBlocker.id, reporterId: seeker.id, reportedUserId: provider.id, reason: "NO_SHOW", description: "Administrative suspension guard integration case." } });
+  const suspensionReport = await prisma.report.create({ data: { bookingId: capacityBlocker.id, reporterId: seeker.id, reportedUserId: provider.id, reason: "NO_SHOW", reportType: "SAFETY", description: "Administrative suspension guard integration case." } });
   await assert.rejects(
-    resolveAdminReport(suspensionReport.id, admin.id, "dismiss", "Temporary suspension requested by integration test.", "suspend"),
+    resolveAdminReport(suspensionReport.id, admin.id, "resolve_safety", "Temporary suspension requested by integration test.", "suspend"),
     /Resolve or administratively cancel/i,
   );
   assert.equal((await prisma.report.findUniqueOrThrow({ where: { id: suspensionReport.id } })).status, "UNDER_REVIEW");
