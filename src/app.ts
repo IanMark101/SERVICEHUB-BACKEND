@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { getAllowedFrontendOrigins } from "./config/frontend-origins";
+import { env } from "./config/env";
 
 // Route imports
 import authRoutes from "./routes/auth.routes";
@@ -29,6 +30,10 @@ import { logger } from "./utils/logger";
 import { getDatabaseAvailabilityError } from "./utils/databaseAvailability";
 
 const app = express();
+// Progressive CAPTCHA and rate limits must use the client IP behind an approved
+// proxy. Never trust arbitrary forwarded headers or an unrestricted hop count.
+const trustedProxies = env.TRUSTED_PROXY_CIDRS.split(",").map((proxy) => proxy.trim()).filter(Boolean);
+app.set("trust proxy", trustedProxies.length ? trustedProxies : false);
 app.disable("x-powered-by");
 app.use(requestContext);
 

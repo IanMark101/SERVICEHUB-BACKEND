@@ -1,5 +1,6 @@
 import { environmentFile } from "./load-environment";
 import { z } from "zod";
+import { isIP } from "node:net";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -11,6 +12,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   FRONTEND_URL: z.string().default("http://localhost:3000"),
   FRONTEND_ORIGINS: z.string().default(""),
+  TRUSTED_PROXY_CIDRS: z.string().default(""),
   PRISMA_LOG_QUERIES: z.enum(["true", "false"]).default("false"),
   // PayMongo (test mode for capstone)
   PAYMONGO_SECRET_KEY: z.string().optional(),
@@ -35,6 +37,16 @@ const envSchema = z.object({
 });
 
 export const serviceHubEnvSchema = envSchema.superRefine((value, ctx) => {
+  const proxies = value.TRUSTED_PROXY_CIDRS.split(",").map((proxy) => proxy.trim()).filter(Boolean);
+  if (proxies.some((proxy) => {
+    if (proxy === "loopback") return false;
+    const parts = proxy.split("/");
+    const version = isIP(parts[0]);
+    if (!version || parts.length > 2) return true;
+    return parts.length === 2 && (!/^\d{1,3}$/.test(parts[1]) || Number(parts[1]) < 1 || Number(parts[1]) > (version === 4 ? 32 : 128));
+  })) {
+    ctx.addIssue({ code: "custom", path: ["TRUSTED_PROXY_CIDRS"], message: "List trusted proxy IPs/CIDRs or loopback; do not use true, hop counts, hostnames or all-address ranges" });
+  }
   if (value.RECAPTCHA_ENABLED === "true") {
     for (const field of ["RECAPTCHA_SITE_KEY", "RECAPTCHA_SECRET_KEY"] as const) {
       if (!value[field]) ctx.addIssue({ code: "custom", path: [field], message: `${field} is required when reCAPTCHA is enabled` });

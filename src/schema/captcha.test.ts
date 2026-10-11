@@ -21,7 +21,7 @@ test('Google verification sends only the token and server secret to the fixed pr
     assert.equal(body.get('remoteip'), null);
     return new Response(JSON.stringify(googleSuccess));
   };
-  await verifyCaptcha(token, config, fetcher, () => instant);
+  await verifyCaptcha(token, config, fetcher);
 });
 
 test('missing and malformed tokens stop before calling Google', async () => {
@@ -39,13 +39,19 @@ test('rejected, reused, expired, foreign-host and malformed provider answers fai
     { success: false, 'error-codes': ['timeout-or-duplicate'] },
     { ...googleSuccess, hostname: 'attacker.example' },
     { ...googleSuccess, hostname: 'sub.servicehubcordova.tech' },
-    { ...googleSuccess, challenge_ts: new Date(instant - 120_001).toISOString() },
-    { ...googleSuccess, challenge_ts: new Date(instant + 60_001).toISOString() },
     { ...googleSuccess, challenge_ts: 'invalid' },
     { ...googleSuccess, success: 'true' }, null, {},
   ]) {
-    await assert.rejects(verifyCaptcha(token, config, reply(body), () => instant), (error: unknown) => error instanceof CaptchaError && error.code === 'CAPTCHA_REQUIRED');
+    await assert.rejects(verifyCaptcha(token, config, reply(body)), (error: unknown) => error instanceof CaptchaError && error.code === 'CAPTCHA_REQUIRED');
   }
+});
+
+test('accepts Google-approved answers after a slow solve instead of treating challenge load time as token age', async () => {
+  await verifyCaptcha(token, config, reply({ ...googleSuccess, challenge_ts: new Date(Date.now() - 10 * 60_000).toISOString() }));
+  await assert.rejects(
+    verifyCaptcha(token, config, reply({ success: false, 'error-codes': ['timeout-or-duplicate'] })),
+    (error: unknown) => error instanceof CaptchaError && error.code === 'CAPTCHA_REQUIRED',
+  );
 });
 
 test('provider outages and invalid secret configuration block protected actions without exposing the secret', async () => {
@@ -116,4 +122,44 @@ test('IPv6 address rotation within one subnet cannot avoid the failed-login chal
   let required = false;
   protection.publicConfig({ ip: '2001:db8::ffff' } as express.Request, { setHeader() {}, json(body: { data: { loginRequired: boolean } }) { required = body.data.loginRequired; } } as unknown as express.Response, () => {});
   assert.equal(required, true);
+});
+
+test('approved proxy headers isolate login risk by client, while untrusted forwarded headers cannot rotate risk', async (t) => {
+  for (const trustedProxy of [false, 'loopback'] as const) {
+    const protection = createCaptchaProtection(config, async () => { throw new CaptchaError('CAPTCHA_REQUIRED', 'Check required'); });
+    const app = express();
+    app.set('trust proxy', trustedProxy);
+    app.get('/config', protection.publicConfig);
+    app.post('/login', protection.passwordLoginCaptcha, (_req, res) => res.sendStatus(401));
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => server.once('listening', resolve));
+    t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      assert.equal((await fetch(base + '/login', { method: 'POST', headers: { 'X-Forwarded-For': '203.0.113.10' } })).status, 401);
+    }
+    const required = async (forwarded: string) => (await (await fetch(base + '/config', { headers: { 'X-Forwarded-For': forwarded } })).json()).data.loginRequired;
+    assert.equal(await required('203.0.113.10'), true);
+    assert.equal(await required('203.0.113.20'), !trustedProxy, 'Only a trusted proxy can distinguish another client');
+    assert.equal(await required('198.51.100.99, 203.0.113.10'), true, 'Untrusted addresses prepended by a client cannot replace the nearest client IP');
+  }
+});
+
+test('risk tracking at capacity challenges requests without evicting active failed-login records', async () => {
+  const { EventEmitter } = await import('node:events');
+  let time = instant;
+  const protection = createCaptchaProtection(config, async () => {}, () => time, 1);
+  for (const ip of ['203.0.113.10', '203.0.113.20']) {
+    const res = Object.assign(new EventEmitter(), { statusCode: 401 });
+    await protection.passwordLoginCaptcha({ ip } as express.Request, res as unknown as express.Response, () => {});
+    res.emit('finish');
+  }
+  const required = () => {
+    let challenged = false;
+    protection.publicConfig({ ip: '203.0.113.30' } as express.Request, { setHeader() {}, json(body: { data: { loginRequired: boolean } }) { challenged = body.data.loginRequired; } } as unknown as express.Response, () => {});
+    return challenged;
+  };
+  assert.equal(required(), true);
+  time += 15 * 60_000 + 1;
+  assert.equal(required(), false);
 });

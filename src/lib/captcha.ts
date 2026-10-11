@@ -19,7 +19,6 @@ export async function verifyCaptcha(
   token: unknown,
   config: CaptchaConfig,
   fetcher: typeof fetch = fetch,
-  now: () => number = Date.now,
 ) {
   if (!config.enabled) return;
   if (typeof token !== "string" || token.trim().length < 20 || token.length > 4096) {
@@ -47,8 +46,10 @@ export async function verifyCaptcha(
     throw new CaptchaError("CAPTCHA_UNAVAILABLE", "Security verification is unavailable. Please try again later.");
   }
   const challengeTime = typeof body?.challenge_ts === "string" ? Date.parse(body.challenge_ts) : NaN;
-  const age = now() - challengeTime;
-  if (body?.success !== true || typeof body.hostname !== "string" || !config.allowedHostnames.includes(body.hostname.toLowerCase()) || !Number.isFinite(age) || age < -60_000 || age > 120_000) {
+  // challenge_ts is the challenge LOAD time, not the time its answer was issued.
+  // Google enforces token expiry and single use through siteverify. Comparing
+  // this timestamp to a two-minute local deadline rejects legitimate slow solves.
+  if (body?.success !== true || typeof body.hostname !== "string" || !config.allowedHostnames.includes(body.hostname.toLowerCase()) || !Number.isFinite(challengeTime)) {
     throw new CaptchaError("CAPTCHA_REQUIRED", "Security verification expired or failed. Please complete the check again.");
   }
 }

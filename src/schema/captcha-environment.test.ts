@@ -21,3 +21,12 @@ test('production cannot activate Google always-passing test keys', () => {
   assert.equal(validateEnvironment(values).success, false);
   assert.equal(validateEnvironment({ ...values, NODE_ENV: 'development' }).success, true);
 });
+
+test('trusted proxy configuration accepts explicit peers and rejects unrestricted or malformed trust', () => {
+  for (const proxies of ['', 'loopback', '127.0.0.1', '172.17.0.1/32', '::1', '2001:db8::/64', 'loopback,192.0.2.10']) {
+    assert.equal(validateEnvironment({ ...base, TRUSTED_PROXY_CIDRS: proxies }).success, true, proxies);
+  }
+  for (const proxies of ['true', '1', '*', '0.0.0.0/0', '::/0', 'nginx', 'https://proxy.example', '127.0.0.1:8080', '192.0.2.1/33', '::1/129', '127.0.0.1/-1']) {
+    assert.equal(validateEnvironment({ ...base, TRUSTED_PROXY_CIDRS: proxies }).success, false, proxies);
+  }
+});

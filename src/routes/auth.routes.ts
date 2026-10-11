@@ -25,7 +25,8 @@ import { securityMethods, passwordSetupChallenge, passwordSetupVerification, set
 
 const router = Router();
 
-// Public routes (Rate-limited to 15 attempts per 15 minutes)
+// Public auth mutations share the failed-request limiter; CAPTCHA is enforced
+// before password registration/recovery and on challenged password logins.
 router.get("/captcha-config", captchaConfig);
 router.post("/register", authLimiter, requireCaptcha, register);
 router.post("/login", authLimiter, passwordLoginCaptcha, login);
