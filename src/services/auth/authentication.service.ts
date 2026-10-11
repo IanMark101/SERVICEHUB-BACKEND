@@ -10,6 +10,7 @@ import { lockAuthenticationSession } from "./session-lifecycle.service";
 import { lockAccountLifecycle } from "../account-lifecycle.service";
 import { signInMethods } from "./password-management.service";
 import { StrongPasswordSchema } from "../../schema/password.schema";
+import { Prisma } from "@prisma/client";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -72,18 +73,29 @@ export interface AuthUser {
 
 // ── Register ──────────────────────────────────────────────────────────────────
 
+export async function isRegistrationEmailAvailable(email: string): Promise<boolean> {
+  // Google and password accounts share the same email identity. Include legacy
+  // mixed-case addresses and all account states; do not disclose sign-in methods.
+  const existing = await prisma.user.findFirst({
+    where: { email: { equals: email.trim(), mode: "insensitive" } },
+    select: { id: true },
+  });
+  return existing === null;
+}
+
+function registeredEmailError() {
+  return Object.assign(new Error("This email is already registered. Log in, or use Google sign-in if that is how you created your account."), {
+    status: 409, code: "EMAIL_ALREADY_REGISTERED",
+  });
+}
+
 export async function registerUser(input: RegisterInput): Promise<{
   user: AuthUser;
   tokens: AuthTokens;
   verificationEmailSent: boolean;
 }> {
   // Check for duplicate email
-  const existing = await prisma.user.findUnique({ where: { email: input.email } });
-  if (existing) {
-    const err = new Error("An account with this email already exists") as any;
-    err.status = 409;
-    throw err;
-  }
+  if (!await isRegistrationEmailAvailable(input.email)) throw registeredEmailError();
 
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
 
@@ -126,6 +138,12 @@ export async function registerUser(input: RegisterInput): Promise<{
       data: { token: hashOpaqueToken(verifyToken), userId: created.id, expiresAt: verifyExpiry },
     });
     return created;
+  }).catch(async (error: unknown) => {
+    // Another registration may claim this email after the initial lookup.
+    // Preserve the same conflict response when the database uniqueness guard wins.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+        && !await isRegistrationEmailAvailable(input.email)) throw registeredEmailError();
+    throw error;
   });
 
   // Email delivery is external and cannot be part of the transaction. An

@@ -41,6 +41,10 @@ export const authLimiter = rateLimit({
   },
 });
 
+// Count every lookup, including successful responses, to limit email probing.
+export const signupEmailCheckLimiter = actionLimiter("signup-email", 15 * 60 * 1000, 20,
+  "Too many email checks. Please try again after 15 minutes.");
+
 // ── General API Limiter (Generous: 1500 requests per 15 minutes per IP) ───────
 // Protects general routes from runaway scraping or malicious loops while allowing fast client SPA navigation
 export const apiLimiter = rateLimit({

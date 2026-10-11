@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import {
   RegisterSchema,
+  CheckRegistrationEmailSchema,
   LoginSchema,
   ForgotPasswordSchema,
   ResetPasswordSchema,
@@ -10,6 +11,7 @@ import {
 } from "../schema/auth.schema";
 import {
   registerUser,
+  isRegistrationEmailAvailable,
   loginUser,
   recoverSession,
   refreshAccessToken,
@@ -50,6 +52,17 @@ const REFRESH_COOKIE_CLEAR_OPTIONS: CookieOptions = {
 
 // ── POST /auth/register ───────────────────────────────────────────────────────
 
+export async function checkRegistrationEmail(req: Request, res: Response, next: NextFunction) {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const { email } = CheckRegistrationEmailSchema.parse(req.body);
+    const available = await isRegistrationEmailAvailable(email);
+    res.json({ success: true, data: { available } });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function register(req: Request, res: Response, next: NextFunction) {
   try {
     const result = RegisterSchema.safeParse(req.body);
@@ -71,6 +84,9 @@ export async function register(req: Request, res: Response, next: NextFunction) 
       data: { user, accessToken: tokens.accessToken, verificationEmailSent },
     });
   } catch (err: any) {
+    if (err.code === "EMAIL_ALREADY_REGISTERED") {
+      return res.status(409).json({ success: false, code: err.code, error: err.message });
+    }
     // Zod validation errors
     if (err.name === "ZodError") {
       return res.status(400).json({ success: false, errors: err.issues ?? err.errors });

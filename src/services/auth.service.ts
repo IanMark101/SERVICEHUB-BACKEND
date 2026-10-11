@@ -1,6 +1,7 @@
 // Compatibility facade for existing controllers and tests.
 export {
   registerUser,
+  isRegistrationEmailAvailable,
   loginUser,
   recoverAccessToken,
   recoverSession,

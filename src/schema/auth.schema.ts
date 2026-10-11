@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { StrongPasswordSchema } from "./password.schema";
 
+const RegistrationEmailSchema = z.string().trim().max(254, "Email is too long").email("Invalid email format");
+export const CheckRegistrationEmailSchema = z.object({ email: RegistrationEmailSchema }).strict();
+
 // ── Register ─────────────────────────────────────────────────────────────────
 export const RegisterSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Invalid email format"),
+  email: RegistrationEmailSchema,
   password: StrongPasswordSchema,
   phone: z
     .string()

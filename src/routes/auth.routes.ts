@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   register,
+  checkRegistrationEmail,
   login,
   googleLogin,
   refresh,
@@ -19,7 +20,7 @@ import {
 } from "../controllers/auth.controller";
 import { requireAuth, requireAccountIdentity, requireTrustedOrigin } from "../middlewares/auth.middleware";
 import { getMyBanAppeal, submitBanAppeal } from "../controllers/ban-appeals.controller";
-import { authLimiter, passwordMutationLimiter } from "../middlewares/rateLimiter.middleware";
+import { authLimiter, passwordMutationLimiter, signupEmailCheckLimiter } from "../middlewares/rateLimiter.middleware";
 import { captchaConfig, requireCaptcha, passwordLoginCaptcha } from "../middlewares/captcha.middleware";
 import { securityMethods, passwordSetupChallenge, passwordSetupVerification, setPassword } from "../controllers/password-management.controller";
 
@@ -28,6 +29,7 @@ const router = Router();
 // Public auth mutations share the failed-request limiter; CAPTCHA is enforced
 // before password registration/recovery and on challenged password logins.
 router.get("/captcha-config", captchaConfig);
+router.post("/check-email", signupEmailCheckLimiter, checkRegistrationEmail);
 router.post("/register", authLimiter, requireCaptcha, register);
 router.post("/login", authLimiter, passwordLoginCaptcha, login);
 router.post("/google-login", authLimiter, googleLogin);
