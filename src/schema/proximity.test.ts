@@ -11,11 +11,22 @@ test('coordinates, radii, page limits and transportation amounts are bounded', (
   assert.equal(LocationPointSchema.safeParse({ ...center, latitude: 91 }).success, false);
   assert.equal(LocationPointSchema.safeParse({ ...center, longitude: NaN }).success, false);
   assert.equal(LocationPointSchema.safeParse({ ...center, label: ' ' }).success, false);
-  for (const radiusKm of [0, 31, 'bad']) assert.equal(NearbyQuerySchema.safeParse({ latitude: 10, longitude: 123, radiusKm }).success, false);
+  for (const radiusKm of [0, 0.4, -1, 30.1, 31, 1.25, NaN, Infinity, '', 'bad', '0x10', '1e1', true, null, ['1']]) {
+    assert.equal(NearbyQuerySchema.safeParse({ latitude: 10, longitude: 123, radiusKm }).success, false, `Rejected radius ${JSON.stringify(radiusKm)}`);
+  }
   assert.equal(NearbyQuerySchema.safeParse({ latitude: 10, longitude: 123, radiusKm: 5, limit: 100 }).success, false);
   for (const amount of [-1, 5001, 1.001, Infinity]) assert.equal(TransportationFeeSchema.safeParse(amount).success, false);
   assert.equal(TransportationFeeSchema.safeParse(0).success, true);
   assert.equal(TransportationFeeSchema.safeParse(125.25).success, true);
+});
+
+test('custom search radii accept half a kilometer and decimal increments without rounding', () => {
+  for (const radiusKm of [0.5, 0.7, 1.7, 2.3, 29.9, 30, '0.5', '.5', '2.3', '30']) {
+    const parsed = NearbyQuerySchema.parse({ latitude:center.latitude, longitude:center.longitude, radiusKm });
+    assert.equal(parsed.radiusKm, Number(radiusKm));
+  }
+  assert.notEqual(inRadius({ ...center, latitude:center.latitude + 0.003 }, { ...center, radiusKm:0.5 }), null);
+  assert.equal(inRadius({ ...center, latitude:center.latitude + 0.006 }, { ...center, radiusKm:0.5 }), null);
 });
 
 test('radius uses exact distance across municipality names and excludes unknown positions', () => {
