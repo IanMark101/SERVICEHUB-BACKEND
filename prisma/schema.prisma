@@ -263,6 +263,9 @@ model User {
 
   // Trust Score audit log
   trustScoreEvents       TrustScoreEvent[]
+  trustCases             TrustCase[] @relation("TrustCaseOwner")
+  trustResponses         TrustCase[] @relation("TrustCaseRespondent")
+  trustDecisions         TrustCase[] @relation("TrustCaseAdmin")
   adminActionsAuthored   AdminAuditLog[]         @relation("AdminAuditActor")
   adminActionsReceived   AdminAuditLog[]         @relation("AdminAuditTarget")
   trustEventsAuthored    TrustScoreEvent[]       @relation("TrustEventAdmin")
@@ -605,6 +608,7 @@ model QueueNotify {
 // ─────────────────────────────────────────────
 
 model Booking {
+  trustEvents TrustScoreEvent[]
   id              String         @id @default(cuid())
   seekerId        String
   seeker          User           @relation("SeekerBookings", fields: [seekerId], references: [id], onDelete: Cascade)
@@ -712,6 +716,9 @@ model Review {
   target             User             @relation("ReviewTarget", fields: [targetId], references: [id])
   rating             Int // 1–5
   text               String?
+  response           String?
+  respondedAt        DateTime?
+  trustCases         TrustCase[]
   tags               Json? // string array e.g. ["On Time", "Skilled"]
   aiSummaryUsed      Boolean          @default(false)
   visibility         ReviewVisibility @default(VISIBLE)
@@ -851,8 +858,43 @@ model TrustScoreEvent {
   actorAdmin   User?    @relation("TrustEventAdmin", fields: [actorAdminId], references: [id], onDelete: SetNull)
   eventKey     String?  @unique
   createdAt    DateTime @default(now())
+  bookingId    String?
+  booking      Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  category     String @default("LEGACY")
+  penaltyKey   String? @unique
+  reversesEventId String? @unique
+  reversesEvent TrustScoreEvent? @relation("TrustCorrection", fields: [reversesEventId], references: [id], onDelete: SetNull)
+  reversal TrustScoreEvent? @relation("TrustCorrection")
+  trustCases   TrustCase[]
+
+  @@index([bookingId, category, createdAt])
 
   @@map("trust_score_events")
+}
+
+model TrustCase {
+  id String @id @default(cuid())
+  userId String
+  user User @relation("TrustCaseOwner", fields: [userId], references: [id], onDelete: Cascade)
+  respondentId String?
+  respondent User? @relation("TrustCaseRespondent", fields: [respondentId], references: [id], onDelete: SetNull)
+  reviewId String? @unique
+  review Review? @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  trustEventId String? @unique
+  trustEvent TrustScoreEvent? @relation(fields: [trustEventId], references: [id], onDelete: Cascade)
+  description String
+  response String?
+  status String @default("PENDING")
+  adminId String?
+  admin User? @relation("TrustCaseAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  decisionReason String?
+  createdAt DateTime @default(now())
+  decidedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([respondentId, createdAt])
+  @@map("trust_cases")
 }
 
 // ─────────────────────────────────────────────

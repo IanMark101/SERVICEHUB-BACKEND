@@ -1,6 +1,6 @@
 import type { BookingStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { applyTrustEventInTransaction } from "../trust.service";
+import { awardBookingCompletionTrust } from "../trust-policy.service";
 import { assertDistinctAccounts } from "../../utils/security";
 import {
   emitWaitlistNotification,
@@ -146,14 +146,7 @@ export async function settleCompletedBooking(
       });
     }
 
-    if (booking.providerId !== booking.seekerId) {
-      await applyTrustEventInTransaction(tx, {
-        userId: booking.providerId,
-        delta: 3,
-        reason: "Service completed successfully",
-        eventKey: `booking-completion:${booking.id}:provider`,
-      });
-    }
+    await awardBookingCompletionTrust(tx, booking.id);
     const recorded = await recordLifecycleNotice(tx, updatedBooking, {
       userId: booking.providerId,
       title: "Completion confirmed",

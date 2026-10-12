@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { awardBookingCompletionTrust } from './trust-policy.service';
 import { safeBroadcast, safeEmit } from "../lib/socket";
 import { settleCompletedBooking } from "./bookings/completion.service";
 import { performImmediateCancel } from "./cancellation.service";
@@ -151,6 +152,7 @@ export async function resolveCompletionEscalation(params: {
         { userId: escalation.booking.seekerId, title: "Completion escalation resolved", body: `Administrator decision: ${code.replace(/_/g, " ").toLowerCase()}.`, link: `/seeker/seeker-activity?tab=all&booking=${escalation.bookingId}` },
       ] });
       const response = { resolved: true, outcome: code, bookingId: escalation.bookingId, operationId: operation.id };
+      await awardBookingCompletionTrust(tx, escalation.bookingId);
       await tx.adminResolutionOperation.update({ where: { id: operation.id }, data: { status: "COMPLETED", stage: "CASE_FINALIZED", result: response, completedAt: new Date(), lastError: null } });
       return response;
     });

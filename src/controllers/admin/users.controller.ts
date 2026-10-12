@@ -95,15 +95,16 @@ export async function listUsers(req: Request, res: Response, next: NextFunction)
 // ── PATCH /admin/users/:id/trust ──────────────────────────────────────────────
 export async function updateTrustScore(req: Request, res: Response, next: NextFunction) {
   try {
-    const { delta: parsedDelta, reason, currentPassword, operationId } = TrustAdjustmentSchema.parse(req.body);
+    const { eventId, reason, currentPassword, operationId } = TrustAdjustmentSchema.parse(req.body);
     const adminId = (req as AuthenticatedRequest).user.id;
     const admin = await prisma.user.findUnique({ where: { id: adminId }, select: { passwordHash: true, role: true, isActive: true, moderationStatus: true } });
     if (!admin || admin.role !== "admin" || !admin.isActive || admin.moderationStatus !== "ACTIVE" ||
       !(await bcrypt.compare(currentPassword, admin.passwordHash))) {
       return res.status(403).json({ success: false, error: "Current administrator password is incorrect" });
     }
-    const result = await applyManualTrustAdjustment({ userId: req.params.id as string, adminId, delta: parsedDelta, reason, operationId });
+    const result = await applyManualTrustAdjustment({ userId: req.params.id as string, adminId, eventId, reason, operationId });
     if (result.applied) safeEmit(`user:${req.params.id as string}`, "notification", { title: "Trust score adjusted" });
+    if (result.applied) safeEmit(`user:${req.params.id as string}`, 'accountStatusChanged', { trustChanged: true });
     res.json({ success: true, applied: result.applied });
   } catch (err) {
     next(err);

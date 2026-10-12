@@ -26,7 +26,7 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     failNotice = otherOngoing = refundProcessing = slowQueueBroadcast = false;
   };
   reset();
-  const fullBooking = () => ({ ...state.booking, queue: state.queue, completedService: state.completed, offer: null,
+  const fullBooking = () => ({ ...state.booking, provider: eligibility, seeker: eligibility, queue: state.queue, completedService: state.completed, offer: null,
     directRequest: state.directRequests.find(row => row.id === state.booking.directRequestId) || null });
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([key, value]) => {
     if (value && typeof value === 'object') {
@@ -102,7 +102,7 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     directRequest: table('directRequests', row => ({ ...row, booking: fullBooking() })),
     offer: table('offers', row => ({ ...row, request: state.requests.find(request => request.id === row.requestId) })), serviceRequest: table('requests'),
     transaction: { findFirst: async ({ where }: Row) => state.earnings.find(row => matches(row, where)) || null, create: async ({ data }: Row) => { state.earnings.push(data); return data; } },
-    trustScoreEvent: { findUnique: async () => null, create: async ({ data }: Row) => { state.trust.push(data); return data; } },
+    trustScoreEvent: { findFirst: async () => null, findUnique: async () => null, create: async ({ data }: Row) => { state.trust.push(data); return data; } },
   };
   const singleton = globalThis as unknown as { prisma?: PrismaClient };
   const previous = singleton.prisma;
@@ -166,7 +166,7 @@ test('booking lifecycle commits before realtime publication and does not wait fo
       assert.equal(state.messages.length, 2);
       assert.equal(state.progress.length, 3);
       assert.equal(state.earnings.length, paid ? 1 : 0);
-      assert.equal(state.trust.length, 1);
+      assert.equal(state.trust.length, 2);
       assert.equal(state.booking.paymentStatus, paid ? 'RELEASED' : 'CASH_CONFIRMED');
       for (const type of ['started', 'awaiting_confirmation', 'completed']) {
         for (const user of ['seeker', 'provider']) {

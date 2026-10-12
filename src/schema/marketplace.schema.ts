@@ -81,7 +81,9 @@ export const ReviewSchema = z.object({
   rating: z.coerce.number().int().min(1).max(5),
   text: Text(2_000).optional(),
   tags: z.array(Text(50)).max(10).optional(),
-}).strict();
+}).strict().refine(value => value.rating > 2 || (value.text ?? '').trim().length >= 10, {
+  path: ['text'], message: 'Explain a 1- or 2-star rating in at least 10 characters',
+});
 
 export const ReviewUpdateSchema = z.object({
   rating: z.coerce.number().int().min(1).max(5).optional(),
@@ -176,8 +178,8 @@ export const BooleanDecisionSchema = z.object({
 export const DirectResponseSchema = z.object({ accept: z.boolean() }).strict();
 export const DirectOfferSchema = z.object({ offerId: Cuid }).strict();
 export const TrustAdjustmentSchema = z.object({
-  delta: z.coerce.number().int().min(-100).max(100).refine((value) => value !== 0, "Trust adjustment cannot be zero"),
-  reason: Text(500).min(3),
+  eventId: Cuid,
+  reason: Text(500).min(20),
   currentPassword: z.string().min(1).max(200),
   operationId: z.string().uuid(),
 }).strict();
@@ -201,8 +203,11 @@ export const BanUserSchema = z.object({ reason: Text(500).min(3) }).strict();
 export const RestoreUserSchema = z.object({ reason: Text(500).min(3) }).strict();
 export const ReviewModerationSchema = z.object({
   action: z.enum(["hide", "restore"]),
-  reason: Text(1_000).min(3),
-}).strict();
+  reason: Text(1_000).min(20),
+  violation: z.enum(['MANIPULATION', 'HARASSMENT', 'FABRICATED', 'IRRELEVANT', 'OTHER_POLICY']).optional(),
+}).strict().refine(value => value.action !== 'hide' || !!value.violation, {
+  path: ['violation'], message: 'Identify a policy violation; disagreement with a rating is not sufficient',
+});
 export const AiMatchSchema = z.object({ requestId: Cuid }).strict();
 
 export const AnnouncementCreateSchema = z.object({

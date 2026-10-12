@@ -34,11 +34,11 @@ test("report resolution always records an administrator rationale", () => {
   assert.equal(ReportResolutionSchema.safeParse({ outcome: "trust_deduct", adminNotes: "Penalty without outcome." }).success, false);
 });
 
-test("trust changes cannot be zero or anonymous", () => {
+test("trust corrections require an original event, reason and fresh credentials", () => {
   assert.equal(TrustAdjustmentSchema.safeParse({ delta: 0, reason: "Manual review" }).success, false);
   assert.equal(TrustAdjustmentSchema.safeParse({ delta: -5, reason: "" }).success, false);
   assert.equal(TrustAdjustmentSchema.safeParse({ delta: -5, reason: "Confirmed policy violation" }).success, false);
-  assert.equal(TrustAdjustmentSchema.safeParse({ delta: -5, reason: "Confirmed policy violation", currentPassword: "current-secret", operationId: "a40cd2da-685e-44a2-bef2-42f1aa0c198f" }).success, true);
+  assert.equal(TrustAdjustmentSchema.safeParse({ eventId: 'cmabcdefghijk1234567890123', reason: "Confirmed recorded event error", currentPassword: "current-secret", operationId: "a40cd2da-685e-44a2-bef2-42f1aa0c198f" }).success, true);
 });
 
 test("cancellation fault findings require a reason, an approval and one valid participant role", () => {

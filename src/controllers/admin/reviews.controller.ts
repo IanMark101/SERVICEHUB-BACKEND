@@ -4,7 +4,6 @@ import { prisma } from "../../lib/prisma";
 import { ReviewModerationSchema } from "../../schema/marketplace.schema";
 import { invalidateReviewSummaries } from "../../services/ai.service";
 import { safeEmit } from "../../lib/socket";
-import { applyReviewContributionInTransaction } from "../../services/trust.service";
 
 export async function listAdminReviews(req: Request, res: Response, next: NextFunction) {
   try {
@@ -31,7 +30,7 @@ export async function listAdminReviews(req: Request, res: Response, next: NextFu
 export async function moderateReview(req: Request, res: Response, next: NextFunction) {
   try {
     const adminId = (req as AuthenticatedRequest).user.id;
-    const { action, reason } = ReviewModerationSchema.parse(req.body);
+    const { action, reason, violation } = ReviewModerationSchema.parse(req.body);
     const visibility = action === "hide" ? "HIDDEN" : "VISIBLE";
     const review = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`review:${req.params.id as string}`}))`;
@@ -44,6 +43,7 @@ export async function moderateReview(req: Request, res: Response, next: NextFunc
         error.status = 404;
         throw error;
       }
+      if ([current.authorId, current.targetId].includes(adminId)) throw Object.assign(new Error('You cannot moderate your own review'), { status: 403 });
       if (current.visibility === visibility) {
         const error = new Error(`Review is already ${visibility.toLowerCase()}`) as Error & { status?: number };
         error.status = 409;
@@ -51,11 +51,8 @@ export async function moderateReview(req: Request, res: Response, next: NextFunc
       }
       const updated = await tx.review.update({
         where: { id: current.id },
-        data: { visibility, moderationReason: reason, moderatedById: adminId, moderatedAt: new Date(), contentVersion: { increment: 1 } },
+        data: { visibility, moderationReason: violation ? `${violation}: ${reason}` : reason, moderatedById: adminId, moderatedAt: new Date(), contentVersion: { increment: 1 } },
       });
-      await applyReviewContributionInTransaction(tx, { userId: current.targetId, reviewId: current.id, rating: current.rating,
-        visible: action === "restore", reason: `Review ${action === "hide" ? "hidden" : "restored"} by administrator`,
-        actorAdminId: adminId, eventKey: `review:${current.id}:moderation:v${updated.contentVersion}` });
       const eligibleProviderReview = current.authorId === current.completedService.seekerId
         && current.targetId === current.completedService.providerId;
       await tx.adminAuditLog.create({
@@ -70,7 +67,6 @@ export async function moderateReview(req: Request, res: Response, next: NextFunc
     invalidateReviewSummaries(review.targetId);
     safeEmit(`user:${review.authorId}`, "notification", { title: action === "hide" ? "Review hidden" : "Review restored" });
     safeEmit(`user:${review.targetId}`, "notification", { title: action === "hide" ? "Review hidden" : "Review restored" });
-    safeEmit(`user:${review.targetId}`, "accountStatusChanged", { trustChanged: true });
     res.json({ success: true, data: review.updated });
   } catch (error) {
     next(error);

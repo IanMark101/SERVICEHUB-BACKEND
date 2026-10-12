@@ -5,6 +5,8 @@ type TrustEvent = {
 
 function publicReason(event: TrustEvent): string {
   const key = event.eventKey || '';
+  if (key.startsWith('trust-policy:')) return 'Trust policy updated: review points removed';
+  if (key.startsWith('trust-appeal:')) return 'Trust penalty corrected after appeal';
   if (key.startsWith('account-baseline:') || event.reason === 'Initial Account Base Trust Score Baseline') return 'Account created: starting trust score';
   if (key.startsWith('verification-approval:')) return 'Residency and identity verified';
   if (key.startsWith('booking-completion:')) return 'Service completed and confirmed';

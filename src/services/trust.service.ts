@@ -10,6 +10,10 @@ type TrustEventInput = {
   eventKey: string;
   actorAdminId?: string;
   requestedDelta?: number;
+  bookingId?: string;
+  category?: string;
+  penaltyKey?: string;
+  reversesEventId?: string;
 };
 
 /** The only function allowed to mutate User.trustScore. */
@@ -31,11 +35,12 @@ export async function applyTrustEventInTransaction(tx: Prisma.TransactionClient,
 
   const scoreBefore = user.trustScore;
   // Check after acquiring the user lock so a concurrent retry sees the committed event.
-  const existing = await tx.trustScoreEvent.findUnique({ where: { eventKey: input.eventKey }, select: { id: true, userId: true, reason: true, actorAdminId: true, requestedDelta: true } });
+  const existing = await tx.trustScoreEvent.findUnique({ where: { eventKey: input.eventKey }, select: { id: true, userId: true, reason: true, actorAdminId: true, requestedDelta: true, reversesEventId: true } });
   if (existing) {
     if (input.requestedDelta !== undefined &&
       (existing.userId !== input.userId || existing.reason !== input.reason ||
-        existing.actorAdminId !== input.actorAdminId || existing.requestedDelta !== input.requestedDelta)) {
+        existing.actorAdminId !== input.actorAdminId || existing.requestedDelta !== input.requestedDelta ||
+        (input.reversesEventId !== undefined && existing.reversesEventId !== input.reversesEventId))) {
       const error = new Error("Trust adjustment operation ID was already used with different details") as Error & { status?: number; code?: string };
       error.status = 409;
       error.code = "TRUST_OPERATION_CONFLICT";
@@ -49,12 +54,16 @@ export async function applyTrustEventInTransaction(tx: Prisma.TransactionClient,
     data: {
       userId: input.userId,
       delta: scoreAfter - scoreBefore,
-      requestedDelta: input.requestedDelta,
+      requestedDelta: input.requestedDelta ?? input.delta,
       reason: input.reason,
       scoreBefore,
       scoreAfter,
       actorAdminId: input.actorAdminId,
       eventKey: input.eventKey,
+      bookingId: input.bookingId,
+      category: input.category,
+      penaltyKey: input.penaltyKey,
+      reversesEventId: input.reversesEventId,
     },
   });
   if (input.actorAdminId) {
@@ -97,72 +106,43 @@ export async function applyVerificationApprovalTrust(userId: string, actorAdminI
 export async function applyManualTrustAdjustment(input: {
   userId: string;
   adminId: string;
-  delta: number;
+  eventId: string;
   reason: string;
   operationId: string;
 }) {
+  if (input.adminId === input.userId || input.reason.trim().length < 20) throw Object.assign(new Error('A correction requires an independent administrator and a documented reason'), { status: 422 });
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`trust:${input.userId}`}))::text`;
+    const original = await tx.trustScoreEvent.findUnique({ where: { id: input.eventId } });
+    if (!original || original.userId !== input.userId || original.delta === 0 ||
+      original.reversesEventId || ['POLICY_TRANSITION', 'LEGACY_DUPLICATE_PENALTY', 'REVIEW_LEGACY'].includes(original.category) ||
+      original.eventKey?.startsWith('account-baseline:') || original.eventKey?.startsWith('review:')) {
+      throw Object.assign(new Error('Select an eligible original trust event to correct'), { status: 422 });
+    }
+    const reversal = await tx.trustScoreEvent.findUnique({ where: { reversesEventId: original.id } });
+    if (reversal && reversal.eventKey !== `manual-trust:${input.adminId}:${input.operationId}`) {
+      throw Object.assign(new Error('This trust event has already been corrected'), { status: 409 });
+    }
     const result = await applyTrustEventInTransaction(tx, {
       userId: input.userId,
-      delta: input.delta,
-      requestedDelta: input.delta,
+      delta: -original.delta,
+      requestedDelta: -original.delta,
       reason: input.reason,
       actorAdminId: input.adminId,
       eventKey: `manual-trust:${input.adminId}:${input.operationId}`,
+      reversesEventId: original.id,
+      bookingId: original.bookingId ?? undefined,
+      category: 'CORRECTION',
     });
     if (result.applied) await tx.notification.create({ data: { userId: input.userId, title: "Trust score adjusted", body: `An administrator adjusted your trust score to ${result.scoreAfter}. Reason: ${input.reason}` } });
     return result;
   });
 }
 
-export async function applyServiceCompletionTrust(userId: string, bookingId = randomUUID()): Promise<void> {
-  await applyTrustEvent(userId, 3, "Service completed & confirmed by seeker", undefined, `booking-completion:${bookingId}:provider`);
-}
-
-export function reviewTrustDelta(rating: number) {
-  if (rating === 5) return 2;
-  if (rating === 4) return 1;
-  if (rating === 2) return -3;
-  if (rating === 1) return -5;
-  return 0;
-}
-
-/** Reconcile this review's actual ledger contribution, including clamped events.
- * Review edits/moderation hold their review lock before calling this function.
- */
-export async function applyReviewContributionInTransaction(tx: Prisma.TransactionClient, input: {
-  userId: string; reviewId: string; rating: number; visible: boolean;
-  eventKey: string; reason: string; actorAdminId?: string;
-}) {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`trust:${input.userId}`}))::text AS "lock"`;
-  const history = await tx.trustScoreEvent.aggregate({
-    where: { userId: input.userId, OR: [{ eventKey: `review:${input.reviewId}` }, { eventKey: { startsWith: `review:${input.reviewId}:` } }] },
-    _sum: { delta: true },
-  });
-  const actualContribution = history._sum.delta ?? 0;
-  const desiredContribution = input.visible ? reviewTrustDelta(input.rating) : 0;
-  const delta = desiredContribution - actualContribution;
-  if (!delta) return { applied: false };
-  return applyTrustEventInTransaction(tx, { userId: input.userId, delta, reason: input.reason,
-    actorAdminId: input.actorAdminId, eventKey: input.eventKey });
-}
-
-export async function applyReviewTrust(userId: string, rating: number, reviewId = randomUUID()): Promise<void> {
-  const delta = reviewTrustDelta(rating);
-  if (delta) await applyTrustEvent(userId, delta, `Received ${rating}-star provider review`, undefined, `review:${reviewId}:rating:v1`);
-}
-
-export async function applyCancellationTrust(userId: string, isProvider: boolean, cancellationId = randomUUID()): Promise<void> {
-  const role = isProvider ? "Provider" : "Seeker";
-  await applyTrustEvent(userId, -5, `${role} cancelled active booking (at fault)`, undefined, `cancellation:${cancellationId}:${userId}`);
-}
-
-export async function applyReportPenaltyTrust(userId: string, actorAdminId?: string, reportId = randomUUID()): Promise<void> {
-  await applyTrustEvent(userId, -10, "Valid report filed and confirmed by admin", actorAdminId, `report:${reportId}:penalty`);
-}
-
 export async function getTrustHistory(userId: string) {
-  return prisma.trustScoreEvent.findMany({ where: { userId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  const events = await prisma.trustScoreEvent.findMany({ where: { userId }, include: { reversal: { select: { id: true } }, trustCases: { select: { id: true } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  return events.map(({ reversal, trustCases, ...event }) => ({ ...event,
+    appealable: ['REPORT_PENALTY', 'CANCELLATION_PENALTY'].includes(event.category) && !reversal && !trustCases.length }));
 }
 
 export async function getPublicTrustHistory(userId: string) {

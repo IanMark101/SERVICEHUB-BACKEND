@@ -4,7 +4,7 @@ import type { Booking, CancellationRequest } from '@prisma/client';
 import { recordLifecycleNotice, publishLifecycleChange } from './bookings/lifecycle-events';
 import { closeParticipantCancellationReport } from "./cancellation-report-finalization.service";
 import { bookingActorRole, recordBookingProgress } from "./booking-progress.service";
-import { applyTrustEventInTransaction } from "./trust.service";
+import { applyBookingTrustPenalty } from "./trust-policy.service";
 import { refundBookingPayment } from "./payment-refund.service";
 import { assertNoRefundInProgress, lockBookingLifecycle } from "./booking-lifecycle.service";
 import {
@@ -294,6 +294,7 @@ export async function adminResolveCancellationRequest(requestId: string, approve
   if (!adminId) throw httpError("Administrator identity is required", 401);
   if (!['none', 'seeker', 'provider'].includes(fault) || (!approve && fault !== 'none')) throw httpError("Choose a valid fault finding for an approved cancellation", 422);
   if (adminNote.trim().length < 3) throw httpError("Explain the cancellation decision and any fault finding", 422);
+  if (fault !== 'none' && adminNote.trim().length < 20) throw httpError('Explain the fault finding and supporting evidence in at least 20 characters', 422);
   const outcome = approve ? "ADMIN_APPROVE" : "ADMIN_DENY";
   const penalty = fault === 'none' ? 'none' : `cancellation_fault_${fault}`;
   const claim = await prisma.$transaction(async (tx) => {
@@ -340,9 +341,9 @@ export async function adminResolveCancellationRequest(requestId: string, approve
       await tx.report.update({ where: { id: request.reportId }, data: { status: approve ? "RESOLVED" : "DISMISSED", adminId, adminNotes: adminNote, resolvedAt: new Date() } });
       if (!approve) await restoreBookingIfNoBlockingCases(tx, request.bookingId);
       const faultUserId = fault === 'provider' ? request.booking.providerId : fault === 'seeker' ? request.booking.seekerId : null;
-      if (approve && faultUserId) await applyTrustEventInTransaction(tx, { userId: faultUserId, delta: -5,
-        reason: `${fault === 'provider' ? 'Provider' : 'Seeker'} found at fault for cancelling started work by administrator`,
-        actorAdminId: adminId, eventKey: `cancellation:${request.id}:${faultUserId}` });
+      if (approve && faultUserId) await applyBookingTrustPenalty(tx, { userId: faultUserId, bookingId: request.bookingId,
+        reason: `${fault === 'provider' ? 'Provider' : 'Seeker'} at fault for cancelling started work: ${adminNote}`,
+        adminId, category: 'CANCELLATION_PENALTY', eventKey: `cancellation:${request.id}:${faultUserId}` });
       await tx.adminAuditLog.create({ data: { actorId: adminId, targetUserId: faultUserId || request.booking.providerId, action: approve ? "CANCELLATION_APPROVED" : "CANCELLATION_DENIED", resourceType: "CancellationRequest", resourceId: request.id, reason: adminNote, metadata: { bookingId: request.bookingId, reportId: request.reportId, operationId: operation?.id, fault, faultUserId } } });
       await tx.notification.createMany({ data: [
         { userId: request.booking.seekerId, title: "Cancellation case resolved", body: approve ? "Admin approved the cancellation and any eligible refund was submitted." : "Admin denied the cancellation; the booking remains active.", link: `/seeker/seeker-activity?tab=all&booking=${request.bookingId}` },

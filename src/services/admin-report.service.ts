@@ -2,7 +2,7 @@ import { Prisma, ReportStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { disconnectUserSockets, safeBroadcast, safeEmit } from "../lib/socket";
 import { settleCompletedBooking } from "./bookings/completion.service";
-import { applyTrustEventInTransaction } from "./trust.service";
+import { applyBookingTrustPenalty, awardBookingCompletionTrust } from "./trust-policy.service";
 import { performImmediateCancel } from "./cancellation.service";
 import { lockBookingLifecycle } from "./booking-lifecycle.service";
 import { lockAccountLifecycle } from "./account-lifecycle.service";
@@ -75,9 +75,11 @@ function activityLink(report: { booking: { seekerId: string; providerId: string 
   return userId === report.booking.providerId ? `/provider/provider-activity?tab=${tab}` : `/seeker/seeker-activity?tab=${tab}`;
 }
 
-async function applyReportPenalty(tx: Prisma.TransactionClient, report: { id: string; reportedUserId: string }, adminId: string, penalty: ReportPenaltyAction, notes: string) {
+async function applyReportPenalty(tx: Prisma.TransactionClient, report: { id: string; reportedUserId: string; bookingId: string }, adminId: string, penalty: ReportPenaltyAction, notes: string) {
   if (penalty === "trust_deduct") {
-    await applyTrustEventInTransaction(tx, { userId: report.reportedUserId, delta: -10, reason: "Valid report confirmed by administrator", actorAdminId: adminId, eventKey: `report:${report.id}:trust-penalty` });
+    await applyBookingTrustPenalty(tx, { userId: report.reportedUserId, bookingId: report.bookingId,
+      adminId, category: 'REPORT_PENALTY', reason: `Confirmed serious misconduct: ${notes}`,
+      eventKey: `report:${report.id}:trust-penalty` });
   } else if (penalty === "suspend" || penalty === "ban") {
     // Booking creation holds this provider lock through its eligibility read
     // and commit. Recheck blockers only after that transaction completes.
@@ -110,6 +112,7 @@ async function reserveReportFinancialOutcome(operationId: string, reportId: stri
 }
 
 export async function resolveAdminReport(reportId: string, adminId: string, action: ReportAction, adminNotes: string, requestedPenalty: ReportPenaltyAction = "none") {
+  if (requestedPenalty === 'trust_deduct' && adminNotes.trim().length < 20) throw httpError('Describe the serious violation and supporting evidence in at least 20 characters', 422);
   if (action === "warn" || action === "trust_deduct" || action === "suspend" || action === "ban" || action === "none") throw httpError("Choose a booking outcome; a moderation penalty cannot resolve a disputed booking by itself", 422, "BOOKING_OUTCOME_REQUIRED");
   const outcome: ReportBookingOutcome = action === "approve_refund" ? "cancel_booking" : action;
 
@@ -177,6 +180,7 @@ export async function resolveAdminReport(reportId: string, adminId: string, acti
       await applyReportPenalty(tx, report, adminId, requestedPenalty, adminNotes);
       const finalStatus = outcome === "dismiss" ? "DISMISSED" : "RESOLVED";
       await tx.report.update({ where: { id: report.id }, data: { status: finalStatus, adminId, adminNotes, resolvedAt: new Date() } });
+      await awardBookingCompletionTrust(tx, report.bookingId);
       if (outcome === "dismiss" || outcome === "resolve_safety") await restoreBookingIfNoBlockingCases(tx, report.bookingId);
       const outcomeLabel = {
         dismiss: "Report dismissed.",

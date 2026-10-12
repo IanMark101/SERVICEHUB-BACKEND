@@ -21,7 +21,7 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
-if (process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_PROXIMITY_ONLY === '1' || process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1' || process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
+if (process.env.SERVICEHUB_TRUST_POLICY_ONLY === '1' || process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_PROXIMITY_ONLY === '1' || process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1' || process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
   // Prisma qualifies model queries; raw SQL also needs the disposable schema.
   // Omit public so an unqualified query cannot fall through to live tables.
   isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
@@ -105,6 +105,13 @@ async function main() {
         const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
         assert.equal(result.status, 0, `fresh-schema ${file} failed`);
       }
+      return;
+    }
+
+    if (process.env.SERVICEHUB_TRUST_POLICY_ONLY === '1') {
+      const file = process.env.SERVICEHUB_TRUST_POLICY_QUICK === '1' ? 'trust-policy-security.test.ts' : 'evidence-based-trust.test.ts';
+      const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+      assert.equal(result.status, 0, 'evidence-based trust integration failed');
       return;
     }
 

@@ -24,6 +24,12 @@ export function publicLocation<T extends Record<string, unknown>>(record: T) {
   return publicRecord;
 }
 
+/** Fixed public grid, independent of the search center. Never expose a home's exact pin. */
+export function publicMapArea(record: { latitude?: number | null; longitude?: number | null }) {
+  if (record.latitude == null || record.longitude == null) return null;
+  return { latitude: Math.round(record.latitude * 100) / 100, longitude: Math.round(record.longitude * 100) / 100, approximate: true as const };
+}
+
 export function locationBounds(query: Pick<NearbyQuery, 'latitude' | 'longitude' | 'radiusKm'>) {
   const latDelta = query.radiusKm / EARTH_KM * 180 / Math.PI;
   const angular = query.radiusKm / EARTH_KM;

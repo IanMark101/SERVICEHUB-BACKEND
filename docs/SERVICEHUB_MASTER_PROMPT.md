@@ -1,14 +1,14 @@
 # SERVICEHUB MASTER PROMPT
 
-**Specification version:** 3.0
-**Effective date:** October 10, 2026
+**Specification version:** 3.1
+**Effective date:** October 12, 2026
 **Status:** Code-aligned documentation baseline; runtime acceptance remains evidence-dependent
 
-This is the authoritative specification for **ServiceHub**, a location-based two-sided service marketplace and queue-management system. Seekers and providers discover nearby services and requests across communities and cities, then use the two established transaction flows. Read this document before changing application behavior or generating the SRS, SDD, SPMP, or STD. The repository-root `SERVICEHUB_MASTER_PROMPT.md` is a complete, identical copy for documentation preparation.
+This is the authoritative specification for **ServiceHub**, a location-based two-sided service marketplace and queue-management system. Seekers and providers discover nearby services and requests across communities and cities, then use the two established transaction flows. Read this document before changing application behavior or generating the SRS, SDD, SPMP, or STD. The repository-root and backend documentation copies must carry the same current system policies.
 
 ### How to interpret this document
 
-- **Baseline:** October 10, 2026 static review of the current working tree, including uncommitted application changes. Part 30 records implementation status and source evidence. This revision changes documentation only; it does not certify deployed migrations, external integrations, or end-to-end test results.
+- **Baseline:** The October 10, 2026 source review is extended by the October 12 trust-policy implementation in Part 15. Part 30 records implementation status and source evidence. Local verification does not certify production deployment or external integrations. The trust policy requires its database migration and coordinated backend/frontend release.
 - **Implemented** means corresponding code exists, not that every scenario has passed acceptance testing. **Configuration-dependent** requires external credentials/services. **Backend-only** is not a completed user-facing feature. **Future/excluded** must not be presented as current functionality.
 - **MUST / MUST NOT** means a required security, data-integrity, or capstone behavior.
 - **SHOULD / SHOULD NOT** means the default design unless there is a documented technical reason to differ.
@@ -50,12 +50,14 @@ This is the authoritative specification for **ServiceHub**, a location-based two
 ### Discovery and filtering
 
 - Seek Services uses `GET /api/services/nearby`, a public endpoint with optional authentication and redacted listing data. Browse Service Requests uses `GET /api/requests/nearby`, which requires an authenticated marketplace member with verified email; identity/residency approval is not required merely to browse. Both validate latitude, longitude and radius. The workspace UI has its own authentication/email gates. Other public listing/explainer routes retain their own access policy. Backend router-relative paths elsewhere in this document are mounted under `/api` in `src/app.ts`.
-- The UI offers radii of 1, 2, 5, 10, 15, 20 and 30 km. The API validates a 1–30 km radius and paginates results (default 6; maximum 30 per page).
+- The UI offers radii of 0.5, 1, 2, 5, 10, 15, 20 and 30 km, plus a custom radius. The UI and API validate 0.5–30 km in 0.1 km increments. Lists paginate results (default 6; maximum 30 per page).
 - A geographical bounding box reduces candidates, followed by exact Haversine distance filtering. Municipal/city labels do not define eligibility. Distances are straight-line estimates, not road routing, travel times or guaranteed arrival times.
 - Keep the discovery flow simple: a Seeker request has one actual job pin without its own radius; a Provider listing has a base pin and optional service coverage; each browsing workspace has an independent search center/radius. Do not add a second request-radius restriction to Provider discovery.
 - Seek Services compares the chosen search center with service operating bases; Browse Service Requests compares it with request job pins. Default ordering is nearest first, with trust score breaking service-distance ties and newer requests breaking request-distance ties. Budget/offer quick filters retain their existing ordering.
 - Search matches service/request title, description and category rather than merely the account name. Search, category and radius remain combined filters. Seeker quick filters cover availability, rating and waiting workload; provider quick filters cover urgency, budget and offer count.
 - Opening the location dialog edits a draft. Apply commits it; Cancel/Escape discards it. Optional device geolocation is requested only through an explicit user action.
+- Map clicks, dragged pins, place-search results and device locations preview a candidate. Use this location / Switch location confirms it; keeping the current location discards it. Panning and zooming never change the selected location. Ctrl/Command + wheel zooms around the pointer; ordinary scrolling remains available, alongside zoom buttons, touch pinch, recenter and fullscreen controls.
+- Both browsing workspaces offer Show nearby map. Nearby APIs return minimal mapPins for all eligible matches after the same exact-distance, category, search and quick filters as the list, before pagination. Pins show fixed 0.01-degree public area centers, never precise bases/job coordinates or private directions. The display keeps approximate anchors inside the search circle and groups matches in the same public area. Show in list opens the result's list page. These represent published service/job areas, not live user tracking.
 - Loading skeletons represent initial/query loading. Focus/reconnect refresh keeps confirmed cards or an empty result visible; a failed background refresh preserves that result with a recovery action.
 - Records without coordinates remain in owner management and transaction history but do not appear in nearby discovery until the owner adds a location. Do not guess coordinates from profile text or migrate every legacy record to one default city.
 
@@ -509,8 +511,8 @@ Seeker chooses ONE path:
       The only other allowed creation path is an admin decision of
       RELEASE_PROVIDER_AND_COMPLETE from a dispute or CompletionEscalation.
       Never create it earlier.
-    → Create the provider's `+3` completed-service TrustScoreEvent defined
-      in Part 15, exactly once per CompletedService
+    → Award `+3` to each eligible participant under Part 15, subject to
+      settled payment, verification, resolved cases and the 30-day pair limit
     → Booking.status = COMPLETED
     → Seeker prompted to leave a review
 
@@ -622,43 +624,42 @@ CompletedService = represents a GENUINELY FINISHED job. It is the anchor
 
 - Triggered when a Booking reaches `COMPLETED` and a CompletedService record exists, whether completed by seeker confirmation, dispute resolution, or CompletionEscalation resolution.
 - Both participants may leave one review of the other participant for that CompletedService. This supports the shared-account trust model; a user may be reviewed as a provider or seeker depending on the completed job.
-- Rating is 1–5 stars; written review and allowed tags are optional. Enforce one review per `(completed_service_id, author_id)` and derive the target from the CompletedService participants — never trust a client-supplied target ID.
-- Reviews attach permanently to CompletedService and may be edited by their author for exactly 24 hours. Editing must adjust the earlier review trust event by the net difference, not add a second full rating event. Reviews are not hard-deleted through normal UI; moderation hides abusive content with an audit trail.
+- Rating is 1-5 stars. Ratings of 1-2 require at least 10 characters of explanation; text is optional for 3-5 and tags remain optional. Enforce one review per completed service and author and derive its target server-side.
+- Reviews attach to CompletedService and may be edited by their author for 24 hours. Posting, editing, hiding and restoring a review never change Trust Score. Moderation hides documented policy violations with an audit trail; review recipients may respond publicly or submit a policy dispute.
 - Provider aggregates, AI provider summaries, Seek Services ranking, and the Community Hub leaderboard use only reviews from CompletedServices where that target participated as the provider. Reviews received while acting as seeker remain visible on the user's profile/trust history but do not affect provider-service ranking.
 
 ---
 
 ## PART 15 — TRUST SCORE SYSTEM
 
-- Range 0–100, default 50. Bands: 90–100 Highly Trusted, 70–89 Trusted, 50–69 Average, below 50 Needs Attention.
-- All score changes MUST pass through one transactional trust service that row-locks the user, clamps 0–100, and creates an immutable `TrustScoreEvent`. Each business event needs a unique idempotency key so retries cannot change trust twice.
-- The private, implementation-authoritative event table is:
+- Trust Score records verified reliability. Star ratings record satisfaction; the verification badge records approved identity/residency. A score is not a probability, quality guarantee, or automatic ban decision.
+- One account shares a 0-100 score across Seeker and Provider workspaces. Default 50 is a neutral baseline. Existing bands remain 90-100 Highly Trusted, 70-89 Trusted, 50-69 Average, below 50 Needs Attention.
+- All runtime changes pass through the transactional trust service: per-user advisory lock, clamping, immutable before/after ledger, unique event key, and original requested delta.
 
-| Event | Target | Delta |
+| Event | Target | Points |
 |---|---|---:|
-| Account baseline | new user | starts at 50 |
-| First verification approval | verified user | +5 once |
-| Service completed and confirmed | provider | +3 once per CompletedService |
-| 5-star review | review target | +2 |
-| 4-star review | review target | +1 |
-| 3-star review | review target | 0 |
-| 2-star review | review target | -3 |
-| 1-star review | review target | -5 |
-| Started booking canceled, user found at fault | at-fault user | -5 |
-| Report validated by admin with trust deduction selected | reported user | -10 once per report |
+| Account baseline | new account | starts at 50 |
+| First approved identity/residency verification | account | +5 once |
+| Eligible completed and settled booking | each eligible participant | +3 once |
+| Any rating, review edit, hide, restore, public response | either participant | 0 |
+| Pending complaint or appeal | either participant | 0 |
+| Admin-confirmed fault for cancelling started work | at-fault participant | -5 |
+| Documented serious misconduct with trust deduction selected | responsible participant | -10 |
+| Upheld penalty appeal or documented correction | original recipient | reverse actual original change once |
 
-- Listing checks that require revision and repeated failed publication attempts do not change trust. The old second-listing-rejection penalty is retired with listing pre-approval. A supported public-content report may receive the separately documented warning, suspension, or ban; it does not automatically apply a trust deduction.
-- Review edits and hiding reconcile the review's actual recorded contribution, including clamped events. Never reverse theoretical points that were not applied at a 0/100 boundary. Restoring a review reapplies its eligible rating contribution under the same boundary and retry rules.
-
-- The completed-service `+3` event uses the existing unique `booking-completion:<bookingId>:provider` key for the Booking linked one-to-one to its CompletedService and is created exactly once. Seeker-confirmed cash/online completion and Admin `RELEASE_PROVIDER_AND_COMPLETE` use the same event; retries cannot award it twice. Refund and cancellation outcomes never create it.
-- Do not add a separate “successful payment” bonus; completion already represents the successful undisputed transaction and a second bonus would double count it.
-- No-show penalties require an admin-confirmed report; do not infer a no-show from elapsed time alone.
-- Always visible: provider cards, offer cards, profile pages, admin views.
-- Admin can manually adjust trust only with a required reason, re-authenticated admin authority, clamping, TrustScoreEvent, and AdminAuditLog entry.
-- **Do not publish the exact point-value formula to end users.** Instead, build a "How Trust Score Works" guide (Settings page + landing page FAQ) that explains the *principles* (what helps, what hurts) without exact numbers — publishing exact math invites gaming the score rather than genuinely earning it.
+- Completion requires COMPLETED plus CompletedService, CASH_CONFIRMED or RELEASED, approved identities for both accounts, and no unresolved booking report/cancellation/completion escalation. Inactive or restricted participants and participants with an uncorrected fault penalty for that booking receive no reward. Pending case outcomes defer rewards until finalization.
+- Reward at most one completion between the same two accounts per rolling 30 days, including reversed roles. Pair locking and existing events, including zero-delta clamped awards, prevent concurrent farming. Repeat bookings and reviews remain available. Keys remain booking-completion:<bookingId>:provider or :seeker.
+- Starting work, accepting, paying, and marking work finished have no separate bonus. Refunds and cancellations earn no completion reward.
+- Penalties require a booking participant, a documented violated rule and supporting evidence explanation of at least 20 characters, and an administrator who did not participate in the booking. Elapsed time, subjective ratings, and an unresolved report are insufficient findings.
+- A unique booking-penalty:<bookingId>:<userId> key permits one trust penalty per incident/participant; report and cancellation deductions cannot stack. Suspension/ban remains a separate reasoned moderation decision.
+- Trust History shows immutable events. Public history sanitizes private notes. Own history offers appeals for uncorrected report/cancellation penalties; one case per original penalty. Pending cases do not restore points automatically.
+- Review recipients can respond publicly (10-1000 characters) or report a specific policy violation (20-2000 characters). The review author has 48 hours to respond before the dispute can be upheld, unless they respond earlier. Urgent policy moderation remains separately audited. Genuine negative feedback stays visible; disagreement with a rating is not grounds for removal. Admin hiding requires a specific policy category and evidence-based explanation.
+- TrustCase stores one reviewId or trustEventId, owner/respondent explanations, PENDING/UPHELD/REJECTED status, deciding administrator, reason, and timestamps. Admin reviews these under Reviews. A reviewer cannot decide their own case; another active admin must decide an appeal against the original admin when available. If none is available, same-admin review is explicitly audited.
+- Manual adjustment is replaced by correction of a selected eligible original event, with a 20-character documented reason, administrator password confirmation and stable operation UUID. Arbitrary point deltas, baseline changes, review-event corrections and repeated reversals are rejected.
+- Migration 20261011120000_evidence_based_trust retains historical events and replays their non-review contributions with boundary clamping, dropping duplicate booking penalties. A POLICY_TRANSITION event records any adjustment; no old snapshot is rewritten. Existing completion rewards remain recognized; mutual rewards and the rolling pair limit apply prospectively.
+- Publish the policy point values and eligibility conditions in Account Settings and Help Center. These weights and the 30-day limit are initial policy choices to evaluate in pilot testing, not scientifically validated probabilities.
 
 ---
-
 ## PART 16 — SELF-TRANSACTION PREVENTION (ANTI-ABUSE — MUST BE ENFORCED SERVER-SIDE)
 
 **Hard rule:** a booking, offer, or direct request can never be created where the seeker and provider resolve to the same underlying user account (since one account can hold both roles).
@@ -812,7 +813,7 @@ Deliberately scoped out: no user photo posts, no public scrollable social feed, 
 ## PART 20 — ADMIN PANEL
 
 - **Overview** — platform-wide stats dashboard.
-- **Users & Trust** — verification queue (Part 5), manual trust score overrides, suspensions/bans.
+- **Users & Trust** — verification queue (Part 5), documented trust-event corrections and penalty appeals, suspensions/bans.
 - **Marketplace** — Admin-managed category catalog (Part 18), published service-listing oversight, public-content reports, appeals, and sampled quality review (Part 17). Admin does not approve service listings before publication.
 - **Moderation** — reports queue and dispute resolution (Part 12), escalated cancellation requests (Part 9), and CompletionEscalations (Part 10).
 - **Marketplace content** — review contested local-check failures and reports about public listings or requests, including requests with no Booking. Content review is distinct from booking-payment disputes; removal and any account-level consequence require an authorized, reasoned, audited Admin decision.
@@ -893,6 +894,8 @@ The Queue Explainer MUST include: **“Your position is in this provider's paid 
 
 Landing visual refinements use the existing brand assets and code-native Motion/CSS. How It Works retains the original three-card layout, with numbered steps, category labels, icons and a Seeker/Provider role switch next to the heading. The selected role uses the shared bright brand orange (#ff6b00) with white text for Seeker, or Provider green with white text. Landing orange tints, readable action/text shades and dark-theme highlights derive from the same brand palette, including the retained orange profile CTA. Three shortcuts below the cards link to payment/queue, verification/messaging and review Help Center articles; the legacy queue anchor points to this shortcut area. A separate Booking Progress section follows How It Works. On desktop viewports at least 1024px wide, including shorter windows, a vertical timeline advances a sticky Activity preview as the page scrolls. A full-height right track bounds the pinned card to this timeline. The final row matches the natural completed-card height, including its header, progress indicator and footer. The card releases at the timeline boundary with both bottom edges aligned; there is no extra viewport-sized tail after completion. Landing-only html/body overflow uses clip rather than hidden, so the viewport remains the scroll container. Its six walkthrough stages are ready to start (queued), the Provider working (in_progress), the Seeker seeing that the Provider has started (the same in_progress state), the Provider waiting on Seeker approval (awaiting_seeker_approval), the Seeker reviewing that submitted work (the same awaiting_seeker_approval state), and Seeker-confirmed completion (completed). The confirmation stage shows the Seeker workspace in orange; Provider stages use green. The preview reuses ActivityDetailLayout, ActivityWorkroomSituation and ActivityDetailActions with isolated sample data, not screenshots or live account data. Start Job, Mark Work Finished, See Seeker progress, See work submitted, See Seeker confirmation, Confirm Completion and Restart advance only this local demo. Mark Work Finished goes to submitted work; the Seeker started view grants no completion action. An accessible Booking walkthrough progress indicator advances from 0% to 100% in 20-point stage increments, with an eased orange-to-green bar and a continuously rotating spinner independent of scrolling. At 100%, the spinner is replaced by a static filled circle with a checkmark. This percentage describes walkthrough position, not an API loading state, elapsed work time or measured service completion. Keyboard-accessible stage buttons also select each state. Viewports narrower than 1024px show a compact progress summary in normal document flow above a single vertical timeline with all six stage titles and descriptions. The workspace header, booking card and demo action footer are hidden at these widths. Scroll position updates the active stage and 0% to 100% walkthrough indicator in either direction; stage buttons remain usable. The summary is not pinned and scrolls away with the section heading. Desktop retains the full sticky booking card. Motion values animate the timeline without continuous React state updates; stage selection changes only at stage boundaries. Desktop stages reserve 540 to 720px each, scaling with 78svh, so each large booking card has more scroll distance to remain readable before the next state. The final row keeps the completed card's measured natural height so the sticky preview releases aligned with the timeline end. Active and passed Seeker circles retain the shared orange fill with white numerals or checkmarks. Booking content enters with a subtle 4px movement and gentle 0.6-second opacity easing; measured content height animates the frame over the same interval without stretching text. Role colors and stage markers transition softly. ResizeObserver measures actual row offsets for stage selection, including the final card-sized row; resize and initial scroll restoration also refresh the selected view. The sample card supplies the shared workspace surface and border tokens locally, giving it subtle theme-aware borders without changing authenticated cards. Reduced motion removes card movement, slows spinner rotation and makes frame height changes immediate. No API, socket, booking, payment or database mutations occur in the demo, and no fixed completion times are promised. Workspace headers and completion/review steps use the same role colors. The combined Trust and Reviews section follows two alternating split layouts. The first row pairs a large verification heading, concise guidance and safeguard labels on the left with two stacked panels on the right: email/residency requirements with document privacy, then booking-linked conversations connecting Seeker and Provider. The second row places a larger service-to-feedback sequence on the left and the review explanation, three checkmarked benefits and review guide on the right. Provider submission precedes Seeker confirmation and mutual review eligibility; submission alone is not described as completed service. Provider green and Seeker orange identify the actors. Subtle borders, restrained shadows and a short orange accent rail support the existing brand. Both rows stack with their explanations first on mobile. Soft viewport reveals respect reduced-motion preferences, light/dark tokens remain shared, and #trust, #reviews and both Help Center links are preserved. These instructional panels contain no account data, sample ratings or platform statistics. Workspaces restores the tabbed Seeker/Provider dashboard preview using the existing saved screenshots. It reuses the original Aceternity ContainerScroll component restored from repository history at f85d87c^, including its scroll-driven 3D tablet rotation and scale. Local layout hooks keep the black tablet sized to the dashboard image instead of reserving the standalone demo height. The separate custom preview frame is removed. The tab container, Aceternity tablet frame and expanded-image dialog are charcoal black, with readable white/gray frame text; the selected Seeker tab uses brand orange with white text, and the Provider tab uses green with white text. Switching tabs updates the role details and full dashboard image together. Arrow keys, Home and End support keyboard selection. The image can expand in a native modal dialog with Escape/close dismissal, focus restoration and scroll-lock cleanup. Screenshots are saved example views rather than live account data; surrounding Provider copy uses Browse Service Requests. The layout stacks at narrower widths and removes movement for reduced-motion preferences. Restrained comparison-table reveals remain. Reduced-motion preferences disable the movement. Do not add AI-generated image assets for this redesign. The original orange profile CTA and cinematic footer remain, including the service-category ticker near the hero and the locality ticker in the footer. Public actions remain session-aware and all public content is readable before account bootstrap succeeds.
 
+The public Community Hub section preserves #community, its existing copy and /login action in an inset dark rounded panel: a two-tone heading, supporting copy and light pill sign-in CTA sit beside three ruled informational rows, stacking at 900px and below. Standard Seeker sidebars use solid #D96700 backgrounds with accessible #211810 text; Provider sidebars use solid #047857 backgrounds with white text. These saturated sidebar backgrounds stay the same in light and dark mode. Selected items use #FFF1E3 with #30251C text for Seeker and #E6F4ED with #17372D text for Provider. These scoped styles reuse existing fonts, icons and reduced-motion-aware reveals; administration styling remains separate.
+
 Copy rules: use ServiceHub consistently, explain nearby location/radius discovery across communities, preserve both hiring flows, use "offers" rather than "bidding," and do not imply a queue for cash payments. Logos, browser titles, footers, authentication, Help Center, profiles and notifications must not impose a fixed municipal identity. Actual member-selected places remain valid location data. Do not invent statistics, a working support address, or claims of production deployment.
 
 ---
@@ -903,7 +906,7 @@ Public SEO uses server metadata with distinct titles/descriptions, canonical URL
 
 ## PART 25 — KNOWN LIMITATIONS (DOCUMENT, NOT NECESSARILY BUILD FURTHER MITIGATION)
 
-- Two-account collusion for trust score farming — mitigated by self-transaction blocking (Part 16); full prevention needs admin pattern-monitoring, documented as future work.
+- Trust farming is limited by self-transaction blocking, approved identities, one award per eligible booking, and one rewarded completion per account pair every rolling 30 days. These safeguards reduce farming; multi-account collusion remains a limitation requiring pattern monitoring.
 - Cold-start problem (marketplace needs both seekers and providers to have value) — addressed via a phased rollout plan (recruit verified providers in high-demand categories within specific barangays first), not a technical fix.
 - Creative/digital services stretch the onsite mental model. They may use project pricing and booking-scoped text coordination, but the 15-minute–8-hour estimated-duration field remains a work estimate rather than a multi-day delivery guarantee. File sharing and richer milestone delivery are future scope. Longer turnaround expectations belong in the listing and agreed schedule.
 - The paid work queue is provider-wide. Approximate waits use job-specific duration snapshots, not a live listing duration; actual service time can still vary, and this is not a reserved appointment calendar.
@@ -976,7 +979,7 @@ CompletedService -> completed_services
   id, queueId?, directRequestId?, offerId?, bookingId?, seekerId, providerId, finalPrice, paymentStatus, completedAt
 
 Review -> reviews
-  id, completedServiceId, authorId, targetId, rating, text?, tags?, aiSummaryUsed, visibility, moderationReason?, moderatedById?, moderatedAt?, contentVersion, createdAt, editableUntil
+  id, completedServiceId, authorId, targetId, rating, text?, tags?, aiSummaryUsed, visibility, moderationReason?, moderatedById?, moderatedAt?, response?, respondedAt?, contentVersion, createdAt, editableUntil
 
 Report -> reports
   id, bookingId, reporterId, reportedUserId, reason, description, evidenceUrl?, evidenceStorageKey?, reportType, dedupeKey?, status, adminId?, adminNotes?, resolvedAt?, createdAt
@@ -994,7 +997,11 @@ Announcement -> announcements
   id, title, body, authorId, isPublished, publishedAt?, createdAt, updatedAt
 
 TrustScoreEvent -> trust_score_events
-  id, userId, delta, requestedDelta?, reason, scoreBefore, scoreAfter, actorAdminId?, eventKey?, createdAt
+  id, userId, bookingId?, category, delta, requestedDelta?, reason, scoreBefore, scoreAfter, actorAdminId?, eventKey?, penaltyKey?, reversesEventId?, createdAt
+
+TrustCase -> trust_cases
+  id, userId, respondentId?, reviewId?, trustEventId?, description, response?, status: PENDING/UPHELD/REJECTED, adminId?, decisionReason?, createdAt, decidedAt?
+  Exactly one source (reviewId or trustEventId); one case per source.
 
 AiReviewSummary -> ai_review_summaries
   id, providerId, summary, reviewCount, contentVersion, source, generatedAt
@@ -1056,7 +1063,7 @@ Physical-model clarifications:
 - A provider may have at most one `ONGOING` Booking globally. Enforce Start Job and the provider-wide paid FCFS order under provider-scoped locks; listing links do not create separate queue positions or capacities.
 - New marketplace relationships require `email_verified=true` and `verification_status=APPROVED`; existing engagements remain resolvable as defined in Part 4.
 - `COMPLETED` implies exactly one CompletedService. `DISPUTED` implies an unresolved Report. Online `DISPUTED` implies `FROZEN_HELD`.
-- Each CompletedService produces exactly one provider `+3` completed-service TrustScoreEvent. The unique event key prevents duplicate awards across seeker, Admin, cash, online, or retry paths; refunds/cancellations produce none.
+- Each eligible CompletedService can produce one +3 trust event per eligible participant under the verification, settlement, unresolved-case and rolling 30-day pair rules in Part 15. Cash/online and Admin completion use the same idempotent award path. Refunds/cancellations produce none.
 - A Flow B Booking in a nonterminal state implies ServiceRequest `IN_PROGRESS`; completed implies `CLOSED`; canceled after matching implies `CANCELED`. Rejected sibling offers remain terminal.
 - Database foreign keys, unique/check constraints where supported, and transactional application checks MUST enforce these invariants. Frontend hiding is never sufficient.
 
@@ -1176,7 +1183,7 @@ Before claiming “production ready” or using a release build for defense:
   9. a second escalation must wait another 72 hours after `KEEP_AWAITING`;
   10. duplicate completion disputes do not create multiple Reports;
   11. verification submission fails without recorded current privacy-notice acknowledgement; and
-  12. repeated completion processing awards the provider's `+3` trust event only once;
+  12. repeated completion processing awards each eligible participant at most one `+3` trust event, respecting verification, settlement and the rolling pair limit;
 - defense seed data includes one provider with at least five valid written reviews and the AI panel demonstrates an actual Gemini refinement plus fallback;
 - no secrets or private documents are committed or logged;
 - browser console and server logs contain no unexplained 4xx/5xx loops, duplicate socket listeners, or unhandled rejection;
@@ -1246,7 +1253,7 @@ Cross-link the same requirement IDs across the SRS, design sections, SPMP delive
 
 ### Review boundary and evidence rules
 
-This baseline reflects a static source review on October 10, 2026 of the current working tree, including uncommitted changes. It covers the concept, persisted models, API access/validation, service logic, user-facing components and retained tests. No application code or database was changed for this review. The complete database schema has 35 Prisma models, represented in Part 26.
+The original source review was performed on October 10, 2026. The October 12 revision implements the evidence-based trust policy, review responses/disputes, penalty appeals, original-event corrections and aligned Help Center content. The complete database schema now has 36 Prisma models, represented in Part 26. Trust migrations were rehearsed in disposable schemas; the application database was not migrated by this work. Production deployment and unrelated acceptance scenarios remain separately verifiable.
 
 Status meanings: **I** = implemented source/UI path; **C** = implemented but external configuration/service is required; **B** = backend support without a completed frontend flow; **G** = known implementation/operational gap; **X** = excluded or future. These are implementation statuses, not test outcomes. A row marked I/C may still have bugs or unverified edge cases. File references are repository-relative: **B:** = SERVICEHUB-BACKEND, **F:** = SERVICEHUB-FRONTEND.
 
@@ -1260,7 +1267,7 @@ Use these stable subsystem IDs across the four documents; subdivide them into at
 | SH-04 | Google sign-in, password setup/change and reauthentication challenges | C | `B:src/services/auth/password-management.service.ts`; `B:src/routes/auth.routes.ts` | `B:src/integration/password-management.test.ts` |
 | SH-05 | Optional reCAPTCHA on registration/reset and progressive password login | C | `B:src/lib/captcha.ts`; `B:src/middlewares/captcha.middleware.ts` | `B:src/schema/captcha.test.ts`; `B:src/schema/captcha-routes.test.ts`; `F:src/schema/auth/useAuthForm.captcha.test.tsx` |
 | SH-06 | Independent profile/contact/social edits, account settings and first-time orientation; generated display label is not a username | I | `B:src/services/auth/profile.service.ts`; `F:src/components/profile/AccountSettingsView.tsx`; `F:src/schema/profileValidation.ts`; `F:src/features/onboarding` | `B:src/schema/profile-update.test.ts`; `F:src/hooks/useUserProfile.save.test.tsx`; `F:src/hooks/useUserProfile.test.tsx`; `F:src/features/onboarding/components/OnboardingDialog.test.tsx` |
-| SH-07 | Identity/residency proof submission, current acknowledgement, Admin decision and private signed access | C | `B:src/services/verification.service.ts`; `B:src/config/cloudinary.ts`; `B:src/config/privacy.ts` | `B:src/integration/privacy-deletion.test.ts`; `B:src/integration/trust-mechanics-audit.test.ts` |
+| SH-07 | Identity/residency proof submission, current acknowledgement, Admin decision and private signed access | C | `B:src/services/verification.service.ts`; `B:src/config/cloudinary.ts`; `B:src/config/privacy.ts` | `B:src/integration/privacy-deletion.test.ts`; `B:src/schema/verification-decisions.test.ts` |
 | SH-08 | Self-service account deletion with obligations/identity checks and database purge | I | `B:src/services/account-deletion.service.ts`; `F:src/components/profile/AccountSettingsView.tsx` | `B:src/integration/self-service-deletion.test.ts` |
 | SH-09 | External proof-file cleanup, scheduled retention purge, deep file inspection/scanning | G | `B:src/config/cloudinary.ts`; `B:src/services/data-retention.service.ts`; `B:src/controllers/upload.controller.ts` | Part 5 documents the gap; metadata/helper existence does not prove automatic file erasure or scanning |
 | SH-10 | Admin-managed category catalog, protected Other Services fallback last in dropdowns/badges | I | `B:src/routes/categories.routes.ts`; `F:src/lib/category-catalog.ts`; `B:prisma/seed.ts` | `B:src/integration/category-source-of-truth.test.ts`; `B:src/integration/category-expansion.test.ts`; `F:src/components/ServiceCategoryDropdowns.test.tsx` |
@@ -1279,7 +1286,7 @@ Use these stable subsystem IDs across the four documents; subdivide them into at
 | SH-23 | Seeker completion confirmation, separate CompletedService, online test release/cash confirmation and earnings history | I | `B:src/services/bookings/completion.service.ts`; `B:src/routes/transactions.routes.ts`; `B:src/services/provider-payment-records.service.ts`; `F:src/components/provider/TransactionHistory.tsx` | `B:src/integration/booking-flows.test.ts`; `B:src/schema/provider-payment-records.test.ts`; `B:src/integration/provider-payment-records.readonly.test.ts`; `F:src/components/provider/TransactionHistory.test.tsx` |
 | SH-24 | Pre-start cancellation, started mutual requests/declines/escalation, refund and explicit fault outcome | I | `B:src/services/cancellation.service.ts`; `B:src/services/cancellation-report-finalization.service.ts`; `B:src/services/payment-refund.service.ts` | `B:src/integration/cancellation-report-finalization.test.ts`; `B:src/integration/high-priority-case-workflows.test.ts` |
 | SH-25 | Booking safety/completion reports, optional private evidence, no-response escalation and Admin settlement/retries | I/C | `B:src/services/admin-report.service.ts`; `B:src/services/admin-case-workspace.service.ts`; `B:src/services/completion-escalation.service.ts`; `B:src/services/admin-resolution-operation.service.ts` | `B:src/integration/high-priority-case-workflows.test.ts`; `B:src/schema/admin-case-workspace.test.ts`; `B:src/schema/admin-booking-resolution.test.ts` |
-| SH-26 | Completed-transaction bilateral reviews, edit/visibility rules, role-context ratings and event-based trust | I | `B:src/controllers/reviews.controller.ts`; `B:src/services/trust.service.ts`; `B:src/routes/reviews.routes.ts` | `B:src/integration/trust-mechanics-audit.test.ts`; `B:src/schema/seeker-review-stats.test.ts` |
+| SH-26 | Bilateral reviews with low-rating explanations/public replies, policy disputes, evidence-based trust, penalty appeals and original-event corrections | I | `B:src/controllers/reviews.controller.ts`; `B:src/services/trust-policy.service.ts`; `B:src/controllers/trust-cases.controller.ts`; `F:src/components/profile/TrustCaseControls.tsx` | `B:src/integration/evidence-based-trust.test.ts`; `B:src/integration/trust-policy-security.test.ts`; `B:src/schema/trust-operation.test.ts`; `F:src/components/profile/TrustCaseControls.test.tsx` |
 | SH-27 | Grounded provider/seeker review digests, deterministic fallback and optional Gemini excerpt selection | I/C | `B:src/services/ai.service.ts`; `B:src/lib/review-summary.ts`; `F:src/components/ui/ReviewSummaryPanel.tsx` | `B:src/integration/review-summaries.test.ts`; `B:src/schema/review-summary.test.ts`; `F:src/components/ui/ReviewSummaryPanel.test.tsx` |
 | SH-28 | AI provider matching endpoint and wrapper; no Post Request trigger/interface | B | `B:src/services/ai.service.ts`; `B:src/routes/ai.routes.ts`; `F:src/api/ai.api.ts` | Verify endpoint fallback separately; no completed matching UI acceptance claim |
 | SH-29 | Community announcements, guides, real counters, current-week leaderboard and recent additions | I | `B:src/controllers/community.controller.ts`; `F:src/components/community/CommunityHub.tsx` | `F:src/components/community/CommunityHub.test.tsx` |
@@ -1417,3 +1424,10 @@ Provider listings publish after automatic validation or return a correction to m
 - Recorded proof-file retention/deletion and upload-inspection gaps instead of claiming automatic provider-file erasure or scanning. Clarified recorded auditing and account-deletion consequences.
 - Added Part 30's 33 traceable subsystem entries and implementation/configuration/partial/future status. Removed reliance on deleted manual-report files; actual test execution, deployment facts and SPMP owner inputs remain evidence-dependent.
 - Subsequent October 10 profile correction: preserve the owner's session phone when loading public details, send only edited profile fields, validate those fields with readable errors, and handle cleared/malformed links without throwing. Clarified blank general-area and generated @ display-label behavior. Targeted regression tests and type checks are separate from the full release gate.
+
+### Version 3.1 ? evidence-based trust policy (October 12, 2026)
+
+- Separated ratings from trust points; published the +5 verification, eligible bilateral +3 completion, -5 cancellation-fault and -10 serious-misconduct rules.
+- Added the rolling 30-day account-pair reward limit, one penalty per booking/participant, private appeals, public review responses and policy-based review disputes with a 48-hour response opportunity.
+- Replaced arbitrary admin point entry with auditable original-event corrections. Preserved historical events and added a migration replay that removes review effects and duplicate booking penalties, including clamped history.
+- Updated Help Center guidance, account settings, profile/admin controls and model/traceability references. Local builds, targeted tests and isolated layout checks passed; production requires the coordinated migration/release described in `SERVICEHUB-BACKEND/docs/TRUST_POLICY_V2.md`.

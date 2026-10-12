@@ -9,7 +9,7 @@ import { reviewEligibilitySql } from '../../lib/review-eligibility';
 
 type ProfileReviewRow = {
   id: string; authorName: string; authorAvatar: string | null; rating: number;
-  comment: string | null; createdAt: Date; reviewContext: 'PROVIDER' | 'SEEKER';
+  comment: string | null; response: string | null; createdAt: Date; reviewContext: 'PROVIDER' | 'SEEKER';
   reviewCount: bigint; averageRating: unknown; five: bigint; four: bigint;
   three: bigint; two: bigint; one: bigint;
 };
@@ -51,7 +51,7 @@ export async function getUserPublicProfile(userId: string) {
   const reviews = await prisma.$queryRaw<ProfileReviewRow[]>`
     WITH eligible AS (
       SELECT r.id, a.name AS "authorName", a."avatarUrl" AS "authorAvatar",
-        r.rating, r.text AS comment, r."createdAt",
+        r.rating, r.text AS comment, r."createdAt", r.response,
         CASE WHEN cs."providerId" = ${userId} THEN 'PROVIDER' ELSE 'SEEKER' END AS "reviewContext"
       FROM reviews r JOIN completed_services cs ON cs.id = r."completedServiceId"
       JOIN users a ON a.id = r."authorId" LEFT JOIN bookings b ON b.id = cs."bookingId"
@@ -91,6 +91,7 @@ export async function getUserPublicProfile(userId: string) {
       authorAvatar: r.authorAvatar,
       rating: r.rating,
       comment: r.comment || '',
+      response: r.response,
       createdAt: r.createdAt,
       reviewContext: r.reviewContext,
     })),

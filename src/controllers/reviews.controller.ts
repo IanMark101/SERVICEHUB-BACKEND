@@ -6,7 +6,6 @@ import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
 import { ReviewSchema, ReviewUpdateSchema } from "../schema/marketplace.schema";
 import { invalidateReviewSummaries, summarizeProviderReviews, summarizeSeekerReviews } from "../services/ai.service";
-import { applyReviewContributionInTransaction } from "../services/trust.service";
 
 function refreshReviewSummary(targetId: string, asProvider: boolean) {
   invalidateReviewSummaries(targetId);
@@ -45,14 +44,6 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
         },
       });
 
-      await applyReviewContributionInTransaction(tx, {
-        userId: targetId,
-        reviewId: review.id,
-        rating: input.rating,
-        visible: true,
-        reason: `Received ${input.rating}-star ${isSeeker ? 'provider' : 'seeker'} review`,
-        eventKey: `review:${review.id}:rating:v1`,
-      });
       await tx.notification.create({
         data: {
           userId: targetId,
@@ -118,6 +109,9 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
       }
 
       const nextRating = input.rating ?? existing.rating;
+      if (nextRating <= 2 && (input.text ?? existing.text ?? '').trim().length < 10) {
+        throw Object.assign(new Error('Explain a 1- or 2-star rating in at least 10 characters'), { status: 422 });
+      }
       const nextVersion = existing.contentVersion + 1;
       const updated = await tx.review.update({
         where: { id: reviewId },
@@ -126,16 +120,6 @@ export async function updateReview(req: Request, res: Response, next: NextFuncti
       const eligibleProviderReview = existing.authorId === existing.completedService.seekerId
         && existing.targetId === existing.completedService.providerId
         && existing.visibility === "VISIBLE";
-      if (nextRating !== existing.rating && existing.visibility === "VISIBLE") {
-        await applyReviewContributionInTransaction(tx, {
-          userId: existing.targetId,
-          reviewId,
-          rating: nextRating,
-          visible: true,
-          reason: `Review rating updated from ${existing.rating} to ${nextRating}`,
-          eventKey: `review:${reviewId}:rating:v${nextVersion}`,
-        });
-      }
       return { updated, targetId: existing.targetId, providerId: eligibleProviderReview ? existing.completedService.providerId : null, bookingId: existing.completedService.bookingId, participantIds: [existing.completedService.seekerId, existing.completedService.providerId] };
     });
 
