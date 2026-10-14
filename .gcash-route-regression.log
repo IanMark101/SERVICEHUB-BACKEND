@@ -1,0 +1,53 @@
+TAP version 13
+# Subtest: private GCash preferences normalize valid PH numbers and support deliberate removal
+ok 1 - private GCash preferences normalize valid PH numbers and support deliberate removal
+  ---
+  duration_ms: 3.6343
+  type: 'test'
+  ...
+# Subtest: invalid numbers, owner IDs, contact phone mutations and missing inputs fail
+ok 2 - invalid numbers, owner IDs, contact phone mutations and missing inputs fail
+  ---
+  duration_ms: 2.181
+  type: 'test'
+  ...
+# Subtest: rejects the old generated enum that caused production services/mine P2023
+ok 3 - rejects the old generated enum that caused production services/mine P2023
+  ---
+  duration_ms: 2.4453
+  type: 'test'
+  ...
+# Subtest: the installed client recognizes all current enum values and the consent field
+ok 4 - the installed client recognizes all current enum values and the consent field
+  ---
+  duration_ms: 137.5595
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: retired category submission URLs no longer expose an API
+ok 5 - retired category submission URLs no longer expose an API
+  ---
+  duration_ms: 82.1223
+  type: 'test'
+  ...
+# Subtest: every Tier 0 protected HTTP route rejects a missing bearer token with 401
+ok 6 - every Tier 0 protected HTTP route rejects a missing bearer token with 401
+  ---
+  duration_ms: 353.4918
+  type: 'test'
+  ...
+# Subtest: HTTP responses include correlation and baseline security headers
+ok 7 - HTTP responses include correlation and baseline security headers
+  ---
+  duration_ms: 6.2858
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4574.2992
