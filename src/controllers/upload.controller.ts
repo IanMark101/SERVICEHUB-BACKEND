@@ -4,18 +4,7 @@ import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { prisma } from '../lib/prisma';
 import { validateListingPhotoImage } from '../schema/listing-photos.schema';
 import { uploadListingPhoto, deleteUnusedListingPhoto } from '../services/listing-photos.service';
-
-const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-
-function validateImageDataUrl(image: unknown, maxBytes = MAX_IMAGE_BYTES): string | null {
-  if (typeof image !== 'string') return null;
-  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(image);
-  if (!match || !ALLOWED_IMAGE_TYPES.has(match[1].toLowerCase())) return null;
-  const estimatedBytes = Math.floor((match[2].length * 3) / 4);
-  if (estimatedBytes > maxBytes) return null;
-  return image;
-}
+import { validateImageDataUrl } from '../schema/upload-image.schema';
 
 export class UploadController {
   async uploadListingPhoto(req: Request, res: Response): Promise<void> {

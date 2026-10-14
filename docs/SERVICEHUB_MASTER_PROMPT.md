@@ -8,6 +8,10 @@ This is the authoritative specification for **ServiceHub**, a location-based two
 
 ### How to interpret this document
 
+The current academic package contains the instructor's eleven required sections in `DOCUMENTATION_DRAFTS/FINAL/CAPSTONE/ServiceHub_Capstone_Documentation.docx` and its printing PDF. The project manager confirmed that Ian Mark J. Buenaflor is project manager/backend developer, while John Vincent Sefuesca and Klexa Rovelette D. Gaviola are frontend developers. Testing/documentation are shared. The methodology is Agile iterative development with feature-by-feature implementation, repeated testing and feedback; do not invent formal Scrum roles or ceremonies. Instructor/adviser/panel names remain editable placeholders until supplied by the team. Academic approval and signatures are distinct from implementation/test evidence.
+
+The team reports VPS hosting at PHP 995 per month. Record it as a recurring operating expense in the SPMP and maintenance plan, separate from Docker as the backend deployment technology. A twelve-month projection at the same rate is PHP 11,940; it is not the total project budget. Do not invent unreported hosting tiers, other expenses or a separate Docker charge.
+
 - **Baseline:** The October 10, 2026 source review is extended by the October 12 trust-policy implementation in Part 15. Part 30 records implementation status and source evidence. Local verification does not certify production deployment or external integrations. The trust policy requires its database migration and coordinated backend/frontend release.
 - **Implemented** means corresponding code exists, not that every scenario has passed acceptance testing. **Configuration-dependent** requires external credentials/services. **Backend-only** is not a completed user-facing feature. **Future/excluded** must not be presented as current functionality.
 - **MUST / MUST NOT** means a required security, data-integrity, or capstone behavior.
