@@ -1,8 +1,8 @@
 import { env } from "./env";
 
 export const deploymentFrontendOrigins = [
-  "https://servicehubcordova.tech",
-  "https://www.servicehubcordova.tech",
+  "https://servicehub.bond",
+  "https://www.servicehub.bond",
   "https://servicehub-frontend-umber.vercel.app",
 ] as const;
 
