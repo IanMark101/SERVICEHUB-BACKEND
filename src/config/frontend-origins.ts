@@ -1,9 +1,9 @@
 import { env } from "./env";
 
 export const deploymentFrontendOrigins = [
-  "https://servicehubcordova.tech",
-  "https://www.servicehubcordova.tech",
   "https://servicehub-frontend-umber.vercel.app",
+  "https://servicehub.bond",
+  "https://www.servicehub.bond"
 ] as const;
 
 function normalizeOrigin(value: string): string | undefined {

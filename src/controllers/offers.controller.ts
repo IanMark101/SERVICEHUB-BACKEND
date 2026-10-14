@@ -8,11 +8,12 @@ import {
   rejectOffer,
 } from "../services/offers.service";
 import { OfferSchema } from "../schema/marketplace.schema";
+import { publicOffer } from '../lib/service-arrangement';
 
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { requestId, serviceId, offeredPrice, estimatedDuration, availability, message } = OfferSchema.parse(req.body);
+    const { requestId, serviceId, offeredPrice, estimatedDuration, availability, message, serviceLocationMode, providerVenue } = OfferSchema.parse(req.body);
 
     const offer = await submitOffer(user.id, {
       requestId,
@@ -21,6 +22,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
       estimatedDuration,
       availability,
       message,
+      serviceLocationMode, providerVenue,
     });
 
     res.status(201).json({ success: true, data: offer });
@@ -81,7 +83,7 @@ export async function getMine(req: Request, res: Response, next: NextFunction) {
     res.json({ success: true, data: offers.map(offer => {
       const declined = decisionById.get(`offer-declined:${offer.id}`);
       const notSelected = decisionById.get(`offer-not-selected:${offer.id}`);
-      return { ...offer, decisionReason: declined ? 'DECLINED' : notSelected ? 'NOT_SELECTED' : null,
+      return { ...publicOffer(offer), decisionReason: declined ? 'DECLINED' : notSelected ? 'NOT_SELECTED' : null,
         decisionAt: (declined || notSelected)?.createdAt ?? null };
     }) });
   } catch (err) {

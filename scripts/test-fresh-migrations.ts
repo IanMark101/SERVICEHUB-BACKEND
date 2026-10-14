@@ -21,7 +21,11 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
-if (process.env.SERVICEHUB_TRUST_POLICY_ONLY === '1' || process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_PROXIMITY_ONLY === '1' || process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1' || process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1') {
+if (process.env.SERVICEHUB_LISTING_MAP_ONLY === '1' || process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1' || process.env.SERVICEHUB_ADMIN_CASES_ONLY === '1' || process.env.SERVICEHUB_SAVED_ONLY === '1' || process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1' || process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') {
+  isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+  isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+}
+if (process.env.SERVICEHUB_TRUST_POLICY_ONLY === '1' || process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_PROXIMITY_ONLY === '1' || process.env.SERVICEHUB_BOOKING_PROGRESS_ONLY === '1' || process.env.SERVICEHUB_TRUST_REQUEST_ONLY === '1' || process.env.SERVICEHUB_ARRANGEMENTS_ONLY === '1' || process.env.SERVICEHUB_SECURITY_HISTORY_ONLY === '1') {
   // Prisma qualifies model queries; raw SQL also needs the disposable schema.
   // Omit public so an unqualified query cannot fall through to live tables.
   isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
@@ -48,7 +52,7 @@ function runNpm(args: string[], env: NodeJS.ProcessEnv) {
 
 async function main() {
   if (process.env.SERVICEHUB_PROXIMITY_ONLY === '1') assertProximityDatabase();
-  if (process.env.SERVICEHUB_CATEGORY_ONLY === '1') assertCategoryDevelopmentTarget();
+  if (process.env.SERVICEHUB_LISTING_MAP_ONLY === '1' || process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1' || process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_SECURITY_HISTORY_ONLY === '1' || process.env.SERVICEHUB_SAVED_ONLY === '1' || process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1' || process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') assertCategoryDevelopmentTarget();
   await admin.connect();
   await admin.query(`CREATE SCHEMA "${schemaName}"`);
 
@@ -98,10 +102,71 @@ async function main() {
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
 
+    if (process.env.SERVICEHUB_LISTING_MAP_ONLY === '1') {
+      for (const file of ['listing-map-consent.test.ts', 'service-arrangements.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `Listing map regression ${file} failed`);
+      }
+      return;
+    }
+    if (process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1') {
+      for (const file of ['member-directory.test.ts', 'admin-user-profile.test.ts', 'privacy-deletion.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `Member directory regression ${file} failed`);
+      }
+      return;
+    }
+    if (process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') {
+      for (const file of ['price-agreement.test.ts', 'service-arrangements.test.ts', 'payment-webhook.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `Agreement pricing regression ${file} failed`);
+      }
+      return;
+    }
+    if (process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/gcash-number.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'Private GCash number lifecycle integration failed');
+      return;
+    }
+    if (process.env.SERVICEHUB_SAVED_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/saved-listings.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'Saved listings lifecycle integration failed');
+      return;
+    }
+    if (process.env.SERVICEHUB_ADMIN_CASES_ONLY === '1') {
+      const allowed = ['admin-review-lifecycle.test.ts', 'content-workspace.test.ts', 'high-priority-case-workflows.test.ts', 'safety-admin-guards.test.ts'];
+      const selected = process.env.SERVICEHUB_ADMIN_CASES_SUITES?.split(',') || allowed;
+      assert.ok(selected.length > 0 && selected.every(file => allowed.includes(file)), 'Unknown admin lifecycle regression suite');
+      for (const file of selected) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `isolated admin lifecycle ${file} failed`);
+      }
+      return;
+    }
+
+    if (process.env.SERVICEHUB_LISTING_PHOTOS_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/listing-photos.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'listing photo integration failed');
+      return;
+    }
+
+    if (process.env.SERVICEHUB_SECURITY_HISTORY_ONLY === '1') {
+      assert.equal(tableNames.has('security_events'), true, 'security history table is missing');
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/security-history.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'security history integration failed');
+      return;
+    }
+
+    if (process.env.SERVICEHUB_ARRANGEMENTS_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/service-arrangements.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'service arrangement integration failed');
+      return;
+    }
+
     if (process.env.SERVICEHUB_CATEGORY_ONLY === '1') {
       assert.equal(tableNames.has('categories_suggested'), false, 'retired category submission table still exists');
       assert.equal(tableNames.has('categories'), true, 'official category catalog is missing');
-      for (const file of ['category-expansion.test.ts', 'category-source-of-truth.test.ts', 'self-service-deletion.test.ts']) {
+      for (const file of ['category-cleanup.test.ts', 'category-expansion.test.ts', 'category-source-of-truth.test.ts']) {
         const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
         assert.equal(result.status, 0, `fresh-schema ${file} failed`);
       }

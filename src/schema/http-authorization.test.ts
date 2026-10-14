@@ -25,6 +25,7 @@ test('retired category submission URLs no longer expose an API', async (t) => {
 });
 
 const protectedRoutes: ProtectedRoute[] = [
+  ['GET', '/api/admin/audit-logs?kind=security'],
   ['GET', '/api/auth/me'],
   ['PUT', '/api/auth/profile'],
   ['POST', '/api/auth/change-password'],
@@ -44,6 +45,8 @@ const protectedRoutes: ProtectedRoute[] = [
   ['POST', '/api/bookings/direct'],
   ['PATCH', '/api/bookings/direct/request-id/respond'],
   ['POST', '/api/bookings/direct-from-offer'],
+  ['POST', '/api/requests/listing-inquiry'],
+  ['POST', '/api/requests/request-id/decline-inquiry'],
   ['POST', '/api/bookings/initiate-payment'],
   ['POST', '/api/bookings/confirm-online'],
   ['POST', '/api/bookings/waitlist'],
@@ -87,6 +90,8 @@ const protectedRoutes: ProtectedRoute[] = [
   ['POST', '/api/ai/match-providers'],
   ['POST', '/api/upload/avatar'],
   ['POST', '/api/upload/image'],
+  ['POST', '/api/upload/listing-photo'],
+  ['DELETE', '/api/upload/listing-photo/photo-id'],
   ['POST', '/api/upload/verification'],
   ['POST', '/api/upload/booking-evidence'],
   ['GET', '/api/admin/overview'],

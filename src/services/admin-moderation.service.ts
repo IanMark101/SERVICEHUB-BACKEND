@@ -1,5 +1,5 @@
 import { prisma } from "../lib/prisma";
-import { isFallbackCategory, OTHER_SERVICES_CATEGORY } from '../lib/category-catalog';
+import { canonicalCategoryName, categoryConceptKey, isFallbackCategory, normalizedCategoryName, OTHER_SERVICES_CATEGORY } from '../lib/category-catalog';
 import { safeBroadcast } from "../lib/socket";
 import { applyPublicContentAction, emitPublicContentAction } from "./public-content-actions.service";
 export async function removePublishedService(id: string, adminId: string, reason: string) {
@@ -78,7 +78,7 @@ export async function updateManagedCategory(
       throw error;
     }
 
-    const nextName = input.name?.trim().replace(/\s+/g, " ") ?? current.name;
+    const nextName = canonicalCategoryName(input.name ?? current.name);
     const nextIsActive = input.isActive ?? current.isActive;
     if (isFallbackCategory(current.name) && (nextName !== OTHER_SERVICES_CATEGORY || !nextIsActive)) {
       throw Object.assign(new Error('Other Services is the system fallback and must keep its name and remain active.'), { status: 409 });
@@ -89,12 +89,14 @@ export async function updateManagedCategory(
       throw error;
     }
 
-    if (nextName.toLocaleLowerCase() !== current.name.toLocaleLowerCase()) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(lower(${nextName})))`;
-      const duplicate = await tx.category.findFirst({
-        where: { id: { not: categoryId }, name: { equals: nextName, mode: "insensitive" } },
-        select: { id: true },
-      });
+    if (nextName !== current.name || (!current.isActive && nextIsActive)) {
+      const concept = categoryConceptKey(nextName);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${concept}))`;
+      const categories = await tx.category.findMany({ where: { id: { not: categoryId } }, select: { id: true, name: true, isActive: true } });
+      const duplicate = categories.find(category => categoryConceptKey(category.name) === concept && (
+        category.isActive || normalizedCategoryName(current.name) !== normalizedCategoryName(nextName)
+        || normalizedCategoryName(category.name) === normalizedCategoryName(nextName)
+      ));
       if (duplicate) {
         const error = new Error("An equivalent category already exists") as Error & { status?: number };
         error.status = 409;
@@ -144,11 +146,13 @@ export async function updateManagedCategory(
 }
 
 export async function createManagedCategory(adminId: string, input: { name: string; reason: string }) {
-  const name = input.name.trim().replace(/\s+/g, " ");
+  const name = canonicalCategoryName(input.name);
   const category = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(lower(${name})))`;
-    const existing = await tx.category.findFirst({ where: { name: { equals: name, mode: "insensitive" } }, select: { id: true } });
-    if (existing) throw Object.assign(new Error("An equivalent category already exists"), { status: 409 });
+    const concept = categoryConceptKey(name);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${concept}))`;
+    const categories = await tx.category.findMany({ select: { id: true, name: true } });
+    const existing = categories.find(category => categoryConceptKey(category.name) === concept);
+    if (existing) throw Object.assign(new Error(`An equivalent category already exists: ${canonicalCategoryName(existing.name)}. Use that category instead.`), { status: 409 });
     const created = await tx.category.create({ data: { name, isActive: true } });
     await tx.adminAuditLog.create({ data: { actorId: adminId, action: "CATEGORY_CREATED", resourceType: "Category", resourceId: created.id, reason: input.reason } });
     return created;

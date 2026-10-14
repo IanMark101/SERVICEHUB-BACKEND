@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { toPublicTrustEvent } from "../lib/public-trust-history";
+import { assertMemberProfile } from "./member-directory.service";
 
 type TrustEventInput = {
   userId: string;
@@ -146,8 +147,7 @@ export async function getTrustHistory(userId: string) {
 }
 
 export async function getPublicTrustHistory(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
+  await assertMemberProfile(userId);
   const events = await prisma.trustScoreEvent.findMany({
     where: { userId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: { id: true, delta: true, reason: true, scoreBefore: true, scoreAfter: true, createdAt: true, eventKey: true },

@@ -53,6 +53,10 @@ jobs:
       - run: npx prisma validate
       - run: npm run build
       - run: npm test
+      - name: Verify service arrangements in a disposable schema
+        run: npm run test:fresh-migrations
+        env:
+          SERVICEHUB_ARRANGEMENTS_ONLY: "1"
       - run: npm run test:booking-integration
       - run: npm run test:phase2-integration
       - run: npm run test:phase3-integration

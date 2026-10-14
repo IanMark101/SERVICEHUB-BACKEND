@@ -98,7 +98,10 @@ test("participant safety, review moderation, and verified self-deletion", async 
   const completedBooking = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: provider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 600, paymentStatus: "CASH_CONFIRMED", status: "COMPLETED", started: true } });
   const completed = await prisma.completedService.create({ data: { bookingId: completedBooking.id, seekerId: seeker.id, providerId: provider.id, finalPrice: 600, paymentStatus: "CASH_CONFIRMED" } });
   const review = await prisma.review.create({ data: { completedServiceId: completed.id, authorId: seeker.id, targetId: provider.id, rating: 2, text: "This review requires a moderation visibility test.", editableUntil: new Date(Date.now() + 60_000) } });
-  const hidden = await invoke(moderateReview, { params: { id: review.id }, body: { action: "hide", reason: "Contains content requiring moderation." }, user: admin });
+  const withoutViolation = await invoke(moderateReview, { params: { id: review.id }, body: { action: "hide", reason: "Disagreement with a rating is not a policy violation." }, user: admin });
+  assert.ok(withoutViolation.error);
+  assert.equal((await prisma.review.findUniqueOrThrow({ where: { id: review.id } })).visibility, 'VISIBLE');
+  const hidden = await invoke(moderateReview, { params: { id: review.id }, body: { action: "hide", violation: 'OTHER_POLICY', reason: "Contains content requiring moderation." }, user: admin });
   assert.equal(hidden.error, undefined);
   assert.equal((await prisma.review.findUniqueOrThrow({ where: { id: review.id } })).visibility, "HIDDEN");
   const publicWhileHidden = await invoke(getProviderReviews, { params: { providerId: provider.id } });

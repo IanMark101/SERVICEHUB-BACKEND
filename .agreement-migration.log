@@ -1,0 +1,17 @@
+Datasource "db": PostgreSQL database "neondb", schema "public" at "ep-cold-star-b4ehjsz6.c-6.us-east-2.aws.neon.tech"
+
+47 migrations found in prisma/migrations
+
+Applying migration `20261014030000_price_by_agreement`
+
+The following migration(s) have been applied:
+
+migrations/
+  └─ 20261014030000_price_by_agreement/
+    └─ migration.sql
+
+All migrations have been successfully applied.
+One pricing enum value added to the verified development database. No existing listings or prices were converted.
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma\schema.prisma.

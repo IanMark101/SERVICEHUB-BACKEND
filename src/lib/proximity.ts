@@ -20,13 +20,14 @@ export function locationFromRecord(record: { latitude?: number | null; longitude
 
 /** Never return precise marketplace coordinates or private addresses to browsers/broadcasts. */
 export function publicLocation<T extends Record<string, unknown>>(record: T) {
-  const { latitude: _latitude, longitude: _longitude, privateAddress: _address, ...publicRecord } = record;
+  const { latitude: _latitude, longitude: _longitude, privateAddress: _address, venueAddress: _venueAddress, ...publicRecord } = record;
   return publicRecord;
 }
 
 /** Fixed public grid, independent of the search center. Never expose a home's exact pin. */
-export function publicMapArea(record: { latitude?: number | null; longitude?: number | null }) {
+export function publicMapArea(record: { latitude?: number | null; longitude?: number | null }, publicMapPin = false) {
   if (record.latitude == null || record.longitude == null) return null;
+  if (publicMapPin) return { latitude: record.latitude, longitude: record.longitude, approximate: false as const };
   return { latitude: Math.round(record.latitude * 100) / 100, longitude: Math.round(record.longitude * 100) / 100, approximate: true as const };
 }
 

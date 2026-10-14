@@ -11,6 +11,8 @@ import { lockAccountLifecycle } from "../account-lifecycle.service";
 import { signInMethods } from "./password-management.service";
 import { StrongPasswordSchema } from "../../schema/password.schema";
 import { Prisma } from "@prisma/client";
+import type { SecurityContext } from '../../lib/security-context';
+import { recordSecurityEvent, securityEventData } from '../security-history.service';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +91,7 @@ function registeredEmailError() {
   });
 }
 
-export async function registerUser(input: RegisterInput): Promise<{
+export async function registerUser(input: RegisterInput, context?: SecurityContext): Promise<{
   user: AuthUser;
   tokens: AuthTokens;
   verificationEmailSent: boolean;
@@ -158,33 +160,41 @@ export async function registerUser(input: RegisterInput): Promise<{
   }
 
   // Issue JWT tokens
-  const tokens = await issueTokens(user.id, user.passwordHash);
+  const tokens = await issueTokens(user.id, user.passwordHash, false, context, 'REGISTRATION');
 
   return { user: toPublicUser(user), tokens, verificationEmailSent };
 }
 
 // ── Login ─────────────────────────────────────────────────────────────────────
 
-export async function loginUser(input: LoginInput): Promise<{ user: AuthUser; tokens: AuthTokens }> {
-  const user = await prisma.user.findUnique({ where: { email: input.email } });
+export async function loginUser(input: LoginInput, context?: SecurityContext): Promise<{ user: AuthUser; tokens: AuthTokens }> {
+  let userId: string | null = null;
+  try {
+    const user = await prisma.user.findUnique({ where: { email: input.email } });
+    userId = user?.id ?? null;
 
-  // Generic error — never reveal whether email exists (master prompt rule)
-  const invalidErr = new Error("Invalid credentials") as any;
-  invalidErr.status = 401;
+    // Generic error — never reveal whether email exists (master prompt rule)
+    const invalidErr = new Error("Invalid credentials") as any;
+    invalidErr.status = 401;
 
-  if (!user) throw invalidErr;
+    if (!user) throw invalidErr;
 
-  const passwordValid = user.passwordState !== "NONE" && await bcrypt.compare(input.password, user.passwordHash);
-  if (!passwordValid) throw invalidErr;
+    const passwordValid = user.passwordState !== "NONE" && await bcrypt.compare(input.password, user.passwordHash);
+    if (!passwordValid) throw invalidErr;
 
-  if (user.deactivatedAt || (!user.isActive && user.moderationStatus !== "BANNED")) {
-    const err = new Error("Your account has been suspended. Please contact support.") as any;
-    err.status = 403;
-    throw err;
+    if (user.deactivatedAt || (!user.isActive && user.moderationStatus !== "BANNED")) {
+      const err = new Error("Your account has been suspended. Please contact support.") as any;
+      err.status = 403;
+      throw err;
+    }
+
+    const tokens = await issueTokens(user.id, user.passwordHash, true, context, 'PASSWORD');
+    return { user: toPublicUser({ ...user, passwordState: "SET", moderationStatus: tokens.moderationStatus }), tokens };
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status === 401 || status === 403) await recordSecurityEvent(context, userId, 'SIGN_IN_FAILED', status === 403 ? 'Account access denied' : 'Credentials rejected', 'PASSWORD');
+    throw error;
   }
-
-  const tokens = await issueTokens(user.id, user.passwordHash, true);
-  return { user: toPublicUser({ ...user, passwordState: "SET", moderationStatus: tokens.moderationStatus }), tokens };
 }
 
 // ── Refresh Token ─────────────────────────────────────────────────────────────
@@ -252,7 +262,7 @@ export async function refreshAccessToken(incomingRefreshToken: string): Promise<
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 
-export async function logoutUser(refreshToken: string): Promise<void> {
+export async function logoutUser(refreshToken: string, context?: SecurityContext): Promise<void> {
   let identity: { sub?: string; sid?: string } | null = null;
   try {
     const claims = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET, { ignoreExpiration: true });
@@ -261,10 +271,11 @@ export async function logoutUser(refreshToken: string): Promise<void> {
     // A pre-existing opaque or malformed cookie can only be looked up by hash.
   }
   const session = identity?.sub && identity.sid
-    ? await prisma.refreshToken.findFirst({ where: { id: identity.sid, userId: identity.sub }, select: { id: true } })
-    : await prisma.refreshToken.findUnique({ where: { token: hashOpaqueToken(refreshToken) }, select: { id: true } });
+    ? await prisma.refreshToken.findFirst({ where: { id: identity.sid, userId: identity.sub }, select: { id: true, userId: true } })
+    : await prisma.refreshToken.findUnique({ where: { token: hashOpaqueToken(refreshToken) }, select: { id: true, userId: true } });
   if (!session) return;
-  await prisma.refreshToken.deleteMany({ where: { id: session.id } });
+  const revoked = await prisma.refreshToken.deleteMany({ where: { id: session.id } });
+  if (revoked.count) await recordSecurityEvent(context, session.userId, 'SIGN_OUT', 'Explicit sign-out', undefined, session.id);
   await disconnectSessionSockets(session.id, "You signed out of this browser.");
 }
 
@@ -383,7 +394,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-async function issueTokens(userId: string, expectedPasswordHash: string, passwordAuthenticated = false): Promise<AuthTokens & { moderationStatus: string }> {
+async function issueTokens(userId: string, expectedPasswordHash: string, passwordAuthenticated = false, context?: SecurityContext, method: 'PASSWORD' | 'GOOGLE' | 'REGISTRATION' = 'PASSWORD'): Promise<AuthTokens & { moderationStatus: string }> {
   const session = await prisma.$transaction(async (tx) => {
     await lockAccountLifecycle(tx, userId);
     await lockAuthenticationSession(tx, userId);
@@ -407,6 +418,7 @@ async function issueTokens(userId: string, expectedPasswordHash: string, passwor
     });
     const refreshToken = signRefreshToken(userId, created.id);
     await tx.refreshToken.update({ where: { id: created.id }, data: { token: hashOpaqueToken(refreshToken) } });
+    if (context) await tx.securityEvent.create({ data: securityEventData(context, userId, 'SIGN_IN_SUCCESS', method === 'REGISTRATION' ? 'Signed in after registration' : 'Authentication succeeded', method, created.id) });
     return { id: created.id, role: current.role, moderationStatus: current.moderationStatus, refreshToken };
   });
   return { accessToken: signAccessToken(userId, session.role, session.id), refreshToken: session.refreshToken, moderationStatus: session.moderationStatus };
@@ -434,7 +446,7 @@ export function toPublicUser(user: any): AuthUser {
   };
 }
 
-export async function googleLoginUser(token: string): Promise<{ user: AuthUser; tokens: AuthTokens }> {
+export async function googleLoginUser(token: string, context?: SecurityContext): Promise<{ user: AuthUser; tokens: AuthTokens }> {
   let email: string;
   let name: string;
   let avatarUrl: string | null = null;
@@ -495,7 +507,7 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
       return tx.user.update({ where: { id: accountId }, data: { emailVerified: true, googleSubject, googleConnectedAt: latest.googleConnectedAt ?? new Date() } });
     });
 
-    const tokens = await issueTokens(user.id, user.passwordHash);
+    const tokens = await issueTokens(user.id, user.passwordHash, false, context, 'GOOGLE');
     return { user: toPublicUser({ ...user, moderationStatus: tokens.moderationStatus }), tokens };
   } else {
     // 2. Auto-create new user from Google profile
@@ -531,7 +543,7 @@ export async function googleLoginUser(token: string): Promise<{ user: AuthUser; 
       return created;
     });
 
-    const tokens = await issueTokens(user.id, user.passwordHash);
+    const tokens = await issueTokens(user.id, user.passwordHash, false, context, 'GOOGLE');
 
     return { user: toPublicUser(user), tokens };
   }

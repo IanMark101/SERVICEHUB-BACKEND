@@ -28,6 +28,8 @@ import {
 import { getTrustHistory, getPublicTrustHistory } from "../services/trust.service";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { env } from "../config/env";
+import { securityContext } from '../lib/security-context';
+import { recordSecurityEvent } from '../services/security-history.service';
 
 // ── Cookie config ─────────────────────────────────────────────────────────────
 
@@ -72,7 +74,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
         errors: result.error.flatten(),
       });
     }
-    const { user, tokens, verificationEmailSent } = await registerUser(result.data);
+    const { user, tokens, verificationEmailSent } = await registerUser(result.data, securityContext(req, res));
 
     res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
 
@@ -100,7 +102,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 export async function login(req: Request, res: Response, next: NextFunction) {
   try {
     const input = LoginSchema.parse(req.body);
-    const { user, tokens } = await loginUser(input);
+    const { user, tokens } = await loginUser(input, securityContext(req, res));
 
     res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
 
@@ -171,7 +173,7 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
   try {
     const token = req.cookies?.refreshToken;
     if (token) {
-      await logoutUser(token);
+      await logoutUser(token, securityContext(req, res));
     }
     res.clearCookie("refreshToken", REFRESH_COOKIE_CLEAR_OPTIONS);
     res.json({ success: true, message: "Logged out successfully" });
@@ -263,7 +265,7 @@ export async function googleLogin(req: Request, res: Response, next: NextFunctio
   try {
     const { token } = GoogleLoginSchema.parse(req.body);
 
-    const { user, tokens } = await googleLoginUser(token);
+    const { user, tokens } = await googleLoginUser(token, securityContext(req, res));
 
     res.cookie("refreshToken", tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
     res.json({
@@ -271,6 +273,7 @@ export async function googleLogin(req: Request, res: Response, next: NextFunctio
       data: { user, accessToken: tokens.accessToken },
     });
   } catch (err: any) {
+    if (err.status === 401 || err.status === 403) await recordSecurityEvent(securityContext(req, res), null, 'SIGN_IN_FAILED', 'Google authentication rejected', 'GOOGLE');
     next(err);
   }
 }
@@ -280,7 +283,7 @@ export async function googleLogin(req: Request, res: Response, next: NextFunctio
 export async function getPublicProfileHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const profile = await getUserPublicProfile(id as string);
+    const profile = await getUserPublicProfile(id as string, (req as AuthenticatedRequest).user.id);
     res.json({ success: true, data: profile });
   } catch (err) {
     next(err);

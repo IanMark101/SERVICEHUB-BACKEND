@@ -6,6 +6,7 @@ import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
 import { ReviewSchema, ReviewUpdateSchema } from "../schema/marketplace.schema";
 import { invalidateReviewSummaries, summarizeProviderReviews, summarizeSeekerReviews } from "../services/ai.service";
+import { assertMemberProfile } from "../services/member-directory.service";
 
 function refreshReviewSummary(targetId: string, asProvider: boolean) {
   invalidateReviewSummaries(targetId);
@@ -70,6 +71,7 @@ export async function submitReview(req: Request, res: Response, next: NextFuncti
 export async function getProviderReviews(req: Request, res: Response, next: NextFunction) {
   try {
     const providerId = req.params.providerId as string;
+    await assertMemberProfile(providerId);
     const reviews = await prisma.review.findMany({
       where: { targetId: providerId, visibility: "VISIBLE", completedService: { providerId } },
       include: { author: { select: { id: true, name: true, avatarUrl: true } } },

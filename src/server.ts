@@ -5,6 +5,9 @@ import app from "./app";
 import { prisma } from "./lib/prisma";
 import { initSocket } from "./lib/socket";
 import { expireStalePaymentAttempts } from "./services/payment-attempt.service";
+import { pruneSecurityHistory } from './services/security-history.service';
+import { pruneUnusedListingPhotos } from './services/listing-photos.service';
+import { logger } from './utils/logger';
 
 const PORT = parseInt(env.PORT, 10);
 
@@ -25,6 +28,7 @@ async function main() {
     await prisma.$connect();
     console.log("✅ Database connected");
     await expireStalePaymentAttempts();
+    await pruneSecurityHistory();
 
     // Create HTTP server so Socket.io can share the same port as Express
     const httpServer = http.createServer(app);
@@ -41,10 +45,23 @@ async function main() {
       expireStalePaymentAttempts().catch((error) => console.error("Payment-attempt expiry job failed", error));
     }, 60_000);
     paymentExpiryTimer.unref();
+    const securityHistoryTimer = setInterval(() => {
+      pruneSecurityHistory().catch(() => logger.error('security_history_prune_failed'));
+    }, 3_600_000);
+    securityHistoryTimer.unref();
+    let photoPruneRunning = false;
+    const listingPhotoTimer = setInterval(() => {
+      if (photoPruneRunning) return;
+      photoPruneRunning = true;
+      pruneUnusedListingPhotos().catch(() => logger.error('listing_photo_prune_failed')).finally(() => { photoPruneRunning = false; });
+    }, 3_600_000);
+    listingPhotoTimer.unref();
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
       clearInterval(paymentExpiryTimer);
+      clearInterval(securityHistoryTimer);
+      clearInterval(listingPhotoTimer);
       console.log(`\n${signal} received — shutting down gracefully...`);
       httpServer.close(async () => {
         await prisma.$disconnect();

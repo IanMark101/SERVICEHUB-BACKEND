@@ -1,0 +1,35 @@
+TAP version 13
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: retired category submission URLs no longer expose an API
+ok 1 - retired category submission URLs no longer expose an API
+  ---
+  duration_ms: 102.101
+  type: 'test'
+  ...
+# Subtest: every Tier 0 protected HTTP route rejects a missing bearer token with 401
+ok 2 - every Tier 0 protected HTTP route rejects a missing bearer token with 401
+  ---
+  duration_ms: 345.3011
+  type: 'test'
+  ...
+# Subtest: HTTP responses include correlation and baseline security headers
+ok 3 - HTTP responses include correlation and baseline security headers
+  ---
+  duration_ms: 8.3163
+  type: 'test'
+  ...
+# Subtest: Saved validates target type, bounded pagination and bounded status batches
+ok 4 - Saved validates target type, bounded pagination and bounded status batches
+  ---
+  duration_ms: 6.4864
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4541.7282

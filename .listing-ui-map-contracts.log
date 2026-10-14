@@ -1,0 +1,1293 @@
+
+> servicehub-backend@1.0.0 test
+> tsx --test src/schema/*.test.ts
+
+TAP version 13
+# Subtest: deletion requires explicit acknowledgement and fresh credentials, without a target override
+ok 1 - deletion requires explicit acknowledgement and fresh credentials, without a target override
+  ---
+  duration_ms: 6.7471
+  type: 'test'
+  ...
+# Subtest: Google deletion verification binds owner, session, nonce, audience, issuer, and fresh claims
+ok 2 - Google deletion verification binds owner, session, nonce, audience, issuer, and fresh claims
+  ---
+  duration_ms: 110.8252
+  type: 'test'
+  ...
+# Subtest: Activity read models preserve historical detail metadata
+    # Subtest: Provider offers retain participant metadata and the recorded decision timestamp
+    ok 1 - Provider offers retain participant metadata and the recorded decision timestamp
+      ---
+      duration_ms: 7.3196
+      type: 'test'
+      ...
+    # Subtest: Activity bookings return their own categories rather than relying on active marketplace lists
+    ok 2 - Activity bookings return their own categories rather than relying on active marketplace lists
+      ---
+      duration_ms: 2.0753
+      type: 'test'
+      ...
+    1..2
+ok 3 - Activity read models preserve historical detail metadata
+  ---
+  duration_ms: 866.6053
+  type: 'test'
+  ...
+# Subtest: an unstarted booking can be administratively cancelled without a ban
+ok 4 - an unstarted booking can be administratively cancelled without a ban
+  ---
+  duration_ms: 2.49
+  type: 'test'
+  ...
+# Subtest: a banned participant's active booking can be cancelled, but only an online completed job can be released
+ok 5 - a banned participant's active booking can be cancelled, but only an online completed job can be released
+  ---
+  duration_ms: 0.5567
+  type: 'test'
+  ...
+# Subtest: safety cases cannot settle a completion dispute, and terminal bookings retain their payment outcome
+ok 6 - safety cases cannot settle a completion dispute, and terminal bookings retain their payment outcome
+  ---
+  duration_ms: 3.3295
+  type: 'test'
+  ...
+# Subtest: completion decisions require the awaiting-confirmation path and no penalty can accompany dismissal
+ok 7 - completion decisions require the awaiting-confirmation path and no penalty can accompany dismissal
+  ---
+  duration_ms: 0.7358
+  type: 'test'
+  ...
+# Subtest: query filters are bounded, typed and support real active/history pagination
+ok 8 - query filters are bounded, typed and support real active/history pagination
+  ---
+  duration_ms: 4.9111
+  type: 'test'
+  ...
+# Subtest: invalid terminal cancellation is rejected before creating a durable resolution operation
+ok 9 - invalid terminal cancellation is rejected before creating a durable resolution operation
+  ---
+  duration_ms: 2.3636
+  type: 'test'
+  ...
+# Subtest: a supported safety finding closes the case, restores only eligible paused work, and never rewrites a terminal payment
+ok 10 - a supported safety finding closes the case, restores only eligible paused work, and never rewrites a terminal payment
+  ---
+  duration_ms: 6.3232
+  type: 'test'
+  ...
+# Subtest: moderation rejection requires a clear reason
+ok 11 - moderation rejection requires a clear reason
+  ---
+  duration_ms: 4.207
+  type: 'test'
+  ...
+# Subtest: category management requires an explicit change and audit reason
+ok 12 - category management requires an explicit change and audit reason
+  ---
+  duration_ms: 1.216
+  type: 'test'
+  ...
+# Subtest: report resolution always records an administrator rationale
+ok 13 - report resolution always records an administrator rationale
+  ---
+  duration_ms: 0.856
+  type: 'test'
+  ...
+# Subtest: trust corrections require an original event, reason and fresh credentials
+ok 14 - trust corrections require an original event, reason and fresh credentials
+  ---
+  duration_ms: 1.6984
+  type: 'test'
+  ...
+# Subtest: cancellation fault findings require a reason, an approval and one valid participant role
+ok 15 - cancellation fault findings require a reason, an approval and one valid participant role
+  ---
+  duration_ms: 1.5327
+  type: 'test'
+  ...
+# Subtest: temporary suspensions are bounded
+ok 16 - temporary suspensions are bounded
+  ---
+  duration_ms: 1.3054
+  type: 'test'
+  ...
+# Subtest: restoring or unbanning requires an administrator reason
+ok 17 - restoring or unbanning requires an administrator reason
+  ---
+  duration_ms: 0.8108
+  type: 'test'
+  ...
+# Subtest: banned accounts retain appeal identity but never normal API access even with isActive=true
+ok 18 - banned accounts retain appeal identity but never normal API access even with isActive=true
+  ---
+  duration_ms: 0.4023
+  type: 'test'
+  ...
+# Subtest: verification accepts only private managed proof references and approved document types
+ok 19 - verification accepts only private managed proof references and approved document types
+  ---
+  duration_ms: 3.0765
+  type: 'test'
+  ...
+# Subtest: a standard user receives 403 from the administrator role guard
+ok 20 - a standard user receives 403 from the administrator role guard
+  ---
+  duration_ms: 2.1456
+  type: 'test'
+  ...
+# Subtest: marketplace actions require both email and approved residency
+ok 21 - marketplace actions require both email and approved residency
+  ---
+  duration_ms: 1.139
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: removed promotion endpoint cannot grant administrator access
+ok 22 - removed promotion endpoint cannot grant administrator access
+  ---
+  duration_ms: 1537.5786
+  type: 'test'
+  ...
+# Subtest: missing bearer authentication returns 401 without querying protected data
+ok 23 - missing bearer authentication returns 401 without querying protected data
+  ---
+  duration_ms: 2.5997
+  type: 'test'
+  ...
+# Subtest: administrator accounts cannot invoke standard marketplace actions
+ok 24 - administrator accounts cannot invoke standard marketplace actions
+  ---
+  duration_ms: 0.5043
+  type: 'test'
+  ...
+# Subtest: new marketplace relationship routes retain authentication and verification gates
+ok 25 - new marketplace relationship routes retain authentication and verification gates
+  ---
+  duration_ms: 1.2771
+  type: 'test'
+  ...
+# Subtest: existing-engagement resolution routes do not use the new-relationship verification gate
+ok 26 - existing-engagement resolution routes do not use the new-relationship verification gate
+  ---
+  duration_ms: 0.5309
+  type: 'test'
+  ...
+# Subtest: high-impact marketplace mutations retain action-specific rate limits
+ok 27 - high-impact marketplace mutations retain action-specific rate limits
+  ---
+  duration_ms: 0.8027
+  type: 'test'
+  ...
+# ✅ Socket.io initialized
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: booking lifecycle commits before realtime publication and does not wait for queue broadcasts
+    # Subtest: cash start, mark, confirm, and repeat confirmation
+    ok 1 - cash start, mark, confirm, and repeat confirmation
+      ---
+      duration_ms: 21.5762
+      type: 'test'
+      ...
+    # Subtest: paid queue start, mark, confirm, and repeat confirmation
+    ok 2 - paid queue start, mark, confirm, and repeat confirmation
+      ---
+      duration_ms: 5.0774
+      type: 'test'
+      ...
+    # Subtest: slow queue audience discovery cannot delay either participant or the start response
+    ok 3 - slow queue audience discovery cannot delay either participant or the start response
+      ---
+      duration_ms: 1.7022
+      type: 'test'
+      ...
+    # Subtest: failed persistence rolls back the transition instead of advertising a completed action
+    ok 4 - failed persistence rolls back the transition instead of advertising a completed action
+      ---
+      duration_ms: 1.5464
+      type: 'test'
+      ...
+    # Subtest: start still enforces the single-job and refund guards
+    ok 5 - start still enforces the single-job and refund guards
+      ---
+      duration_ms: 1.0177
+      type: 'test'
+      ...
+    # Subtest: a frozen paid booking cannot settle or create wallet earnings
+    ok 6 - a frozen paid booking cannot settle or create wallet earnings
+      ---
+      duration_ms: 0.6125
+      type: 'test'
+      ...
+    # Subtest: direct request accept records notices before publishing
+    ok 7 - direct request accept records notices before publishing
+      ---
+      duration_ms: 2.3914
+      type: 'test'
+      ...
+    # Subtest: direct request decline records notices before publishing
+    ok 8 - direct request decline records notices before publishing
+      ---
+      duration_ms: 1.8825
+      type: 'test'
+      ...
+    # Subtest: new cash request and offer acceptance persist their own notices with the booking
+    ok 9 - new cash request and offer acceptance persist their own notices with the booking
+      ---
+      duration_ms: 9.2196
+      type: 'test'
+      ...
+    # Subtest: cash cancellation remains authoritative and ignores stalled audience queries
+    ok 10 - cash cancellation remains authoritative and ignores stalled audience queries
+      ---
+      duration_ms: 4.4296
+      type: 'test'
+      ...
+    # Subtest: paid cancellation remains authoritative and ignores stalled audience queries
+    ok 11 - paid cancellation remains authoritative and ignores stalled audience queries
+      ---
+      duration_ms: 79.9627
+      type: 'test'
+      ...
+    # Subtest: seeker cancellation request, decline with reason, and escalation notify both views
+    ok 12 - seeker cancellation request, decline with reason, and escalation notify both views
+      ---
+      duration_ms: 4.0889
+      type: 'test'
+      ...
+    # Subtest: seeker cash cancellation approved by opposite participant settles only once
+    ok 13 - seeker cash cancellation approved by opposite participant settles only once
+      ---
+      duration_ms: 7.6451
+      type: 'test'
+      ...
+    # Subtest: seeker paid cancellation approved by opposite participant settles only once
+    ok 14 - seeker paid cancellation approved by opposite participant settles only once
+      ---
+      duration_ms: 7.21
+      type: 'test'
+      ...
+    # Subtest: provider cancellation request, decline with reason, and escalation notify both views
+    ok 15 - provider cancellation request, decline with reason, and escalation notify both views
+      ---
+      duration_ms: 2.2334
+      type: 'test'
+      ...
+    # Subtest: provider cash cancellation approved by opposite participant settles only once
+    ok 16 - provider cash cancellation approved by opposite participant settles only once
+      ---
+      duration_ms: 3.5362
+      type: 'test'
+      ...
+    # Subtest: provider paid cancellation approved by opposite participant settles only once
+    ok 17 - provider paid cancellation approved by opposite participant settles only once
+      ---
+      duration_ms: 4.6053
+      type: 'test'
+      ...
+    # Subtest: a failed cancellation notice leaves a retryable reservation and no false cancellation event
+    ok 18 - a failed cancellation notice leaves a retryable reservation and no false cancellation event
+      ---
+      duration_ms: 2.358
+      type: 'test'
+      ...
+    # Subtest: cash dispute persists its notice and returns the committed booking
+    ok 19 - cash dispute persists its notice and returns the committed booking
+      ---
+      duration_ms: 2.0669
+      type: 'test'
+      ...
+    # Subtest: paid dispute persists its notice and returns the committed booking
+    ok 20 - paid dispute persists its notice and returns the committed booking
+      ---
+      duration_ms: 0.8751
+      type: 'test'
+      ...
+    # Subtest: failed dispute notification rolls back the dispute instead of returning a false failure after commit
+    ok 21 - failed dispute notification rolls back the dispute instead of returning a false failure after commit
+      ---
+      duration_ms: 0.655
+      type: 'test'
+      ...
+    # Subtest: safety report, completion escalation, and actor-only removal retain their guards
+    ok 22 - safety report, completion escalation, and actor-only removal retain their guards
+      ---
+      duration_ms: 4.3819
+      type: 'test'
+      ...
+    # Subtest: verified paid booking creation commits its notice and does not wait for queue recipients
+    ok 23 - verified paid booking creation commits its notice and does not wait for queue recipients
+      ---
+      duration_ms: 5.7289
+      type: 'test'
+      ...
+    1..23
+ok 28 - booking lifecycle commits before realtime publication and does not wait for queue broadcasts
+  ---
+  duration_ms: 1781.6593
+  type: 'test'
+  ...
+# Subtest: CAPTCHA defaults off and enabled deployment requires both keys and exact hostnames
+ok 29 - CAPTCHA defaults off and enabled deployment requires both keys and exact hostnames
+  ---
+  duration_ms: 5.1996
+  type: 'test'
+  ...
+# Subtest: production cannot activate Google always-passing test keys
+ok 30 - production cannot activate Google always-passing test keys
+  ---
+  duration_ms: 1.1213
+  type: 'test'
+  ...
+# Subtest: trusted proxy configuration accepts explicit peers and rejects unrestricted or malformed trust
+ok 31 - trusted proxy configuration accepts explicit peers and rejects unrestricted or malformed trust
+  ---
+  duration_ms: 11.6802
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# {"timestamp":"2026-10-14T08:38:50.337Z","level":"error","message":"request_failed","requestId":"42fbbbf3-0518-411e-9cdc-43c7cce5a95e","method":"POST","path":"/api/auth/google-login","status":400,"error":{"name":"ZodError","message":"[\\n  {\\n    \\"expected\\": \\"string\\",\\n    \\"code\\": \\"invalid_type\\",\\n    \\"path\\": [\\n      \\"token\\"\\n    ],\\n    \\"message\\": \\"Invalid input: expected string, received undefined\\"\\n  }\\n]"}}
+# Subtest: actual auth routes reject missing CAPTCHA before account creation or email delivery
+ok 32 - actual auth routes reject missing CAPTCHA before account creation or email delivery
+  ---
+  duration_ms: 3349.9354
+  type: 'test'
+  ...
+# Subtest: Google verification sends only the token and server secret to the fixed provider endpoint
+ok 33 - Google verification sends only the token and server secret to the fixed provider endpoint
+  ---
+  duration_ms: 47.9128
+  type: 'test'
+  ...
+# Subtest: missing and malformed tokens stop before calling Google
+ok 34 - missing and malformed tokens stop before calling Google
+  ---
+  duration_ms: 1.7936
+  type: 'test'
+  ...
+# Subtest: rejected, reused, expired, foreign-host and malformed provider answers fail closed
+ok 35 - rejected, reused, expired, foreign-host and malformed provider answers fail closed
+  ---
+  duration_ms: 10.6367
+  type: 'test'
+  ...
+# Subtest: accepts Google-approved answers after a slow solve instead of treating challenge load time as token age
+ok 36 - accepts Google-approved answers after a slow solve instead of treating challenge load time as token age
+  ---
+  duration_ms: 1.7867
+  type: 'test'
+  ...
+# Subtest: provider outages and invalid secret configuration block protected actions without exposing the secret
+ok 37 - provider outages and invalid secret configuration block protected actions without exposing the secret
+  ---
+  duration_ms: 2.0018
+  type: 'test'
+  ...
+# Subtest: disabled protection preserves existing authentication without a provider request
+ok 38 - disabled protection preserves existing authentication without a provider request
+  ---
+  duration_ms: 0.2504
+  type: 'test'
+  ...
+# Subtest: HTTP guards protect registration and reset requests, challenge the fourth failed login, and preserve OAuth
+ok 39 - HTTP guards protect registration and reset requests, challenge the fourth failed login, and preserve OAuth
+  ---
+  duration_ms: 223.7755
+  type: 'test'
+  ...
+# Subtest: IPv6 address rotation within one subnet cannot avoid the failed-login challenge
+ok 40 - IPv6 address rotation within one subnet cannot avoid the failed-login challenge
+  ---
+  duration_ms: 32.6558
+  type: 'test'
+  ...
+# Subtest: approved proxy headers isolate login risk by client, while untrusted forwarded headers cannot rotate risk
+ok 41 - approved proxy headers isolate login risk by client, while untrusted forwarded headers cannot rotate risk
+  ---
+  duration_ms: 111.1557
+  type: 'test'
+  ...
+# Subtest: risk tracking at capacity challenges requests without evicting active failed-login records
+ok 42 - risk tracking at capacity challenges requests without evicting active failed-login records
+  ---
+  duration_ms: 11.4145
+  type: 'test'
+  ...
+# Subtest: known duplicate concepts, punctuation and case variants resolve to one service family
+ok 43 - known duplicate concepts, punctuation and case variants resolve to one service family
+  ---
+  duration_ms: 76.9641
+  type: 'test'
+  ...
+# Subtest: laptop repair belongs to computers, electrical work stays distinct, and fallback retains content safeguards
+ok 44 - laptop repair belongs to computers, electrical work stays distinct, and fallback retains content safeguards
+  ---
+  duration_ms: 5.7817
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: legacy category filters query the same canonical family on both marketplace reads
+ok 45 - legacy category filters query the same canonical family on both marketplace reads
+  ---
+  duration_ms: 1639.454
+  type: 'test'
+  ...
+# Subtest: onboarding accepts only terminal user choices
+ok 46 - onboarding accepts only terminal user choices
+  ---
+  duration_ms: 4.837
+  type: 'test'
+  ...
+# Subtest: onboarding preference is protected and scoped to the authenticated user
+ok 47 - onboarding preference is protected and scoped to the authenticated user
+  ---
+  duration_ms: 0.9091
+  type: 'test'
+  ...
+# Subtest: onboarding migration preserves existing users and prompts new users
+ok 48 - onboarding migration preserves existing users and prompts new users
+  ---
+  duration_ms: 0.4199
+  type: 'test'
+  ...
+# Subtest: community recent content uses first-publication dates and public field selection
+ok 49 - community recent content uses first-publication dates and public field selection
+  ---
+  duration_ms: 0.7814
+  type: 'test'
+  ...
+# Subtest: new content publishes only after server moderation and committed records
+ok 50 - new content publishes only after server moderation and committed records
+  ---
+  duration_ms: 2.6853
+  type: 'test'
+  ...
+# Subtest: content mutations keep authorization and account-scoped abuse limits
+ok 51 - content mutations keep authorization and account-scoped abuse limits
+  ---
+  duration_ms: 1.0183
+  type: 'test'
+  ...
+# Subtest: content decisions require a deliberate action, a useful reason, and no unknown fields
+ok 52 - content decisions require a deliberate action, a useful reason, and no unknown fields
+  ---
+  duration_ms: 6.8882
+  type: 'test'
+  ...
+# Subtest: keeping, restoring, or sending guidance cannot punish an account
+ok 53 - keeping, restoring, or sending guidance cannot punish an account
+  ---
+  duration_ms: 6.1623
+  type: 'test'
+  ...
+# Subtest: changing content or punishing its owner requires current reviewed versions
+ok 54 - changing content or punishing its owner requires current reviewed versions
+  ---
+  duration_ms: 1.0284
+  type: 'test'
+  ...
+# Subtest: content filters and suspensions have safe limits
+ok 55 - content filters and suspensions have safe limits
+  ---
+  duration_ms: 3.0277
+  type: 'test'
+  ...
+# Subtest: all existing-booking terminal mutations use the shared lifecycle lock
+ok 56 - all existing-booking terminal mutations use the shared lifecycle lock
+  ---
+  duration_ms: 3.481
+  type: 'test'
+  ...
+# Subtest: report resolution requires a booking outcome separate from an optional penalty
+ok 57 - report resolution requires a booking outcome separate from an optional penalty
+  ---
+  duration_ms: 0.9682
+  type: 'test'
+  ...
+# Subtest: cash and online Flow B selection share a request lock and database backstop
+ok 58 - cash and online Flow B selection share a request lock and database backstop
+  ---
+  duration_ms: 19.7922
+  type: 'test'
+  ...
+# Subtest: refund reserves the booking before the external effect and finalizes under the same lock
+ok 59 - refund reserves the booking before the external effect and finalizes under the same lock
+  ---
+  duration_ms: 0.735
+  type: 'test'
+  ...
+# Subtest: Prisma quota failures become service unavailability without exposing the query or backend path
+ok 60 - Prisma quota failures become service unavailability without exposing the query or backend path
+  ---
+  duration_ms: 5.0865
+  type: 'test'
+  ...
+# Subtest: quota detection handles nested adapter causes and explicit network-transfer limits
+ok 61 - quota detection handles nested adapter causes and explicit network-transfer limits
+  ---
+  duration_ms: 0.5754
+  type: 'test'
+  ...
+# Subtest: direct PostgreSQL quota failures are identified
+ok 62 - direct PostgreSQL quota failures are identified
+  ---
+  duration_ms: 0.3284
+  type: 'test'
+  ...
+# Subtest: resource and connection failures do not invent a quota diagnosis
+ok 63 - resource and connection failures do not invent a quota diagnosis
+  ---
+  duration_ms: 0.3451
+  type: 'test'
+  ...
+# Subtest: unrelated business limits and constraint errors are not classified as outages
+ok 64 - unrelated business limits and constraint errors are not classified as outages
+  ---
+  duration_ms: 0.3157
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: a quota failure while checking an authenticated session returns 503 without revoking the cookie
+ok 65 - a quota failure while checking an authenticated session returns 503 without revoking the cookie
+  ---
+  duration_ms: 2901.1123
+  type: 'test'
+  ...
+# Subtest: src/config loads the backend .env from a different working directory
+ok 66 - src/config loads the backend .env from a different working directory
+  ---
+  duration_ms: 157.9021
+  type: 'test'
+  ...
+# Subtest: dist/src/config loads the backend .env from a different working directory
+ok 67 - dist/src/config loads the backend .env from a different working directory
+  ---
+  duration_ms: 269.0365
+  type: 'test'
+  ...
+# Subtest: externally supplied environment variables take priority over .env
+ok 68 - externally supplied environment variables take priority over .env
+  ---
+  duration_ms: 192.0415
+  type: 'test'
+  ...
+# Subtest: DOTENV_CONFIG_PATH can select an explicit environment file
+ok 69 - DOTENV_CONFIG_PATH can select an explicit environment file
+  ---
+  duration_ms: 201.4048
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# ✅ Socket.io initialized
+# Subtest: configured origins are normalized and unsafe or malformed entries are excluded
+ok 70 - configured origins are normalized and unsafe or malformed entries are excluded
+  ---
+  duration_ms: 4.2628
+  type: 'test'
+  ...
+# Subtest: HTTP, Socket.IO, and production cookie endpoints trust the three frontend hosts only by exact origin
+ok 71 - HTTP, Socket.IO, and production cookie endpoints trust the three frontend hosts only by exact origin
+  ---
+  duration_ms: 296.494
+  type: 'test'
+  ...
+# Subtest: private GCash preferences normalize valid PH numbers and support deliberate removal
+ok 72 - private GCash preferences normalize valid PH numbers and support deliberate removal
+  ---
+  duration_ms: 8.8558
+  type: 'test'
+  ...
+# Subtest: invalid numbers, owner IDs, contact phone mutations and missing inputs fail
+ok 73 - invalid numbers, owner IDs, contact phone mutations and missing inputs fail
+  ---
+  duration_ms: 3.2269
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: retired category submission URLs no longer expose an API
+ok 74 - retired category submission URLs no longer expose an API
+  ---
+  duration_ms: 181.8194
+  type: 'test'
+  ...
+# Subtest: every Tier 0 protected HTTP route rejects a missing bearer token with 401
+ok 75 - every Tier 0 protected HTTP route rejects a missing bearer token with 401
+  ---
+  duration_ms: 586.0772
+  type: 'test'
+  ...
+# Subtest: HTTP responses include correlation and baseline security headers
+ok 76 - HTTP responses include correlation and baseline security headers
+  ---
+  duration_ms: 10.9396
+  type: 'test'
+  ...
+# Subtest: listing photo IDs allow zero through three unique uploads and reject external URLs
+ok 77 - listing photo IDs allow zero through three unique uploads and reject external URLs
+  ---
+  duration_ms: 5.4827
+  type: 'test'
+  ...
+# Subtest: listing uploads reject disguised files and enforce the actual image size
+ok 78 - listing uploads reject disguised files and enforce the actual image size
+  ---
+  duration_ms: 33.9437
+  type: 'test'
+  ...
+# Subtest: service creation and editing save uppercase titles while preserving descriptions
+ok 79 - service creation and editing save uppercase titles while preserving descriptions
+  ---
+  duration_ms: 10.2957
+  type: 'test'
+  ...
+# Subtest: request creation and editing save uppercase titles while preserving descriptions
+ok 80 - request creation and editing save uppercase titles while preserving descriptions
+  ---
+  duration_ms: 8.4676
+  type: 'test'
+  ...
+# Subtest: normalizing titles retains length and character validation
+ok 81 - normalizing titles retains length and character validation
+  ---
+  duration_ms: 3.074
+  type: 'test'
+  ...
+# Subtest: public map areas use a fixed coarse grid and contain no private address
+ok 82 - public map areas use a fixed coarse grid and contain no private address
+  ---
+  duration_ms: 5.2985
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: both nearby maps share exact radius, filters and eligibility queries with the list before paging
+ok 83 - both nearby maps share exact radius, filters and eligibility queries with the list before paging
+  ---
+  duration_ms: 1104.5011
+  type: 'test'
+  ...
+# Subtest: password rules require all five requirements, matching confirmation, and bcrypt byte safety
+ok 84 - password rules require all five requirements, matching confirmation, and bcrypt byte safety
+  ---
+  duration_ms: 7.9769
+  type: 'test'
+  ...
+# Subtest: sign-in methods are explicit and never inferred from a password hash
+ok 85 - sign-in methods are explicit and never inferred from a password hash
+  ---
+  duration_ms: 2.3821
+  type: 'test'
+  ...
+# Subtest: Google setup proofs require correct purpose, owner, session, subject, nonce and fresh claims
+ok 86 - Google setup proofs require correct purpose, owner, session, subject, nonce and fresh claims
+  ---
+  duration_ms: 120.3945
+  type: 'test'
+  ...
+# Subtest: production configuration reports each missing PayMongo field
+ok 87 - production configuration reports each missing PayMongo field
+  ---
+  duration_ms: 4.5858
+  type: 'test'
+  ...
+# Subtest: Test Mode refund is an explicit internal reversal and never calls the provider refund API
+ok 88 - Test Mode refund is an explicit internal reversal and never calls the provider refund API
+  ---
+  duration_ms: 0.8869
+  type: 'test'
+  ...
+# Subtest: Flow B offers allow a listing-free proposal and an optional listing shortcut
+ok 89 - Flow B offers allow a listing-free proposal and an optional listing shortcut
+  ---
+  duration_ms: 2.09
+  type: 'test'
+  ...
+# Subtest: administrator can explicitly release a disputed provider payment
+ok 90 - administrator can explicitly release a disputed provider payment
+  ---
+  duration_ms: 17.0579
+  type: 'test'
+  ...
+# Subtest: browser payment return delegates to owned server-side verification, never trusts the redirect
+ok 91 - browser payment return delegates to owned server-side verification, never trusts the redirect
+  ---
+  duration_ms: 11.3432
+  type: 'test'
+  ...
+# Subtest: online initiation derives the exact listing total on the server
+ok 92 - online initiation derives the exact listing total on the server
+  ---
+  duration_ms: 0.8967
+  type: 'test'
+  ...
+# Subtest: new listings are reusable one-time engagements with exact prices
+ok 93 - new listings are reusable one-time engagements with exact prices
+  ---
+  duration_ms: 7.6794
+  type: 'test'
+  ...
+# Subtest: queue start and completion retain the global and idempotency guards
+ok 94 - queue start and completion retain the global and idempotency guards
+  ---
+  duration_ms: 2.3255
+  type: 'test'
+  ...
+# Subtest: PayMongo webhook signature covers the unmodified raw body
+ok 95 - PayMongo webhook signature covers the unmodified raw body
+  ---
+  duration_ms: 678.2472
+  type: 'test'
+  ...
+# Subtest: return reconciliation needs only the owned intent and payment creation remains GCash-only
+ok 96 - return reconciliation needs only the owned intent and payment creation remains GCash-only
+  ---
+  duration_ms: 4.8621
+  type: 'test'
+  ...
+# Subtest: PayMongo attach sends the explicit ServiceHub return route and failed provider status is readable
+ok 97 - PayMongo attach sends the explicit ServiceHub return route and failed provider status is readable
+  ---
+  duration_ms: 64.6146
+  type: 'test'
+  ...
+# Subtest: price by agreement accepts no amount; set prices remain required and legacy modes stay unsupported
+ok 98 - price by agreement accepts no amount; set prices remain required and legacy modes stay unsupported
+  ---
+  duration_ms: 15.648
+  type: 'test'
+  ...
+# Subtest: inquiry payload cannot supply a provider, price, payment, budget or public posting fields
+ok 99 - inquiry payload cannot supply a provider, price, payment, budget or public posting fields
+  ---
+  duration_ms: 3.5288
+  type: 'test'
+  ...
+# Subtest: an agreement listing can never supply a direct booking/payment amount
+ok 100 - an agreement listing can never supply a direct booking/payment amount
+  ---
+  duration_ms: 2.7775
+  type: 'test'
+  ...
+# Subtest: profile links can be updated without submitting private contact or general-area fields
+ok 101 - profile links can be updated without submitting private contact or general-area fields
+  ---
+  duration_ms: 17.2092
+  type: 'test'
+  ...
+# Subtest: phone and general-area edits still reject empty/invalid values with understandable messages
+ok 102 - phone and general-area edits still reject empty/invalid values with understandable messages
+  ---
+  duration_ms: 18.5714
+  type: 'test'
+  ...
+# Subtest: links can be cleared but unsafe/invalid URLs and privileged fields remain rejected
+ok 103 - links can be cleared but unsafe/invalid URLs and privileged fields remain rejected
+  ---
+  duration_ms: 2.5316
+  type: 'test'
+  ...
+# Subtest: provider history defaults to bounded server pagination and accepts a calendar date
+ok 104 - provider history defaults to bounded server pagination and accepts a calendar date
+  ---
+  duration_ms: 5.576
+  type: 'test'
+  ...
+# Subtest: invalid dates, unbounded pages and unknown statuses fail validation
+ok 105 - invalid dates, unbounded pages and unknown statuses fail validation
+  ---
+  duration_ms: 3.5462
+  type: 'test'
+  ...
+# Subtest: a caller cannot select a different provider through query fields
+ok 106 - a caller cannot select a different provider through query fields
+  ---
+  duration_ms: 0.7309
+  type: 'test'
+  ...
+# Subtest: provider and booking identifiers remain bound SQL parameters
+ok 107 - provider and booking identifiers remain bound SQL parameters
+  ---
+  duration_ms: 1.3246
+  type: 'test'
+  ...
+# Subtest: coordinates, radii, page limits and transportation amounts are bounded
+ok 108 - coordinates, radii, page limits and transportation amounts are bounded
+  ---
+  duration_ms: 14.1628
+  type: 'test'
+  ...
+# Subtest: custom search radii accept half a kilometer and decimal increments without rounding
+ok 109 - custom search radii accept half a kilometer and decimal increments without rounding
+  ---
+  duration_ms: 1.4327
+  type: 'test'
+  ...
+# Subtest: radius uses exact distance across municipality names and excludes unknown positions
+ok 110 - radius uses exact distance across municipality names and excludes unknown positions
+  ---
+  duration_ms: 0.5463
+  type: 'test'
+  ...
+# Subtest: bounding queries do not lose boundary candidates, including poles and date line
+ok 111 - bounding queries do not lose boundary candidates, including poles and date line
+  ---
+  duration_ms: 3.3221
+  type: 'test'
+  ...
+# Subtest: public projection and paging preserve coarse facts without exact pins or directions
+ok 112 - public projection and paging preserve coarse facts without exact pins or directions
+  ---
+  duration_ms: 1.9561
+  type: 'test'
+  ...
+# Subtest: coverage checks actual new job locations and allows historical unlocated bookings
+ok 113 - coverage checks actual new job locations and allows historical unlocated bookings
+  ---
+  duration_ms: 2.9415
+  type: 'test'
+  ...
+# Subtest: transportation is added once, including hourly and daily quantity bookings
+ok 114 - transportation is added once, including hourly and daily quantity bookings
+  ---
+  duration_ms: 2.4599
+  type: 'test'
+  ...
+# Subtest: exact public coordinates require explicit listing consent; private projections stay private
+ok 115 - exact public coordinates require explicit listing consent; private projections stay private
+  ---
+  duration_ms: 25.3426
+  type: 'test'
+  ...
+# Subtest: reverse lookup extracts only a general locality and omits street, house and business details
+ok 116 - reverse lookup extracts only a general locality and omits street, house and business details
+  ---
+  duration_ms: 0.6715
+  type: 'test'
+  ...
+# Subtest: public trust history exposes score changes without raw notes or internal identifiers
+ok 117 - public trust history exposes score changes without raw notes or internal identifiers
+  ---
+  duration_ms: 3.2859
+  type: 'test'
+  ...
+# Subtest: every event remains visible, including legacy events and zero actual deltas
+ok 118 - every event remains visible, including legacy events and zero actual deltas
+  ---
+  duration_ms: 4.3373
+  type: 'test'
+  ...
+# Subtest: recognized milestones and review changes get useful public labels
+ok 119 - recognized milestones and review changes get useful public labels
+  ---
+  duration_ms: 0.6971
+  type: 'test'
+  ...
+# Subtest: a stale worker cannot reopen a completed AdminResolutionOperation
+ok 120 - a stale worker cannot reopen a completed AdminResolutionOperation
+  ---
+  duration_ms: 1.8601
+  type: 'test'
+  ...
+# Subtest: all durable financial case types use the shared blocker protocol
+ok 121 - all durable financial case types use the shared blocker protocol
+  ---
+  duration_ms: 1.5634
+  type: 'test'
+  ...
+# Subtest: request cancellation uses the same request lock and a conditional transition
+ok 122 - request cancellation uses the same request lock and a conditional transition
+  ---
+  duration_ms: 0.5295
+  type: 'test'
+  ...
+# Subtest: post-settlement recovery is explicitly distinguished from pre-settlement validation
+ok 123 - post-settlement recovery is explicitly distinguished from pre-settlement validation
+  ---
+  duration_ms: 0.8612
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: registration email checks and final conflicts use the actual auth routes without touching real accounts
+    # Subtest: Google and password emails are unavailable, including case/whitespace variants, without revealing account information
+    ok 1 - Google and password emails are unavailable, including case/whitespace variants, without revealing account information
+      ---
+      duration_ms: 208.9506
+      type: 'test'
+      ...
+# {"timestamp":"2026-10-14T08:38:56.304Z","level":"error","message":"request_failed","requestId":"8ac6b0c6-9a99-400b-afd2-698a7905baef","method":"POST","path":"/api/auth/check-email","status":400,"error":{"name":"ZodError","message":"[\\n  {\\n    \\"origin\\": \\"string\\",\\n    \\"code\\": \\"invalid_format\\",\\n    \\"format\\": \\"email\\",\\n    \\"pattern\\": \\"/^(?!\\\\\\\\.)(?!.*\\\\\\\\.\\\\\\\\.)([A-Za-z0-9_'+\\\\\\\\-\\\\\\\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\\\\\\\-]*\\\\\\\\.)+[A-Za-z]{2,}$/\\",\\n    \\"path\\": [\\n      \\"email\\"\\n    ],\\n    \\"message\\": \\"Invalid email format\\"\\n  }\\n]"}}
+# {"timestamp":"2026-10-14T08:38:56.313Z","level":"error","message":"request_failed","requestId":"9300a2b3-6c96-41f8-95ae-bbe8fb77c1db","method":"POST","path":"/api/auth/check-email","status":400,"error":{"name":"ZodError","message":"[\\n  {\\n    \\"origin\\": \\"string\\",\\n    \\"code\\": \\"too_big\\",\\n    \\"maximum\\": 254,\\n    \\"inclusive\\": true,\\n    \\"path\\": [\\n      \\"email\\"\\n    ],\\n    \\"message\\": \\"Email is too long\\"\\n  }\\n]"}}
+# {"timestamp":"2026-10-14T08:38:56.322Z","level":"error","message":"request_failed","requestId":"de3df056-24f7-4996-8010-1f6e3ecbac99","method":"POST","path":"/api/auth/check-email","status":400,"error":{"name":"ZodError","message":"[\\n  {\\n    \\"code\\": \\"unrecognized_keys\\",\\n    \\"keys\\": [\\n      \\"password\\"\\n    ],\\n    \\"path\\": [],\\n    \\"message\\": \\"Unrecognized key: \\\\\\"password\\\\\\"\\"\\n  }\\n]"}}
+    # Subtest: a new email is available and malformed input does not query accounts
+    ok 2 - a new email is available and malformed input does not query accounts
+      ---
+      duration_ms: 43.0811
+      type: 'test'
+      ...
+    # Subtest: final registration still requires CAPTCHA and rejects an existing Google account before writes
+    ok 3 - final registration still requires CAPTCHA and rejects an existing Google account before writes
+      ---
+      duration_ms: 50.991
+      type: 'test'
+      ...
+    # Subtest: an email claimed after the initial check returns the same conflict rather than a server error
+    ok 4 - an email claimed after the initial check returns the same conflict rather than a server error
+      ---
+      duration_ms: 652.6374
+      type: 'test'
+      ...
+    # Subtest: successful availability checks also exhaust the dedicated rate limit
+    ok 5 - successful availability checks also exhaust the dedicated rate limit
+      ---
+      duration_ms: 476.849
+      type: 'test'
+      ...
+    1..5
+ok 124 - registration email checks and final conflicts use the actual auth routes without touching real accounts
+  ---
+  duration_ms: 3897.0554
+  type: 'test'
+  ...
+# Subtest: case penalties cannot reactivate accounts, punish admins, or weaken stronger restrictions
+ok 125 - case penalties cannot reactivate accounts, punish admins, or weaken stronger restrictions
+  ---
+  duration_ms: 5.9856
+  type: 'test'
+  ...
+# Subtest: changed account restrictions do not strand an already claimed booking resolution
+ok 126 - changed account restrictions do not strand an already claimed booking resolution
+  ---
+  duration_ms: 1.9949
+  type: 'test'
+  ...
+# Subtest: suspension checks outstanding jobs before a decision is persisted and after payment finalizes
+ok 127 - suspension checks outstanding jobs before a decision is persisted and after payment finalizes
+  ---
+  duration_ms: 4.4571
+  type: 'test'
+  ...
+# Subtest: admin conversation pages reject unsafe page sizes and malformed cursors
+ok 128 - admin conversation pages reject unsafe page sizes and malformed cursors
+  ---
+  duration_ms: 7.3311
+  type: 'test'
+  ...
+# Subtest: archiving requires completed work and excludes all live booking/payment states
+ok 129 - archiving requires completed work and excludes all live booking/payment states
+  ---
+  duration_ms: 1.9507
+  type: 'test'
+  ...
+# Subtest: request deletion uses actual lifecycle states and keeps all booked history
+ok 130 - request deletion uses actual lifecycle states and keeps all booked history
+  ---
+  duration_ms: 2.633
+  type: 'test'
+  ...
+# Subtest: new public requests require a strict, nonempty choice of payment methods
+ok 131 - new public requests require a strict, nonempty choice of payment methods
+  ---
+  duration_ms: 19.6406
+  type: 'test'
+  ...
+# Subtest: booking guards reject an unchecked method and retain legacy/direct inquiry behavior
+ok 132 - booking guards reject an unchecked method and retain legacy/direct inquiry behavior
+  ---
+  duration_ms: 1.4847
+  type: 'test'
+  ...
+# Subtest: request creation and urgency edits accept only the five controlled choices
+ok 133 - request creation and urgency edits accept only the five controlled choices
+  ---
+  duration_ms: 16.0734
+  type: 'test'
+  ...
+# Subtest: missing, arbitrary and legacy free-text urgency cannot be newly submitted
+ok 134 - missing, arbitrary and legacy free-text urgency cannot be newly submitted
+  ---
+  duration_ms: 8.0851
+  type: 'test'
+  ...
+# Subtest: unrelated historical-request edits and status toggles do not require rewriting saved urgency
+ok 135 - unrelated historical-request edits and status toggles do not require rewriting saved urgency
+  ---
+  duration_ms: 1.5047
+  type: 'test'
+  ...
+# Subtest: a public request stays available to any provider despite obsolete provider-only metadata
+ok 136 - a public request stays available to any provider despite obsolete provider-only metadata
+  ---
+  duration_ms: 2.052
+  type: 'test'
+  ...
+# Subtest: listing inquiries retain both their provider and selected-listing restrictions
+ok 137 - listing inquiries retain both their provider and selected-listing restrictions
+  ---
+  duration_ms: 1.0894
+  type: 'test'
+  ...
+# Subtest: one review is counted honestly, with exact tags rather than a common trend
+ok 138 - one review is counted honestly, with exact tags rather than a common trend
+  ---
+  duration_ms: 4.8458
+  type: 'test'
+  ...
+# Subtest: averages include ratings without written feedback
+ok 139 - averages include ratings without written feedback
+  ---
+  duration_ms: 0.3943
+  type: 'test'
+  ...
+# Subtest: duplicate, unknown and opposite-role tags cannot inflate a digest
+ok 140 - duplicate, unknown and opposite-role tags cannot inflate a digest
+  ---
+  duration_ms: 0.5639
+  type: 'test'
+  ...
+# Subtest: client context uses provider-authored feedback and client-specific labels
+ok 141 - client context uses provider-authored feedback and client-specific labels
+  ---
+  duration_ms: 0.3995
+  type: 'test'
+  ...
+# Subtest: a twenty-review window is explicitly recent
+ok 142 - a twenty-review window is explicitly recent
+  ---
+  duration_ms: 0.5768
+  type: 'test'
+  ...
+# Subtest: AI can only select original excerpts by existing review ids
+ok 143 - AI can only select original excerpts by existing review ids
+  ---
+  duration_ms: 2.6423
+  type: 'test'
+  ...
+# Subtest: mixed feedback must include the lowest and highest written ratings
+ok 144 - mixed feedback must include the lowest and highest written ratings
+  ---
+  duration_ms: 0.5089
+  type: 'test'
+  ...
+# Subtest: contact details are removed and long excerpts are marked as truncated
+ok 145 - contact details are removed and long excerpts are marked as truncated
+  ---
+  duration_ms: 0.5647
+  type: 'test'
+  ...
+# Subtest: Saved validates target type, bounded pagination and bounded status batches
+ok 146 - Saved validates target type, bounded pagination and bounded status batches
+  ---
+  duration_ms: 12.2971
+  type: 'test'
+  ...
+# Subtest: normalizes valid IPv4/IPv6 and rejects injected or malformed addresses
+ok 147 - normalizes valid IPv4/IPv6 and rejects injected or malformed addresses
+  ---
+  duration_ms: 10.989
+  type: 'test'
+  ...
+# Subtest: private and local networks never get a guessed city or call the IP database
+ok 148 - private and local networks never get a guessed city or call the IP database
+  ---
+  duration_ms: 3.7875
+  type: 'test'
+  ...
+# Subtest: keeps only a coarse IP area, never database coordinates or a profile location
+ok 149 - keeps only a coarse IP area, never database coordinates or a profile location
+  ---
+  duration_ms: 0.944
+  type: 'test'
+  ...
+# Subtest: resolves client IP only through Express approved proxy configuration
+ok 150 - resolves client IP only through Express approved proxy configuration
+  ---
+  duration_ms: 173.9114
+  type: 'test'
+  ...
+# Subtest: session correlation is stable and contains no usable token or raw session ID
+ok 151 - session correlation is stable and contains no usable token or raw session ID
+  ---
+  duration_ms: 1.0028
+  type: 'test'
+  ...
+# Subtest: successful password sign-in records its event in the session transaction
+ok 152 - successful password sign-in records its event in the session transaction
+  ---
+  duration_ms: 23.1907
+  type: 'test'
+  ...
+# Subtest: known and unknown failed passwords keep the same public error and never store submitted credentials
+ok 153 - known and unknown failed passwords keep the same public error and never store submitted credentials
+  ---
+  duration_ms: 4.3947
+  type: 'test'
+  ...
+# Subtest: a failed audit write cannot turn denied authentication into access
+ok 154 - a failed audit write cannot turn denied authentication into access
+  ---
+  duration_ms: 4.2733
+  type: 'test'
+  ...
+# Subtest: explicit sign-out preserves a durable event with the original session reference
+ok 155 - explicit sign-out preserves a durable event with the original session reference
+  ---
+  duration_ms: 8.4648
+  type: 'test'
+  ...
+# Subtest: security filters validate paging and dates and enforce retention
+ok 156 - security filters validate paging and dates and enforce retention
+  ---
+  duration_ms: 6.4704
+  type: 'test'
+  ...
+# Subtest: admin security history access is audited, paginated, filtered and never cached
+ok 157 - admin security history access is audited, paginated, filtered and never cached
+  ---
+  duration_ms: 3.3082
+  type: 'test'
+  ...
+# Subtest: successful marketplace writes correlate with sign-in sessions; rejected writes do not
+ok 158 - successful marketplace writes correlate with sign-in sessions; rejected writes do not
+  ---
+  duration_ms: 17.1318
+  type: 'test'
+  ...
+# Subtest: client ratings exclude reviews earned as provider, including another client in the same result set
+ok 159 - client ratings exclude reviews earned as provider, including another client in the same result set
+  ---
+  duration_ms: 3.0275
+  type: 'test'
+  ...
+# Subtest: traveling providers may publish a general service area without a physical operating address
+ok 160 - traveling providers may publish a general service area without a physical operating address
+  ---
+  duration_ms: 9.0281
+  type: 'test'
+  ...
+# Subtest: general discovery areas cannot silently become exact locations when arrangements change
+ok 161 - general discovery areas cannot silently become exact locations when arrangements change
+  ---
+  duration_ms: 3.0503
+  type: 'test'
+  ...
+# Subtest: legacy listings keep provider visits, chosen job pin, coverage and one travel fee
+ok 162 - legacy listings keep provider visits, chosen job pin, coverage and one travel fee
+  ---
+  duration_ms: 3.5334
+  type: 'test'
+  ...
+# Subtest: seeker visits use the authoritative venue without provider travel fees or home coverage
+ok 163 - seeker visits use the authoritative venue without provider travel fees or home coverage
+  ---
+  duration_ms: 1.7355
+  type: 'test'
+  ...
+# Subtest: both requires a concrete choice and fixed listings reject unsupported arrangements
+ok 164 - both requires a concrete choice and fixed listings reject unsupported arrangements
+  ---
+  duration_ms: 0.9483
+  type: 'test'
+  ...
+# Subtest: custom offers supply a private venue; linked offers use the saved venue
+ok 165 - custom offers supply a private venue; linked offers use the saved venue
+  ---
+  duration_ms: 1.1144
+  type: 'test'
+  ...
+# Subtest: unpaid offer previews and public listings strip exact venue information
+ok 166 - unpaid offer previews and public listings strip exact venue information
+  ---
+  duration_ms: 0.5816
+  type: 'test'
+  ...
+# Subtest: booking and offer contracts reject BOTH as an agreed arrangement
+ok 167 - booking and offer contracts reject BOTH as an agreed arrangement
+  ---
+  duration_ms: 3.6735
+  type: 'test'
+  ...
+# Subtest: listing supports only the two approved payment methods, with at least one selected
+ok 168 - listing supports only the two approved payment methods, with at least one selected
+  ---
+  duration_ms: 43.0495
+  type: 'test'
+  ...
+# Subtest: repeated cookie recovery returns a verified safe profile without rotation or duplicate profile reads
+ok 169 - repeated cookie recovery returns a verified safe profile without rotation or duplicate profile reads
+  ---
+  duration_ms: 31.6304
+  type: 'test'
+  ...
+# Subtest: a temporary database failure is an error, never a guest result or cookie deletion
+ok 170 - a temporary database failure is an error, never a guest result or cookie deletion
+  ---
+  duration_ms: 4.4978
+  type: 'test'
+  ...
+# Subtest: revoked sessions still produce a confirmed guest result and clear the invalid cookie
+ok 171 - revoked sessions still produce a confirmed guest result and clear the invalid cookie
+  ---
+  duration_ms: 3.9871
+  type: 'test'
+  ...
+# Subtest: an anonymous initial session probe returns 200 without an authentication error
+ok 172 - an anonymous initial session probe returns 200 without an authentication error
+  ---
+  duration_ms: 0.523
+  type: 'test'
+  ...
+# Subtest: session and refresh cookie endpoints retain trusted-origin protection
+ok 173 - session and refresh cookie endpoints retain trusted-origin protection
+  ---
+  duration_ms: 0.839
+  type: 'test'
+  ...
+# Subtest: chat accepts trimmed text, multiline messages, and the maximum text length
+ok 174 - chat accepts trimmed text, multiline messages, and the maximum text length
+  ---
+  duration_ms: 5.5809
+  type: 'test'
+  ...
+# Subtest: chat rejects image payloads, even when they include otherwise valid text
+ok 175 - chat rejects image payloads, even when they include otherwise valid text
+  ---
+  duration_ms: 2.1854
+  type: 'test'
+  ...
+# Subtest: chat rejects missing, blank, non-text, and oversized content
+ok 176 - chat rejects missing, blank, non-text, and oversized content
+  ---
+  duration_ms: 1.5457
+  type: 'test'
+  ...
+# Subtest: correction retries bind the operation to its original event, even with equal amounts and reasons
+ok 177 - correction retries bind the operation to its original event, even with equal amounts and reasons
+  ---
+  duration_ms: 35.7161
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# Subtest: verification decisions preserve resident messages and use private notification destinations
+ok 178 - verification decisions preserve resident messages and use private notification destinations
+  ---
+  duration_ms: 857.3533
+  type: 'test'
+  ...
+# Subtest: paid work can start only from the first valid captured booking state
+ok 179 - paid work can start only from the first valid captured booking state
+  ---
+  duration_ms: 2.1919
+  type: 'test'
+  ...
+# Subtest: declining a cancellation requires an explanation while approval does not
+ok 180 - declining a cancellation requires an explanation while approval does not
+  ---
+  duration_ms: 4.2925
+  type: 'test'
+  ...
+1..180
+# tests 210
+# suites 0
+# pass 210
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 12877.9829

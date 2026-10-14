@@ -283,9 +283,11 @@ export async function getMessages(bookingId: string, userId: string, userRole?: 
 
 /**
  * Admin-only: Get all messages for a specific booking (for dispute/report investigation).
- * Returns booking context + full message history.
+ * Returns booking context and a bounded page, newest first in storage and
+ * chronological in the response. Cursors never cross booking boundaries.
  */
-export async function getBookingMessagesForAdmin(bookingId: string) {
+export async function getBookingMessagesForAdmin(bookingId: string, query: { before?: string; limit?: number } = {}) {
+  const limit = Math.min(50, Math.max(1, query.limit || 50));
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
@@ -294,12 +296,7 @@ export async function getBookingMessagesForAdmin(bookingId: string) {
       service: { select: { title: true } },
       offer: { include: { request: { select: { title: true } } } },
       directRequest: { include: { service: { select: { title: true } } } },
-      messages: {
-        include: {
-          sender: { select: { id: true, name: true, avatarUrl: true } },
-        },
-        orderBy: { createdAt: "asc" },
-      },
+      _count: { select: { messages: true } },
     },
   });
 
@@ -309,6 +306,16 @@ export async function getBookingMessagesForAdmin(bookingId: string) {
     throw err;
   }
 
+  const cursor = query.before ? await prisma.message.findFirst({ where: { id: query.before, bookingId }, select: { id: true, createdAt: true } }) : null;
+  if (query.before && !cursor) throw Object.assign(new Error('This message cursor does not belong to the selected booking.'), { status: 400, code: 'INVALID_MESSAGE_CURSOR' });
+  const page = await prisma.message.findMany({
+    where: { bookingId, ...(cursor && { OR: [{ createdAt: { lt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { lt: cursor.id } }] }) },
+    select: { id: true, senderId: true, content: true, isSystem: true, createdAt: true, sender: { select: { id: true, name: true } } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit + 1,
+  });
+  const hasMore = page.length > limit;
+  const messages = page.slice(0, limit).reverse();
+
   const title = booking.service?.title || booking.offer?.request?.title || booking.directRequest?.service?.title || "Job Engagement";
 
   return {
@@ -317,8 +324,9 @@ export async function getBookingMessagesForAdmin(bookingId: string) {
     title,
     seeker: booking.seeker,
     provider: booking.provider,
-    messages: booking.messages,
-    messageCount: booking.messages.length,
+    messages,
+    messageCount: booking._count.messages,
+    pagination: { hasMore, nextBefore: hasMore ? messages[0]?.id : null },
   };
 }
 

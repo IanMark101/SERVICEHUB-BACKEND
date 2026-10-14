@@ -14,6 +14,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
       offerId: input.offerId,
       quantity: input.quantity,
       jobLocation: input.jobLocation,
+      serviceLocationMode: input.serviceLocationMode,
       paymentMethod: input.paymentMethodType,
     });
     return res.json({

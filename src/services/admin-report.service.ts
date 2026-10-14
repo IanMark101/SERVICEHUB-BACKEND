@@ -5,7 +5,7 @@ import { settleCompletedBooking } from "./bookings/completion.service";
 import { applyBookingTrustPenalty, awardBookingCompletionTrust } from "./trust-policy.service";
 import { performImmediateCancel } from "./cancellation.service";
 import { lockBookingLifecycle } from "./booking-lifecycle.service";
-import { lockAccountLifecycle } from "./account-lifecycle.service";
+import { checkReportPenalty } from './report-penalty-policy';
 import {
   beginAdminResolution,
   completedResolutionResult,
@@ -24,7 +24,7 @@ export type ReportAction = ReportBookingOutcome | ReportPenaltyAction | "approve
 
 export const reportInclude = {
   reporter: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true } },
-  reportedUser: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true } },
+  reportedUser: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true, role: true, isActive: true, deactivatedAt: true } },
   cancellationRequest: true,
   booking: { include: {
     seeker: { select: { id: true, name: true, trustScore: true, verificationStatus: true, moderationStatus: true } },
@@ -76,23 +76,19 @@ function activityLink(report: { booking: { seekerId: string; providerId: string 
 }
 
 async function applyReportPenalty(tx: Prisma.TransactionClient, report: { id: string; reportedUserId: string; bookingId: string }, adminId: string, penalty: ReportPenaltyAction, notes: string) {
+  const checked = await checkReportPenalty(tx, report.reportedUserId, adminId, penalty, { resuming: true });
+  penalty = checked.penalty;
   if (penalty === "trust_deduct") {
     await applyBookingTrustPenalty(tx, { userId: report.reportedUserId, bookingId: report.bookingId,
       adminId, category: 'REPORT_PENALTY', reason: `Confirmed serious misconduct: ${notes}`,
       eventKey: `report:${report.id}:trust-penalty` });
   } else if (penalty === "suspend" || penalty === "ban") {
-    // Booking creation holds this provider lock through its eligibility read
-    // and commit. Recheck blockers only after that transaction completes.
-    await lockAccountLifecycle(tx, report.reportedUserId);
-    if (penalty === "suspend") {
-      const blockers = await tx.booking.count({ where: { providerId: report.reportedUserId, started: false, status: { in: ["PENDING_APPROVAL", "WAITING", "ACCEPTED"] } } });
-      if (blockers > 0) throw httpError(`Resolve or administratively cancel the provider's ${blockers} unstarted booking(s) before suspension`, 409);
-    }
-    await tx.user.update({ where: { id: report.reportedUserId }, data: { isActive: true, moderationStatus: penalty === "ban" ? "BANNED" : "SUSPENDED", suspendedUntil: penalty === "suspend" ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) : null, moderationReason: notes } });
+    await tx.user.update({ where: { id: report.reportedUserId }, data: { moderationStatus: penalty === "ban" ? "BANNED" : "SUSPENDED", suspendedUntil: penalty === "suspend" ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) : null, moderationReason: notes } });
     if (penalty === "ban") {
       await tx.adminAuditLog.create({ data: { actorId: adminId, targetUserId: report.reportedUserId, action: "USER_BANNED", resourceType: "User", resourceId: report.reportedUserId, reason: notes, metadata: { sourceReportId: report.id } } });
     }
   }
+  return checked;
 }
 
 async function reserveReportFinancialOutcome(operationId: string, reportId: string) {
@@ -134,6 +130,7 @@ export async function resolveAdminReport(reportId: string, adminId: string, acti
       && existingOperation.requestedOutcome === outcome;
     if (!financialRetry) assertReportDecision(report, outcome, requestedPenalty);
     if (outcome === "dismiss" && requestedPenalty !== "none") assertReportDecision(report, outcome, requestedPenalty);
+    if (!existingOperation) await checkReportPenalty(tx, report.reportedUserId, adminId, requestedPenalty, { canceledBookingId: outcome === 'cancel_booking' ? report.bookingId : undefined });
     let operation = await beginAdminResolution(tx, { caseType: "REPORT", caseId: report.id, bookingId: report.bookingId, adminId, outcome, penalty: requestedPenalty, notes: adminNotes });
     if (outcome === "cancel_booking" || outcome === "release_provider_and_complete") operation = await reconcileReservedFinancialEffect(tx, operation, outcome);
     const completed = completedResolutionResult(operation);
@@ -177,7 +174,7 @@ export async function resolveAdminReport(reportId: string, adminId: string, acti
         if (report.booking.status !== "COMPLETED" || !["RELEASED", "CASH_CONFIRMED"].includes(report.booking.paymentStatus)) throw httpError("Booking completion has not reached a valid final state", 409);
       }
 
-      await applyReportPenalty(tx, report, adminId, requestedPenalty, adminNotes);
+      const applied = await applyReportPenalty(tx, report, adminId, requestedPenalty, adminNotes);
       const finalStatus = outcome === "dismiss" ? "DISMISSED" : "RESOLVED";
       await tx.report.update({ where: { id: report.id }, data: { status: finalStatus, adminId, adminNotes, resolvedAt: new Date() } });
       await awardBookingCompletionTrust(tx, report.bookingId);
@@ -188,17 +185,18 @@ export async function resolveAdminReport(reportId: string, adminId: string, acti
         cancel_booking: report.booking.paymentMethod === "On-site Cash" ? "Booking cancelled." : "Booking cancelled and the held online payment refunded.",
         release_provider_and_complete: "Booking completed and payment settled.",
       }[outcome];
-      const penaltyLabel = { none: "No additional account penalty.", warn: "A formal warning was issued.", trust_deduct: "10 trust points were deducted from the reported account.", suspend: "The reported account was suspended for 7 days.", ban: "The reported account was banned." }[requestedPenalty];
+      const penaltyLabel = applied.note || { none: "No additional account penalty.", warn: "A formal warning was issued.", trust_deduct: "10 trust points were deducted from the reported account.", suspend: "The reported account was suspended for 7 days.", ban: "The reported account was banned." }[applied.penalty];
       await tx.notification.createMany({ data: [
         { userId: report.reporterId, title: "Report resolved", body: `${outcomeLabel} ${penaltyLabel} ${adminNotes}`, link: `${activityLink(report, report.reporterId)}&booking=${report.bookingId}` },
-        { userId: report.reportedUserId, title: requestedPenalty === "warn" ? "Official administrator warning" : "Report resolved", body: `${outcomeLabel} ${penaltyLabel} ${adminNotes}`, link: `${activityLink(report, report.reportedUserId)}&booking=${report.bookingId}` },
+        { userId: report.reportedUserId, title: applied.penalty === "warn" ? "Official administrator warning" : "Report resolved", body: `${outcomeLabel} ${penaltyLabel} ${adminNotes}`, link: `${activityLink(report, report.reportedUserId)}&booking=${report.bookingId}` },
       ] });
-      await tx.adminAuditLog.create({ data: { actorId: adminId, targetUserId: report.reportedUserId, action: `REPORT_${outcome.toUpperCase()}`, resourceType: "Report", resourceId: report.id, reason: adminNotes, metadata: { bookingId: report.bookingId, outcome, penaltyAction: requestedPenalty, operationId: operation.id } } });
-      const result = { resolved: true, outcome, penaltyAction: requestedPenalty, operationId: operation.id };
+      await tx.adminAuditLog.create({ data: { actorId: adminId, targetUserId: report.reportedUserId, action: `REPORT_${outcome.toUpperCase()}`, resourceType: "Report", resourceId: report.id, reason: adminNotes, metadata: { bookingId: report.bookingId, outcome, penaltyAction: requestedPenalty, appliedPenalty: applied.penalty, penaltyNote: applied.note, operationId: operation.id } } });
+      const result = { resolved: true, outcome, penaltyAction: requestedPenalty, appliedPenalty: applied.penalty, penaltyNote: applied.note, operationId: operation.id };
       await tx.adminResolutionOperation.update({ where: { id: operation.id }, data: { status: "COMPLETED", stage: "CASE_FINALIZED", result, completedAt: new Date(), lastError: null } });
       return { result, reportedUserId: report.reportedUserId, reporterId: report.reporterId };
     });
-    if (["suspend", "ban"].includes(requestedPenalty)) await disconnectUserSockets(finalized.reportedUserId, requestedPenalty === "ban" ? "Your ServiceHub account has been banned by an administrator." : "Your account moderation status changed.", requestedPenalty === "ban" ? "ACCOUNT_BANNED" : undefined);
+    const appliedPenalty = (finalized.result as { appliedPenalty?: string } | null)?.appliedPenalty || requestedPenalty;
+    if (["suspend", "ban"].includes(appliedPenalty)) await disconnectUserSockets(finalized.reportedUserId, appliedPenalty === "ban" ? "Your ServiceHub account has been banned by an administrator." : "Your account moderation status changed.", appliedPenalty === "ban" ? "ACCOUNT_BANNED" : undefined);
     safeEmit(`user:${finalized.reporterId}`, "notification", { title: "Report resolved" });
     safeEmit(`user:${finalized.reportedUserId}`, "notification", { title: "Report resolved" });
     for (const userId of [claim.report.booking.seekerId, claim.report.booking.providerId]) safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId: claim.report.bookingId });

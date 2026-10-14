@@ -14,17 +14,17 @@ export async function nearbyServices(query: NearbyQuery) {
     const reviews = service.provider.reviewsReceived;
     const rating = reviews.length ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length : 0;
     if (query.filter === 'rated' && rating < 4) return [];
-    return [{ ...publicLocation(service), distanceKm: Math.round(distance * 10) / 10, _distance: distance, _mapArea: publicMapArea(service) }];
+    return [{ ...publicLocation(service), distanceKm: Math.round(distance * 10) / 10, _distance: distance, _mapArea: publicMapArea(service, service.publicMapPin) }];
   }).sort((a, b) => a._distance - b._distance || Number(b.provider.trustScore) - Number(a.provider.trustScore));
   return {
     ...nearbyPage(matches.map(({ _distance, _mapArea, ...item }) => item), query),
-    mapPins: matches.map(item => ({ id:item.id, title:item.title, label:item.locationLabel || 'Service area', area:item._mapArea })),
+    mapPins: matches.map(item => ({ id:item.id, title:item.title, ...(item.provider.name ? { providerName:item.provider.name } : {}), label:item.locationLabel || 'Service area', area:item._mapArea })),
   };
 }
 
 export async function nearbyRequests(query: NearbyQuery, providerId: string) {
   const candidates = await listRequests(undefined, providerId, query);
-  const matches = candidates.flatMap(request => {
+  const matches = candidates.filter(request => !request.targetServiceId).flatMap(request => {
     const distance = inRadius(request, query);
     if (distance === null) return [];
     if (query.filter === 'high-budget' && Number(request.budgetMax) < 500) return [];

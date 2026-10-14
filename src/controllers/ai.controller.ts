@@ -2,10 +2,12 @@ import type { Request, Response, NextFunction } from "express";
 import { summarizeProviderReviews, summarizeSeekerReviews, matchProvidersToRequest } from "../services/ai.service";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { AiMatchSchema } from "../schema/marketplace.schema";
+import { assertMemberProfile } from "../services/member-directory.service";
 
 export async function getProviderSummary(req: Request, res: Response, next: NextFunction) {
   try {
     const { providerId } = req.params;
+    await assertMemberProfile(providerId as string);
     const { serviceId, fast } = req.query;
     const result = await summarizeProviderReviews(
       providerId as string,
@@ -20,6 +22,7 @@ export async function getProviderSummary(req: Request, res: Response, next: Next
 
 export async function getSeekerSummary(req: Request, res: Response, next: NextFunction) {
   try {
+    await assertMemberProfile(req.params.seekerId as string);
     const result = await summarizeSeekerReviews(req.params.seekerId as string, req.query.fast === '1');
     res.json({ success: true, data: result });
   } catch (err) {

@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { listingPhotosInclude, withListingPhotos } from '../lib/listing-photos';
 import { prisma } from "../lib/prisma";
 import { disconnectUserSockets, safeBroadcast, safeEmit } from "../lib/socket";
 import { lockAccountLifecycle } from "./account-lifecycle.service";
@@ -13,23 +14,23 @@ type Query = { page: number; limit: number; contentType?: PublicContentType; cas
 
 export async function readPublicContent(db: Reader, type: PublicContentType, id: string) {
   if (type === "SERVICE_LISTING") {
-    const item = await db.service.findUnique({ where: { id }, include: { provider: { select: ownerSelect }, category: { select: { name: true, isActive: true } } } });
+    const item = await db.service.findUnique({ where: { id }, include: { ...listingPhotosInclude, provider: { select: ownerSelect }, category: { select: { name: true, isActive: true } } } });
     if (!item || item.status === "DELETED") return null;
     const visible = item.status === "ACTIVE" && item.isAvailable && item.provider.isActive && item.provider.moderationStatus === "ACTIVE" && item.provider.emailVerified && item.provider.verificationStatus === "APPROVED" && ["FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT"].includes(item.priceType) && Number(item.price) >= 50;
-    return { id, contentType: type, title: item.title, description: item.description, category: item.category.name, owner: item.provider, status: item.status, visibility: visible ? "Public" : item.status === "INACTIVE" ? "Paused" : item.moderationReasonCode === "ADMIN_REMOVED" ? "Removed by admin" : "Hidden", moderationReasonCode: item.moderationReasonCode, adminNotes: item.adminNotes, createdAt: item.createdAt, updatedAt: item.updatedAt, price: item.price === null ? null : Number(item.price), priceType: item.priceType, budgetMin: null, budgetMax: null, urgency: null, canRemove: ["ACTIVE", "INACTIVE"].includes(item.status), canRestore: item.status === "SUSPENDED" && item.moderationReasonCode === "ADMIN_REMOVED", actionBlock: null as string | null };
+    return { id, contentType: type, photos: withListingPhotos(item).photos, title: item.title, description: item.description, category: item.category.name, owner: item.provider, status: item.status, visibility: visible ? "Public" : item.status === "INACTIVE" ? "Paused" : item.moderationReasonCode === "ADMIN_REMOVED" ? "Removed by admin" : "Hidden", moderationReasonCode: item.moderationReasonCode, adminNotes: item.adminNotes, createdAt: item.createdAt, updatedAt: item.updatedAt, price: item.price === null ? null : Number(item.price), priceType: item.priceType, budgetMin: null, budgetMax: null, urgency: null, canRemove: ["ACTIVE", "INACTIVE"].includes(item.status), canRestore: item.status === "SUSPENDED" && item.moderationReasonCode === "ADMIN_REMOVED", actionBlock: null as string | null };
   }
-  const item = await db.serviceRequest.findUnique({ where: { id }, include: { seeker: { select: ownerSelect }, category: { select: { name: true, isActive: true } }, offers: { select: { id: true } } } });
+  const item = await db.serviceRequest.findUnique({ where: { id }, include: { ...listingPhotosInclude, seeker: { select: ownerSelect }, category: { select: { name: true, isActive: true } }, offers: { select: { id: true } } } });
   if (!item || item.targetServiceId) return null;
   const offerIds = item.offers.map(offer => offer.id);
   const bookings = await db.booking.count({ where: { offerId: { in: offerIds }, status: { notIn: ["DECLINED", "CANCELED", "REMOVED"] } } });
   const payments = await db.paymentAttempt.count({ where: { offerId: { in: offerIds }, status: { in: ["PENDING", "SUCCEEDED", "REFUND_REQUIRED"] } } });
   const visible = item.status === "OPEN" && !bookings && !payments && item.seeker.isActive && item.seeker.moderationStatus === "ACTIVE" && item.seeker.emailVerified && item.seeker.verificationStatus === "APPROVED";
-  return { id, contentType: type, title: item.title, description: item.description, category: item.category.name, owner: item.seeker, status: item.status, visibility: visible ? "Public" : item.moderationReasonCode === "ADMIN_REMOVED" ? "Removed by admin" : item.status === "CLOSED" ? "Paused" : bookings || payments ? "In booking / payment" : "Hidden", moderationReasonCode: item.moderationReasonCode, adminNotes: item.adminNotes, createdAt: item.createdAt, updatedAt: item.updatedAt, price: null, priceType: null, budgetMin: Number(item.budgetMin), budgetMax: Number(item.budgetMax), urgency: item.urgency, canRemove: ["OPEN", "CLOSED"].includes(item.status) && !bookings && !payments, canRestore: item.status === "CANCELED" && item.moderationReasonCode === "ADMIN_REMOVED" && !bookings && !payments, actionBlock: bookings || payments ? "Handle the linked booking or payment in Disputes & Reports first." : null };
+  return { id, contentType: type, photos: withListingPhotos(item).photos, title: item.title, description: item.description, category: item.category.name, owner: item.seeker, status: item.status, visibility: visible ? "Public" : item.moderationReasonCode === "ADMIN_REMOVED" ? "Removed by admin" : item.status === "CLOSED" ? "Paused" : bookings || payments ? "In booking / payment" : "Hidden", moderationReasonCode: item.moderationReasonCode, adminNotes: item.adminNotes, createdAt: item.createdAt, updatedAt: item.updatedAt, price: null, priceType: null, budgetMin: Number(item.budgetMin), budgetMax: Number(item.budgetMax), urgency: item.urgency, canRemove: ["OPEN", "CLOSED"].includes(item.status) && !bookings && !payments, canRestore: item.status === "CANCELED" && item.moderationReasonCode === "ADMIN_REMOVED" && !bookings && !payments, actionBlock: bookings || payments ? "Handle the linked booking or payment in Disputes & Reports first." : null };
 }
 
 export type WorkspaceContent = NonNullable<Awaited<ReturnType<typeof readPublicContent>>>;
 export function contentSnapshot(content: WorkspaceContent) {
-  return { id: content.id, contentType: content.contentType, title: content.title, description: content.description, category: content.category, ownerId: content.owner.id, ownerName: content.owner.name, updatedAt: content.updatedAt.toISOString(), price: content.price, priceType: content.priceType, budgetMin: content.budgetMin, budgetMax: content.budgetMax, urgency: content.urgency };
+  return { id: content.id, contentType: content.contentType, photos: content.photos, title: content.title, description: content.description, category: content.category, ownerId: content.owner.id, ownerName: content.owner.name, updatedAt: content.updatedAt.toISOString(), price: content.price, priceType: content.priceType, budgetMin: content.budgetMin, budgetMax: content.budgetMax, urgency: content.urgency };
 }
 
 export async function listWorkspaceContent(query: Query) {

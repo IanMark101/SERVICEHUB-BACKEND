@@ -3,6 +3,7 @@ import { safeEmit } from "../lib/socket";
 import { PUBLIC_SERVICE_WHERE } from "./services.service";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { readPublicContent, contentSnapshot, decideWorkspaceCase } from "./content-workspace.service";
+import { lockListingPhotos } from './listing-photos.service';
 
 export type ContentCaseInput = {
   caseType: "REPORT" | "APPEAL";
@@ -58,7 +59,11 @@ export async function submitContentCase(submitterId: string, input: ContentCaseI
       resourceId: input.resourceId ?? null, status: "OPEN",
     }, select: { id: true } });
     if (existing) throw Object.assign(new Error("You already have an open review for this content"), { status: 409 });
-    const content = input.resourceId ? await readPublicContent(tx, input.contentType, input.resourceId) : null;
+    let content = input.resourceId ? await readPublicContent(tx, input.contentType, input.resourceId) : null;
+    if (content) {
+      await lockListingPhotos(tx, content.owner.id);
+      content = await readPublicContent(tx, input.contentType, input.resourceId!);
+    }
     if (input.caseType === "REPORT" && (!content || content.visibility !== "Public")) throw Object.assign(new Error("This content is no longer public."), { status: 409 });
     const submitted = await tx.contentModerationCase.create({ data: {
       submitterId, caseType: input.caseType, contentType: input.contentType,

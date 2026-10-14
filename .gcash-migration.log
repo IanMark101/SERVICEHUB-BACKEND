@@ -1,0 +1,17 @@
+Datasource "db": PostgreSQL database "neondb", schema "public" at "ep-cold-star-b4ehjsz6.c-6.us-east-2.aws.neon.tech"
+
+46 migrations found in prisma/migrations
+
+Applying migration `20261014020000_private_gcash_number`
+
+The following migration(s) have been applied:
+
+migrations/
+  └─ 20261014020000_private_gcash_number/
+    └─ migration.sql
+
+All migrations have been successfully applied.
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma\schema.prisma.
+Nullable private GCash number added to the verified development database. Contact numbers were not copied or changed.

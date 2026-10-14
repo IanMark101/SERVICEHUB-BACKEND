@@ -6,6 +6,7 @@ import { lockAuthenticationSession } from "./session-lifecycle.service";
 import { lockAccountLifecycle } from "../account-lifecycle.service";
 import { StrongPasswordSchema } from "../../schema/password.schema";
 import { reviewEligibilitySql } from '../../lib/review-eligibility';
+import { memberProfileWhere } from '../member-directory.service';
 
 type ProfileReviewRow = {
   id: string; authorName: string; authorAvatar: string | null; rating: number;
@@ -16,9 +17,9 @@ type ProfileReviewRow = {
 
 // ── Public & Edit Profile Services ───────────────────────────────────────────
 
-export async function getUserPublicProfile(userId: string) {
+export async function getUserPublicProfile(userId: string, viewerId?: string) {
   const user = await prisma.user.findUnique({
-    where: { id: userId },
+    where: memberProfileWhere(userId, viewerId),
     select: {
       id: true,
       name: true,
@@ -161,7 +162,7 @@ export async function updateUserProfile(
     if (currentUser.passwordHash) {
       if (!data.currentPassword) {
         const err = new Error(
-          "Current password is required to update your mobile/GCash payout number."
+          "Current password is required to update your contact mobile number."
         ) as any;
         err.status = 400;
         throw err;
@@ -209,7 +210,7 @@ export async function updateUserProfile(
         data: {
           userId,
           title: "Security Alert: Mobile Number Updated 🔒",
-          body: `Your mobile/GCash number was successfully updated to ${data.phone}. If you did not make this change, please contact support immediately.`,
+      body: `Your contact mobile number was successfully updated to ${data.phone}. If you did not make this change, please contact support immediately.`,
           link: updatedUser.role === "provider" ? "/provider/account-settings" : "/seeker/account-settings",
         },
       });

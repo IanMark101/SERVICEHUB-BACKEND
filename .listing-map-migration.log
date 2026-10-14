@@ -1,0 +1,16 @@
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma\schema.prisma.
+Datasource "db": PostgreSQL database "neondb", schema "public" at "ep-cold-star-b4ehjsz6.c-6.us-east-2.aws.neon.tech"
+
+48 migrations found in prisma/migrations
+
+Applying migration `20261014040000_public_listing_map_consent`
+
+The following migration(s) have been applied:
+
+migrations/
+  └─ 20261014040000_public_listing_map_consent/
+    └─ migration.sql
+
+All migrations have been successfully applied.

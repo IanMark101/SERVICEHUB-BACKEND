@@ -23,6 +23,8 @@ import { getMyBanAppeal, submitBanAppeal } from "../controllers/ban-appeals.cont
 import { authLimiter, passwordMutationLimiter, signupEmailCheckLimiter } from "../middlewares/rateLimiter.middleware";
 import { captchaConfig, requireCaptcha, passwordLoginCaptcha } from "../middlewares/captcha.middleware";
 import { securityMethods, passwordSetupChallenge, passwordSetupVerification, setPassword } from "../controllers/password-management.controller";
+import { getGCashNumber, putGCashNumber } from '../controllers/gcash-number.controller';
+import { gcashNumberMutationLimiter } from '../middlewares/rateLimiter.middleware';
 
 const router = Router();
 
@@ -47,6 +49,8 @@ router.get("/me", requireAccountIdentity, getMe);
 router.get("/ban-appeal", requireAccountIdentity, getMyBanAppeal);
 router.post("/ban-appeal", requireAccountIdentity, authLimiter, submitBanAppeal);
 router.put("/profile", requireAuth, updateProfileHandler);
+router.get('/gcash-number', requireAuth, getGCashNumber);
+router.put('/gcash-number', requireAuth, gcashNumberMutationLimiter, putGCashNumber);
 router.get("/security", requireAuth, securityMethods);
 router.post("/password-setup/challenge", requireAuth, passwordMutationLimiter, passwordSetupChallenge);
 router.post("/password-setup/verify", requireAuth, passwordMutationLimiter, passwordSetupVerification);

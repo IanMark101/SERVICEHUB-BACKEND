@@ -10,6 +10,10 @@ export const JobLocationSchema = LocationPointSchema.extend({
 }).strict();
 export type LocationPoint = z.infer<typeof LocationPointSchema>;
 export type JobLocation = z.infer<typeof JobLocationSchema>;
+export const ServiceLocationModeSchema = z.enum(['PROVIDER_VISITS', 'SEEKER_VISITS', 'BOTH']);
+export const BookingLocationModeSchema = z.enum(['PROVIDER_VISITS', 'SEEKER_VISITS']);
+export type ServiceLocationMode = z.infer<typeof ServiceLocationModeSchema>;
+export type BookingLocationMode = z.infer<typeof BookingLocationModeSchema>;
 export const TransportationFeeSchema = z.number().finite().min(0).max(5_000)
   .refine(value => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001, 'Use at most two decimal places');
 export const CoverageRadiusSchema = z.number().finite().min(1).max(30);

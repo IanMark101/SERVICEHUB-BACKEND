@@ -1,5 +1,5 @@
-import { assertServiceCoverage, locationFromRecord } from '../lib/proximity';
-import { JobLocationSchema, type JobLocation } from '../schema/location.schema';
+import { resolveDirectArrangement, offerJobLocation } from '../lib/service-arrangement';
+import { JobLocationSchema, type JobLocation, type BookingLocationMode } from '../schema/location.schema';
 import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { env } from "../config/env";
@@ -61,6 +61,7 @@ export async function initiateOnlinePayment(params: {
   offerId?: string;
   quantity?: number;
   jobLocation?: JobLocation;
+  serviceLocationMode?: BookingLocationMode;
   retryPaymentIntentId?: string;
   paymentMethod: OnlineMethod;
 }) {
@@ -72,6 +73,7 @@ export async function initiateOnlinePayment(params: {
     if (!previous || previous.seekerId !== params.seekerId || previous.offerId !== (params.offerId || null) || (!params.offerId && previous.serviceId !== params.serviceId)) throw httpError('Previous payment attempt not found', 404);
     if (!['FAILED', 'EXPIRED'].includes(previous.status)) throw httpError('Check the previous payment before trying again', 409);
     if (!params.offerId && !params.jobLocation && previous.jobLocation) params.jobLocation = JobLocationSchema.parse(previous.jobLocation);
+    if (!params.offerId && !params.serviceLocationMode) params.serviceLocationMode = previous.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
   }
   const expiresAt = new Date(Date.now() + ATTEMPT_TTL_MS);
   const targetOffer = params.offerId
@@ -121,6 +123,7 @@ export async function initiateOnlinePayment(params: {
       },
     });
     if (existing) {
+      if (!params.offerId && params.serviceLocationMode && params.serviceLocationMode !== (existing.serviceLocationMode ?? 'PROVIDER_VISITS')) throw httpError('A payment is already pending for another service arrangement. Finish or cancel that payment first.', 409);
       if (!params.offerId && params.jobLocation && (!existing.jobLocation || JSON.stringify(JobLocationSchema.parse(existing.jobLocation)) !== JSON.stringify(JobLocationSchema.parse(params.jobLocation)))) throw httpError('A payment is already pending for another job location. Finish or cancel that payment first.', 409);
       if (existing.quantity !== quantity) throw httpError("A payment is already pending for a different quantity", 409);
       return { attempt: existing, reused: true };
@@ -136,7 +139,7 @@ export async function initiateOnlinePayment(params: {
         categoryId: true,
         price: true,
         priceType: true,
-        latitude: true, longitude: true, locationLabel: true, coverageRadiusKm: true, transportationFee: true,
+        latitude: true, longitude: true, locationLabel: true, coverageRadiusKm: true, transportationFee: true, serviceLocationMode: true, venueAddress: true,
         serviceType: true,
         estimatedDurationMins: true,
         paymentMethods: true,
@@ -154,8 +157,8 @@ export async function initiateOnlinePayment(params: {
       throw httpError("Both participants must be eligible for a new payment", 409, "PARTICIPANT_INELIGIBLE");
     }
     if (providerId === params.seekerId) throw httpError("You cannot book your own offer or service", 403, "SELF_TRANSACTION_NOT_ALLOWED");
-    const directTerms = service ? calculateDirectListingTerms(service.priceType, service.price, quantity, service.estimatedDurationMins, service.transportationFee) : null;
-    if (service) assertServiceCoverage(service, params.jobLocation);
+    const arrangement = service ? resolveDirectArrangement(service, params.serviceLocationMode, params.jobLocation) : null;
+    const directTerms = service ? calculateDirectListingTerms(service.priceType, service.price, quantity, service.estimatedDurationMins, arrangement!.transportationFee) : null;
     if (service && (service.status !== "ACTIVE" || !service.isAvailable)) throw httpError("This service is not available", 409);
     const provider = await tx.user.findUnique({ where: { id: providerId }, select: { isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true, onlineQueueLimit: true } });
     if (!provider?.isActive || provider.moderationStatus !== "ACTIVE" || !provider.emailVerified || provider.verificationStatus !== "APPROVED") {
@@ -179,7 +182,8 @@ export async function initiateOnlinePayment(params: {
     const waitingCount = await tx.queue.count({ where: { providerId, status: "WAITING" } });
     if (waitingCount >= provider.onlineQueueLimit) throw httpError("The provider's paid work queue is full", 409, "QUEUE_FULL");
 
-    let jobLocation = params.jobLocation;
+    let jobLocation = arrangement?.jobLocation;
+    let serviceLocationMode = arrangement?.serviceLocationMode;
     let estimatedDurationMins = directTerms?.estimatedDurationMins;
     let amount = directTerms ? Number(directTerms.amount) : Number.NaN;
     let offerRequestId: string | undefined;
@@ -197,7 +201,7 @@ export async function initiateOnlinePayment(params: {
       }
       assertRequestPaymentMethod(offer.request, "gcash");
       if (offer.request.targetServiceId) {
-        if (offer.request.preferredPaymentMethod !== "GCash" || offer.serviceId !== offer.request.targetServiceId) {
+        if ((offer.request.preferredPaymentMethod && offer.request.preferredPaymentMethod !== "GCash") || offer.serviceId !== offer.request.targetServiceId) {
           throw httpError("This inquiry was requested with a different payment method or listing", 409);
         }
         const listedService = await tx.service.findUnique({ where: { id: offer.serviceId! }, select: { paymentMethods: true } });
@@ -205,7 +209,8 @@ export async function initiateOnlinePayment(params: {
           throw httpError("This listing no longer accepts GCash", 409);
         }
       }
-      jobLocation = locationFromRecord(offer.request);
+      jobLocation = offerJobLocation(offer);
+      serviceLocationMode = offer.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
       estimatedDurationMins = offer.estimatedDuration;
       amount = Number(offer.offeredPrice);
       offerRequestId = offer.requestId;
@@ -228,7 +233,8 @@ export async function initiateOnlinePayment(params: {
         offerId: params.offerId || null,
         amount,
         jobLocation, estimatedDurationMins,
-        transportationFee: service?.transportationFee,
+        serviceLocationMode,
+        transportationFee: arrangement?.transportationFee,
         paymentMethod: params.paymentMethod,
         expiresAt,
       },
@@ -522,6 +528,7 @@ export async function finalizeSuccessfulPayment(params: {
         paymentMethod: displayMethod(fresh.paymentMethod),
         agreedAmount: fresh.amount,
         ...(fresh.jobLocation && { jobLocation: fresh.jobLocation as Prisma.InputJsonValue }),
+        serviceLocationMode: fresh.serviceLocationMode,
         transportationFee: fresh.transportationFee,
         estimatedDurationMins,
         paymentStatus: "PAID_HELD",

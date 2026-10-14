@@ -1,4 +1,5 @@
-import { assertServiceCoverage, locationFromRecord } from '../lib/proximity';
+import { resolveOfferArrangement, publicOffer } from '../lib/service-arrangement';
+import type { BookingLocationMode, JobLocation } from '../schema/location.schema';
 import { prisma } from "../lib/prisma";
 import { assertDistinctAccounts } from "../utils/security";
 import { safeEmit } from "../lib/socket";
@@ -12,6 +13,8 @@ export async function submitOffer(providerId: string, params: {
   estimatedDuration: number;
   availability?: string;
   message?: string;
+  serviceLocationMode?: BookingLocationMode;
+  providerVenue?: JobLocation;
 }) {
   const { requestId, serviceId, offeredPrice, estimatedDuration, availability, message } = params;
   return prisma.$transaction(async (tx) => {
@@ -19,7 +22,7 @@ export async function submitOffer(providerId: string, params: {
   // Check request is open and accepting offers
   const request = await tx.serviceRequest.findUnique({
     where: { id: requestId },
-    select: { status: true, seekerId: true, categoryId: true, targetProviderId: true, targetServiceId: true, latitude: true, longitude: true, locationLabel: true },
+    select: { status: true, seekerId: true, categoryId: true, targetProviderId: true, targetServiceId: true, preferredPaymentMethod: true, latitude: true, longitude: true, locationLabel: true, privateAddress: true, serviceLocationMode: true },
   });
 
   if (!request) {
@@ -34,6 +37,9 @@ export async function submitOffer(providerId: string, params: {
   await assertOfferParticipant(tx, providerId, 'provider');
   await assertOfferParticipant(tx, request.seekerId, 'seeker');
   assertOfferTarget(request, providerId, serviceId);
+  if (request.targetServiceId && !request.preferredPaymentMethod && (message?.trim().length ?? 0) < 10) {
+    throw Object.assign(new Error('Explain what is included in your price using at least 10 characters.'), { status: 400 });
+  }
   // An old request may incorrectly remain OPEN after a booking was completed.
   // The booking, not that stale request flag, is authoritative for fulfillment.
   const existingBooking = await tx.booking.findFirst({
@@ -53,18 +59,18 @@ export async function submitOffer(providerId: string, params: {
     throw err;
   }
 
-  if (serviceId) {
-    const service = await tx.service.findUnique({
+  const service = serviceId ? await tx.service.findUnique({
       where: { id: serviceId },
-      select: { providerId: true, categoryId: true, status: true, isAvailable: true, latitude: true, longitude: true, coverageRadiusKm: true },
-    });
+      select: { providerId: true, categoryId: true, status: true, isAvailable: true, latitude: true, longitude: true, coverageRadiusKm: true, locationLabel: true, serviceLocationMode: true, venueAddress: true },
+    }) : null;
+  if (serviceId) {
     if (!service || service.providerId !== providerId || service.categoryId !== request.categoryId || service.status !== "ACTIVE" || !service.isAvailable) {
       throw Object.assign(new Error(request.targetServiceId
         ? 'The requested listing is no longer available. Ask the seeker to choose an available listing or post a new request.'
         : 'That listing is unavailable or does not match this request. Choose an active listing in this category, or select “No listing” to send a custom offer.'), { status: 400, code: 'OFFER_LISTING_UNAVAILABLE' });
     }
-    assertServiceCoverage(service, locationFromRecord(request));
   }
+  const arrangement = resolveOfferArrangement(request, service, params.serviceLocationMode, params.providerVenue);
 
   // Prevent duplicate offer from same provider
   const existing = await tx.offer.findFirst({
@@ -87,6 +93,8 @@ export async function submitOffer(providerId: string, params: {
       estimatedDuration,
       availability,
       message,
+      serviceLocationMode: arrangement.serviceLocationMode,
+      providerVenue: arrangement.providerVenue,
       status: "PENDING",
     },
     include: {
@@ -106,8 +114,8 @@ export async function submitOffer(providerId: string, params: {
   await tx.notification.create({
     data: {
       userId: request.seekerId,
-      title: "New Offer Received",
-      body: `A provider submitted an offer of ₱${offeredPrice} on your request. Review it in Service Requests.`,
+      title: request.targetServiceId ? 'Service price proposed' : "New Offer Received",
+      body: request.targetServiceId ? `The provider accepted your service request and proposed ₱${offeredPrice}. Review the included work and confirm the price in Offers Received.` : `A provider submitted an offer of ₱${offeredPrice} on your request. Review it in Offers Received.`,
       link: `/seeker/incoming-offers?offer=${offer.id}`,
     },
   });
@@ -116,7 +124,7 @@ export async function submitOffer(providerId: string, params: {
     safeEmit(`user:${seekerId}`, "notification", { title: "New Offer Received" });
     safeEmit(`user:${seekerId}`, "OFFERS_CHANGED", { offerId: offer.id });
     safeEmit(`user:${providerId}`, "OFFERS_CHANGED", { offerId: offer.id, status: offer.status });
-    return offer;
+    return publicOffer(offer);
   });
 }
 
@@ -127,7 +135,7 @@ export async function listReceivedOffers(seekerId: string) {
   });
   const requestIds = myRequests.map((r) => r.id);
 
-  return prisma.offer.findMany({
+  const offers = await prisma.offer.findMany({
     where: { requestId: { in: requestIds } },
     include: {
       provider: {
@@ -147,11 +155,13 @@ export async function listReceivedOffers(seekerId: string) {
           status: true,
           paymentMethods: true,
           preferredPaymentMethod: true,
+          targetServiceId: true,
         },
       },
     },
     orderBy: [{ provider: { trustScore: "desc" } }, { createdAt: "asc" }],
   });
+  return offers.map(publicOffer);
 }
 
 export async function acceptOffer(offerId: string, seekerId: string) {
@@ -232,7 +242,7 @@ export async function rejectOffer(offerId: string, userId: string) {
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${offer.requestId}`}))`;
-    const current = await tx.offer.findUniqueOrThrow({ where: { id: offerId }, include: { request: { select: { title: true, status: true } } } });
+    const current = await tx.offer.findUniqueOrThrow({ where: { id: offerId }, include: { request: { select: { title: true, status: true, targetServiceId: true, preferredPaymentMethod: true } } } });
     const nextStatus = isProvider ? 'WITHDRAWN' : 'REJECTED';
     // Only repeat this actor's established decision. A sibling rejection must
     // never be reinterpreted as an explicit decline or produce its notification.
@@ -248,6 +258,13 @@ export async function rejectOffer(offerId: string, userId: string) {
       err.status = 409;
       throw err;
     }
+    const closesInquiry = Boolean(current.request.targetServiceId && current.request.preferredPaymentMethod === null);
+    if (closesInquiry) await tx.serviceRequest.update({ where: { id: offer.requestId }, data: { status: 'CANCELED' } });
+    if (closesInquiry && isProvider) await tx.notification.create({ data: {
+      id: `price-withdrawn:${offerId}`, userId: offer.request.seekerId,
+      title: 'Proposed price withdrawn', body: `The provider withdrew the price for "${current.request.title}". This request is closed. You can send a new request; no booking or payment was created.`,
+      link: `/seeker/request-manager?requestId=${encodeURIComponent(offer.requestId)}`,
+    } });
     if (!isProvider) await tx.notification.create({ data: {
       id: `offer-declined:${offerId}`,
       userId: offer.providerId,
@@ -255,14 +272,16 @@ export async function rejectOffer(offerId: string, userId: string) {
       body: `The seeker declined your offer for "${current.request.title}".`,
       link: `/provider/provider-activity?tab=all&offer=${encodeURIComponent(offerId)}`,
     } });
-    return { updatedOffer: await tx.offer.findUniqueOrThrow({ where: { id: offerId } }), changed: true };
+    return { updatedOffer: await tx.offer.findUniqueOrThrow({ where: { id: offerId } }), changed: true, closesInquiry };
   });
 
   if (result.changed) {
     const event = { type: isProvider ? 'offer_withdrawn' : 'offer_declined', offerId, status: result.updatedOffer.status };
     safeEmit(`user:${offer.request.seekerId}`, 'OFFERS_CHANGED', event);
     safeEmit(`user:${offer.providerId}`, 'OFFERS_CHANGED', event);
+    if (result.closesInquiry) for (const participant of [offer.request.seekerId, offer.providerId]) safeEmit(`user:${participant}`, 'SERVICE_REQUESTS_CHANGED', { id: offer.requestId, status: 'CANCELED' });
+    if (result.closesInquiry && isProvider) safeEmit(`user:${offer.request.seekerId}`, 'notification', { id: `price-withdrawn:${offerId}`, title: 'Proposed price withdrawn' });
     if (!isProvider) safeEmit(`user:${offer.providerId}`, 'notification', { id: `offer-declined:${offerId}`, title: 'Offer declined', offerId });
   }
-  return result.updatedOffer;
+  return publicOffer(result.updatedOffer);
 }

@@ -9,6 +9,7 @@ import { env } from "./config/env";
 import authRoutes from "./routes/auth.routes";
 import verificationRoutes from "./routes/verification.routes";
 import serviceRoutes from "./routes/services.routes";
+import savedListingsRoutes from './routes/saved-listings.routes';
 import categoryRoutes from "./routes/categories.routes";
 import bookingRoutes from "./routes/bookings.routes";
 import requestRoutes from "./routes/requests.routes";
@@ -28,6 +29,7 @@ import { receivePaymongoWebhook } from "./controllers/payments.controller";
 import { requestContext } from "./middlewares/requestContext.middleware";
 import { logger } from "./utils/logger";
 import { getDatabaseAvailabilityError } from "./utils/databaseAvailability";
+import { securityActivity } from './middlewares/securityActivity.middleware';
 
 const app = express();
 // Progressive CAPTCHA and rate limits must use the client IP behind an approved
@@ -61,12 +63,14 @@ app.get("/health", (_req, res) => {
 // ─── Apply General API Rate Limiting ────────────────────────────────────────
 
 app.use("/api", apiLimiter);
+app.use(securityActivity);
 
 // ─── API Routes ─────────────────────────────────────────────────────────────
 
 app.use("/api/auth", authRoutes);
 app.use("/api/verifications", verificationRoutes);
 app.use("/api/services", serviceRoutes);
+app.use('/api/saved', savedListingsRoutes);
 app.use("/api/locations", locationsRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/bookings", bookingRoutes);

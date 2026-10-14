@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { uploadImageToCloudinary, uploadPrivateSafetyEvidence, uploadPrivateVerificationImage } from '../config/cloudinary';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { prisma } from '../lib/prisma';
+import { validateListingPhotoImage } from '../schema/listing-photos.schema';
+import { uploadListingPhoto, deleteUnusedListingPhoto } from '../services/listing-photos.service';
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -16,6 +18,22 @@ function validateImageDataUrl(image: unknown, maxBytes = MAX_IMAGE_BYTES): strin
 }
 
 export class UploadController {
+  async uploadListingPhoto(req: Request, res: Response): Promise<void> {
+    try {
+      const image = validateListingPhotoImage(req.body?.image);
+      if (!image) { res.status(400).json({ success: false, error: 'Choose a JPEG, PNG, or WebP photo no larger than 5 MB.' }); return; }
+      const data = await uploadListingPhoto((req as AuthenticatedRequest).user.id, image);
+      res.status(201).json({ success: true, data });
+    } catch (cause: any) { res.status(cause?.status || 500).json({ success: false, error: cause?.message || 'Photo upload failed. Please try again.' }); }
+  }
+
+  async deleteListingPhoto(req: Request, res: Response): Promise<void> {
+    try {
+      await deleteUnusedListingPhoto((req as AuthenticatedRequest).user.id, req.params.id as string);
+      res.json({ success: true });
+    } catch (cause: any) { res.status(cause?.status || 500).json({ success: false, error: cause?.message || 'Could not remove this photo.' }); }
+  }
+
   async uploadBookingEvidence(req: Request, res: Response): Promise<void> {
     try {
       const validatedImage = validateImageDataUrl(req.body?.image, 5 * 1024 * 1024);

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { reportInclude } from "./admin-report.service";
 import { allowedReportOutcomes } from "./report-decision-policy";
+import { allowedReportPenalties } from './report-penalty-policy';
 import { lockBookingLifecycle } from "./booking-lifecycle.service";
 import { safeEmit } from "../lib/socket";
 
@@ -95,6 +96,9 @@ async function hydrate(keys: CaseKey[], full = false) {
       hasPrivateEvidence: Boolean(report?.evidenceStorageKey), evidenceUrl: full ? report?.evidenceUrl : undefined,
       cancellation: report?.cancellationRequest ? { id: report.cancellationRequest.id, reason: report.cancellationRequest.reason, response: report.cancellationRequest.providerNote, status: report.cancellationRequest.status, resolutionOutcome: report.cancellationRequest.resolutionOutcome } : null,
       allowedOutcomes: outcomes,
+      allowedPenalties: report ? allowedReportPenalties(report.reportedUser) : ['none'],
+      appliedPenalty: (operation?.result as { appliedPenalty?: string } | null)?.appliedPenalty,
+      penaltyNote: (operation?.result as { penaltyNote?: string } | null)?.penaltyNote,
       resolutionOperation: operation ? { status: operation.status, stage: operation.stage, requestedOutcome: operation.requestedOutcome, requestedPenalty: operation.requestedPenalty, notes: full ? operation.notes : undefined, lastError: operation.lastError } : null,
       decisionExplanation: full ? report?.adminNotes : undefined,
       resolution: escalation?.resolution,

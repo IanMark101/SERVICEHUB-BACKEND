@@ -1,6 +1,10 @@
 import { locationData, locationBounds } from '../lib/proximity';
+import { listingPhotosInclude, withListingPhotos } from '../lib/listing-photos';
+import { setListingPhotos } from './listing-photos.service';
 import { marketplaceSearchConditions } from '../lib/marketplace-search';
-import type { JobLocation, NearbyQuery } from '../schema/location.schema';
+import { canonicalCategoryName } from '../lib/category-catalog';
+import type { JobLocation, NearbyQuery, ServiceLocationMode } from '../schema/location.schema';
+import { publicOffer, assertLocationForArrangementChange } from '../lib/service-arrangement';
 import { prisma } from "../lib/prisma";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
@@ -12,6 +16,7 @@ import { protectedRequestPaymentStatuses, requestDeletionEligibility } from "../
 import { canArchiveCompletedRequest } from '../lib/request-archive';
 
 export async function createRequest(seekerId: string, params: {
+  photoIds?: string[];
   categoryId: string;
   title: string;
   description: string;
@@ -20,6 +25,7 @@ export async function createRequest(seekerId: string, params: {
   urgency: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
   jobLocation?: JobLocation;
+  serviceLocationMode?: ServiceLocationMode;
   transportationFee?: number | null;
 }) {
   const { categoryId, title, description, budgetMin, budgetMax, urgency } = params;
@@ -64,8 +70,9 @@ export async function createRequest(seekerId: string, params: {
     const request = await tx.serviceRequest.create({
       data: {
         seekerId, categoryId, title, description, budgetMin, budgetMax, urgency,
-        ...(params.jobLocation && { ...locationData(params.jobLocation), privateAddress: params.jobLocation.address || null }),
-        transportationFee: params.transportationFee,
+        ...(params.jobLocation && { ...locationData(params.jobLocation), privateAddress: params.serviceLocationMode === 'SEEKER_VISITS' ? null : params.jobLocation.address || null }),
+        transportationFee: params.serviceLocationMode === 'SEEKER_VISITS' ? null : params.transportationFee,
+        serviceLocationMode: params.serviceLocationMode,
         // Post Request always creates a public job, never a provider assignment.
         targetProviderId: null, targetServiceId: null,
         ...(paymentMethods && { paymentMethods }),
@@ -80,13 +87,13 @@ export async function createRequest(seekerId: string, params: {
       actorId: seekerId, contentType: "SERVICE_REQUEST", resourceId: request.id,
       outcome: "PASS", reasonCode: assessment.reasonCode, policyVersion: assessment.policyVersion,
     } });
-    return request;
+    await setListingPhotos(tx, seekerId, params.photoIds ?? [], { requestId: request.id });
+    return withListingPhotos(await tx.serviceRequest.findUniqueOrThrow({ where: { id: request.id }, include: { ...listingPhotosInclude, category: true, seeker: { select: { id: true, name: true, avatarUrl: true, trustScore: true, verificationStatus: true } } } }));
   });
 }
 
-export async function listRequests(categoryId?: string, providerId?: string, nearby?: NearbyQuery) {
-  const requests = await prisma.serviceRequest.findMany({
-    where: {
+export function publicRequestWhere(providerId?: string): Prisma.ServiceRequestWhereInput {
+  return {
       status: "OPEN",
       archivedAt: null,
       // A provider ID alone on an older public post must not restrict visibility.
@@ -96,11 +103,20 @@ export async function listRequests(categoryId?: string, providerId?: string, nea
       // Legacy requests can still say OPEN after a booking was fulfilled.
       // Never advertise a request that has already produced a booking.
       offers: { none: { booking: { is: { status: { notIn: ["DECLINED", "CANCELED", "REMOVED"] } } } } },
+  };
+}
+
+export async function listRequests(categoryId?: string, providerId?: string, nearby?: NearbyQuery, ids?: string[]) {
+  const requests = await prisma.serviceRequest.findMany({
+    where: {
+      ...publicRequestWhere(providerId),
+      ...(ids && { id: { in: ids } }),
       ...(categoryId && { categoryId }),
       ...(nearby && { AND: [locationBounds(nearby), ...marketplaceSearchConditions(nearby.search)] }),
-      ...(nearby?.category && nearby.category !== "All Categories" && { category: { name: { equals: nearby.category, mode: "insensitive" as const } } }),
+      ...(nearby?.category && nearby.category !== "All Categories" && { category: { name: { equals: canonicalCategoryName(nearby.category), mode: "insensitive" as const } } }),
     },
     include: {
+      ...listingPhotosInclude,
       category: true,
       _count: { select: { offers: { where: { status: "PENDING" } } } },
       seeker: {
@@ -128,7 +144,7 @@ export async function listRequests(categoryId?: string, providerId?: string, nea
     ...review, completedService: { seekerId: review.seekerId },
   })));
   return requests.map(request => ({
-    ...request,
+    ...withListingPhotos(request),
     offersCount: request._count.offers,
     targetProviderId: request.targetServiceId ? request.targetProviderId : null,
     seeker: { ...request.seeker, ...(stats.get(request.seekerId) ?? { clientRating: 0, clientReviewCount: 0 }) },
@@ -143,6 +159,7 @@ export async function getMyRequests(seekerId: string) {
       archivedAt: null,
     },
     include: {
+      ...listingPhotosInclude,
       category: true,
       offers: {
         include: {
@@ -172,7 +189,8 @@ export async function getMyRequests(seekerId: string) {
   }) : [];
   const paymentsByOffer = new Map(payments.map(payment => [payment.offerId, payment]));
   return managedRequests.map(request => ({
-    ...request,
+    ...withListingPhotos(request),
+    offers: request.offers.map(publicOffer),
     canArchive: canArchiveCompletedRequest(request.offers),
     ...requestDeletionEligibility(request, request.offers.flatMap(offer => {
       const payment = paymentsByOffer.get(offer.id);
@@ -182,6 +200,7 @@ export async function getMyRequests(seekerId: string) {
 }
 
 export async function updateRequest(requestId: string, seekerId: string, params: {
+  photoIds?: string[];
   title?: string;
   description?: string;
   budgetMin?: number;
@@ -190,6 +209,7 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   urgency?: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
   jobLocation?: JobLocation;
+  serviceLocationMode?: ServiceLocationMode;
   transportationFee?: number | null;
 }) {
   if (params.urgency !== undefined) RequestUrgencySchema.parse(params.urgency);
@@ -210,6 +230,10 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   }
 
   if (request.archivedAt) throw Object.assign(new Error('An archived request cannot be edited or reopened. Repost it as a new request.'), { status: 409 });
+
+  if (request.targetServiceId && Object.keys(params).some(key => key !== 'status')) {
+    throw Object.assign(new Error('Cancel this service request and send a new one to change the work or location. Existing proposed prices must keep their original request details.'), { status: 409 });
+  }
 
   if (request.targetServiceId && params.paymentMethods !== undefined) {
     throw Object.assign(new Error("The payment method for a direct service inquiry cannot be changed here."), { status: 409 });
@@ -267,20 +291,23 @@ export async function updateRequest(requestId: string, seekerId: string, params:
     throw err;
   }
 
-  const { jobLocation, ...changes } = params;
-  if (jobLocation || params.transportationFee !== undefined) {
+  const { jobLocation, photoIds, ...changes } = params;
+  if (photoIds !== undefined) await setListingPhotos(tx, seekerId, photoIds, { requestId });
+  assertLocationForArrangementChange(request.serviceLocationMode, params.serviceLocationMode, jobLocation, 'SEEKER_VISITS');
+  if (jobLocation || params.transportationFee !== undefined || params.serviceLocationMode !== undefined) {
     const quoted = await tx.offer.findFirst({ where: { requestId, status: { in: ['PENDING', 'PENDING_PAYMENT', 'ACCEPTED'] } }, select: { id: true } });
-    if (quoted) throw Object.assign(new Error('This request already has offers. Keep the agreed location and travel budget, or post a new request.'), { status: 409 });
+    if (quoted) throw Object.assign(new Error('This request already has offers. Keep the agreed arrangement, location and travel budget, or post a new request.'), { status: 409 });
   }
   const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: request.status }, data: {
     ...changes, ...(jobLocation && { ...locationData(jobLocation), privateAddress: jobLocation.address || null }),
+    ...((params.serviceLocationMode ?? request.serviceLocationMode) === 'SEEKER_VISITS' && { privateAddress: null, transportationFee: null }),
   } });
   if (changed.count !== 1) {
     const err = new Error("The request changed before it could be updated") as Error & { status?: number };
     err.status = 409;
     throw err;
   }
-  return tx.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
+  return withListingPhotos(await tx.serviceRequest.findUniqueOrThrow({ where: { id: requestId }, include: listingPhotosInclude }));
   });
   } catch (error) {
     const rejectedDecision = (error as { moderationDecision?: ContentDecision }).moderationDecision;
@@ -345,7 +372,7 @@ export async function archiveCompletedRequest(requestId: string, seekerId: strin
 export async function getRequestRepostTemplate(requestId: string, seekerId: string) {
   const request = await prisma.serviceRequest.findFirst({
     where: { id: requestId, seekerId },
-    include: { category: { select: { name: true, isActive: true } }, offers: { select: { status: true, booking: { select: { status: true } } } } },
+    include: { ...listingPhotosInclude, category: { select: { name: true, isActive: true } }, offers: { select: { status: true, booking: { select: { status: true } } } } },
   });
   if (!request) throw Object.assign(new Error('Request not found or access denied'), { status: 404 });
   if (request.targetServiceId || !canArchiveCompletedRequest(request.offers)) {
@@ -353,10 +380,11 @@ export async function getRequestRepostTemplate(requestId: string, seekerId: stri
   }
   const paymentMethods = RequestPaymentMethodsSchema.safeParse(request.paymentMethods);
   return {
-    title: request.title, description: request.description,
+    title: request.title, description: request.description, photos: withListingPhotos(request).photos,
     categoryId: request.category.isActive ? request.categoryId : '', categoryName: request.category.name,
     jobLocation: request.latitude == null || request.longitude == null || !request.locationLabel ? undefined : { latitude: request.latitude, longitude: request.longitude, label: request.locationLabel, address: request.privateAddress || undefined },
     transportationFee: request.transportationFee == null ? null : Number(request.transportationFee),
+    serviceLocationMode: request.serviceLocationMode,
     budget: Number(request.budgetMax), paymentMethods: paymentMethods.success ? paymentMethods.data : null,
   };
 }

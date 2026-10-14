@@ -75,7 +75,8 @@ test("online initiation derives the exact listing total on the server", () => {
   assert.ok(initiationContract, "initiateOnlinePayment input contract should be present");
   assert.match(source, /PAYMENT_NOT_CONFIGURED/);
   assert.match(source, /price: true/);
-  assert.match(source, /calculateDirectListingTerms\(service\.priceType, service\.price, quantity, service\.estimatedDurationMins, service\.transportationFee\)/);
+  assert.match(source, /resolveDirectArrangement\(service, params\.serviceLocationMode, params\.jobLocation\)/);
+  assert.match(source, /calculateDirectListingTerms\(service\.priceType, service\.price, quantity, service\.estimatedDurationMins, arrangement!\.transportationFee\)/);
   assert.match(source, /Number\(directTerms\.amount\)/);
   assert.match(source, /onlineQueueLimit/);
   assert.doesNotMatch(initiationContract[0], /amount\s*:/);

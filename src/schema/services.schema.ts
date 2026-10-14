@@ -1,8 +1,9 @@
-import { LocationPointSchema, CoverageRadiusSchema, TransportationFeeSchema } from './location.schema';
+import { LocationPointSchema, CoverageRadiusSchema, TransportationFeeSchema, ServiceLocationModeSchema } from './location.schema';
 import { z } from "zod";
+import { ListingPhotoIdsSchema } from './listing-photos.schema';
 
 export const PriceTypeValues = [
-  "FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT",
+  "FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT", "BY_AGREEMENT",
 ] as const;
 export type PriceTypeValue = typeof PriceTypeValues[number];
 
@@ -35,11 +36,15 @@ const paymentMethods = z.object({
 );
 
 export const CreateServiceSchema = z.object({
+  photoIds: ListingPhotoIdsSchema.optional(),
   categoryId: z.string().min(1, "Invalid category"),
   title,
   description,
-  price,
+  price: price.nullable().optional(),
   serviceLocation: LocationPointSchema,
+  publicMapPin: z.boolean().default(false),
+  serviceLocationMode: ServiceLocationModeSchema.default('PROVIDER_VISITS'),
+  venueAddress: z.string().trim().max(500).nullable().optional(),
   coverageRadiusKm: CoverageRadiusSchema.nullable().optional(),
   transportationFee: TransportationFeeSchema.nullable().optional(),
   priceType: z.enum(PriceTypeValues).default("FIXED"),
@@ -48,15 +53,23 @@ export const CreateServiceSchema = z.object({
   // Legacy listing column; provider-wide onlineQueueLimit is operational.
   queueLimit: z.number().int().min(1).max(10).default(3),
   paymentMethods,
-});
+}).superRefine((value, context) => {
+  if (value.priceType === 'BY_AGREEMENT' ? value.price != null : value.price == null) {
+    context.addIssue({ code: 'custom', path: ['price'], message: value.priceType === 'BY_AGREEMENT' ? 'Leave the price blank for Price by agreement.' : 'Enter the service price or choose Price by agreement.' });
+  }
+}).transform(value => ({ ...value, price: value.priceType === 'BY_AGREEMENT' ? null : value.price! }));
 
 export type CreateServiceInput = z.infer<typeof CreateServiceSchema>;
 
 export const UpdateServiceSchema = z.object({
+  photoIds: ListingPhotoIdsSchema.optional(),
   title: title.optional(),
   description: description.optional(),
-  price: price.optional(),
+  price: price.nullable().optional(),
   serviceLocation: LocationPointSchema.optional(),
+  publicMapPin: z.boolean().optional(),
+  serviceLocationMode: ServiceLocationModeSchema.optional(),
+  venueAddress: z.string().trim().max(500).nullable().optional(),
   coverageRadiusKm: CoverageRadiusSchema.nullable().optional(),
   transportationFee: TransportationFeeSchema.nullable().optional(),
   priceType: z.enum(PriceTypeValues).optional(),
@@ -65,6 +78,9 @@ export const UpdateServiceSchema = z.object({
   queueLimit: z.number().int().min(1).max(10).optional(),
   paymentMethods: paymentMethods.optional(),
   categoryId: z.string().min(1).optional(),
-}).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required");
+}).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required").superRefine((value, context) => {
+  if (value.priceType === 'BY_AGREEMENT' && value.price != null) context.addIssue({ code: 'custom', path: ['price'], message: 'Leave the price blank for Price by agreement.' });
+  if (value.priceType && value.priceType !== 'BY_AGREEMENT' && value.price === null) context.addIssue({ code: 'custom', path: ['price'], message: 'Enter a price for this pricing choice.' });
+});
 
 export type UpdateServiceInput = z.infer<typeof UpdateServiceSchema>;

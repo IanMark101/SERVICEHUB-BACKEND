@@ -127,6 +127,7 @@ export const paymentInitiationLimiter = actionLimiter("payment", 15 * 60 * 1000,
 export const paymentStatusLimiter = actionLimiter("payment-status", 15 * 60 * 1000, 60, "Too many payment status checks. Please try again shortly.");
 export const waitlistMutationLimiter = actionLimiter("waitlist", 15 * 60 * 1000, 30, "Too many queue changes. Please wait before trying again.");
 export const marketplaceContentLimiter = actionLimiter("marketplace-content", 15 * 60 * 1000, 20, "Too many listing or request submissions. Please wait before trying again.");
+export const gcashNumberMutationLimiter = actionLimiter('gcash-number', 15 * 60 * 1000, 10, 'Too many GCash number changes. Please wait before trying again.');
 
 // Never skip localhost or relax credential guessing limits in development.
 export const accountDeletionLimiter = rateLimit({

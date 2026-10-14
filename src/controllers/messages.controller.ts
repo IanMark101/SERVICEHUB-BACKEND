@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { getMessages, sendMessage, getConversations, getConversationGroups, getConversationGroupForBooking, getBookingMessagesForAdmin } from "../services/messages.service";
 import { MessageSchema } from "../schema/marketplace.schema";
 import { prisma } from "../lib/prisma";
+import { AdminMessagesQuery } from '../schema/admin-messages.schema';
 
 export async function listConversations(req: Request, res: Response, next: NextFunction) {
   try {
@@ -84,8 +85,9 @@ export async function create(req: Request, res: Response, next: NextFunction) {
 export async function adminViewMessages(req: Request, res: Response, next: NextFunction) {
   try {
     const bookingId = req.params.bookingId as string;
-    const data = await getBookingMessagesForAdmin(bookingId);
-    await prisma.adminAuditLog.create({ data: { actorId: (req as AuthenticatedRequest).user.id, action: "BOOKING_MESSAGES_VIEWED", resourceType: "Booking", resourceId: bookingId, reason: "Administrator reviewed the booking-specific conversation" } });
+    const query = AdminMessagesQuery.parse(req.query);
+    const data = await getBookingMessagesForAdmin(bookingId, query);
+    await prisma.adminAuditLog.create({ data: { actorId: (req as AuthenticatedRequest).user.id, action: "BOOKING_MESSAGES_VIEWED", resourceType: "Booking", resourceId: bookingId, reason: "Administrator reviewed the booking-specific conversation", metadata: { before: query.before || null, returnedMessages: data.messages.length } } });
     res.json({ success: true, data });
   } catch (err) {
     next(err);

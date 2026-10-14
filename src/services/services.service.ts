@@ -1,12 +1,17 @@
 import { locationData, locationBounds, publicLocation } from '../lib/proximity';
+import { listingPhotosInclude, withListingPhotos } from '../lib/listing-photos';
+import { setListingPhotos } from './listing-photos.service';
+import { assertLocationForArrangementChange } from '../lib/service-arrangement';
 import type { NearbyQuery } from '../schema/location.schema';
 import { marketplaceSearchConditions } from '../lib/marketplace-search';
-import { Prisma, ServiceStatus, type PriceType } from "@prisma/client";
+import { canonicalCategoryName } from '../lib/category-catalog';
+import { Prisma, ServiceStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { safeBroadcast, safeEmit } from "../lib/socket";
 import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.schema";
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
+import { RATE_PRICE_TYPES, validListingPrice } from '../lib/listing-pricing';
 
 const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
 
@@ -31,11 +36,14 @@ export const PUBLIC_PROVIDER_ACCOUNT_WHERE = {
   emailVerified: true,
 };
 
+export const PUBLIC_SERVICE_PRICE_WHERE: Prisma.ServiceWhereInput = { OR: [
+  { priceType: { in: RATE_PRICE_TYPES }, price: { gte: 50, lte: 50_000 } },
+  { priceType: 'BY_AGREEMENT', price: null },
+] };
 export const PUBLIC_SERVICE_WHERE = {
   status: "ACTIVE" as const,
   isAvailable: true,
-  priceType: { in: ["FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT"] as PriceType[] },
-  price: { gte: 50 },
+  ...PUBLIC_SERVICE_PRICE_WHERE,
   provider: PUBLIC_PROVIDER_ACCOUNT_WHERE,
 };
 
@@ -45,8 +53,7 @@ export const PUBLIC_PROVIDER_WHERE = {
     some: {
       status: PUBLIC_SERVICE_WHERE.status,
       isAvailable: PUBLIC_SERVICE_WHERE.isAvailable,
-      priceType: PUBLIC_SERVICE_WHERE.priceType,
-      price: PUBLIC_SERVICE_WHERE.price,
+      ...PUBLIC_SERVICE_PRICE_WHERE,
     },
   },
 };
@@ -143,15 +150,17 @@ export async function browseServices(params: {
   excludeProviderId?: string;
   nearby?: NearbyQuery;
   categoryName?: string;
+  ids?: string[];
 }) {
   const { categoryId, search, availableOnly, excludeProviderId } = params;
 
   const services = await prisma.service.findMany({
     where: {
       ...PUBLIC_SERVICE_WHERE,
+      ...(params.ids && { id: { in: params.ids } }),
       ...(categoryId && { categoryId }),
       ...(params.nearby && { AND: [locationBounds(params.nearby), ...marketplaceSearchConditions(search)] }),
-      ...(params.categoryName && params.categoryName !== "All Categories" && { category: { name: { equals: params.categoryName, mode: "insensitive" as const } } }),
+      ...(params.categoryName && params.categoryName !== "All Categories" && { category: { name: { equals: canonicalCategoryName(params.categoryName), mode: "insensitive" as const } } }),
       ...(availableOnly && { isAvailable: true }),
       ...(excludeProviderId && { providerId: { not: excludeProviderId } }),
       ...(search && !params.nearby && {
@@ -164,6 +173,7 @@ export async function browseServices(params: {
       }),
     },
     include: {
+      ...listingPhotosInclude,
       provider: {
         select: {
           id: true,
@@ -185,7 +195,7 @@ export async function browseServices(params: {
     },
     orderBy: [{ provider: { trustScore: "desc" } }, { createdAt: "desc" }],
   });
-  return attachEligibleProviderRatings(await attachProviderWorkload(services));
+  return (await attachEligibleProviderRatings(await attachProviderWorkload(services))).map(withListingPhotos);
 }
 
 // ── Get Single Service ─────────────────────────────────────────────────────────
@@ -197,6 +207,7 @@ export async function getServiceById(id: string) {
     // never by guessing an ID here.
     where: { id, ...PUBLIC_SERVICE_WHERE },
     include: {
+      ...listingPhotosInclude,
       provider: {
         select: {
           id: true,
@@ -224,7 +235,7 @@ export async function getServiceById(id: string) {
     throw err;
   }
 
-  return publicLocation((await attachProviderWorkload([service]))[0]);
+  return publicLocation(withListingPhotos((await attachProviderWorkload([service]))[0]));
 }
 
 // ── Create Listing (publish after validation; failures require revision) ─────
@@ -270,8 +281,11 @@ export async function createService(providerId: string, input: CreateServiceInpu
           titleNormalized: normalizeServiceTitle(input.title),
           description: input.description,
           ...locationData(input.serviceLocation),
+          publicMapPin: input.publicMapPin,
           coverageRadiusKm: input.coverageRadiusKm,
-          transportationFee: input.transportationFee,
+          transportationFee: input.priceType === 'BY_AGREEMENT' ? null : input.transportationFee,
+          serviceLocationMode: input.serviceLocationMode,
+          venueAddress: input.venueAddress,
           price: input.price,
           priceType: input.priceType,
           serviceType: input.serviceType,
@@ -298,7 +312,8 @@ export async function createService(providerId: string, input: CreateServiceInpu
           body: `Your service "${input.title}" is now visible to customers.`,
           link: "/provider/service-manager?status=active" },
       });
-      return { service };
+      await setListingPhotos(tx, providerId, input.photoIds ?? [], { serviceId: service.id });
+      return { service: withListingPhotos(await tx.service.findUniqueOrThrow({ where: { id: service.id }, include: { ...listingPhotosInclude, category: true, provider: { select: { id: true, name: true, email: true } } } })) };
     });
   } catch (error) {
     const rejectedDecision = (error as { moderationDecision?: ContentDecision }).moderationDecision;
@@ -344,14 +359,14 @@ export async function updateService(serviceId: string, providerId: string, input
 
       const nextTitle = input.title ?? service.title;
       const nextPriceType = input.priceType ?? service.priceType;
-      const nextPrice = input.price ?? service.price;
+      const nextPrice = input.priceType === 'BY_AGREEMENT' ? null : input.price !== undefined ? input.price : service.price;
       if (["STARTS_AT", "CUSTOM"].includes(service.priceType) && (input.priceType === undefined || input.price === undefined)) {
-        const error = new Error("Choose an exact pricing type and enter a final price for this older listing") as Error & { status?: number };
+        const error = new Error("Choose a supported pricing type and update the price for this older listing") as Error & { status?: number };
         error.status = 400;
         throw error;
       }
-      if (!["FIXED", "PER_HOUR", "PER_DAY", "PER_PROJECT"].includes(nextPriceType) || nextPrice === null) {
-        const error = new Error("Choose an exact pricing type and enter a price before publishing this listing") as Error & { status?: number };
+      if (!validListingPrice(nextPriceType, nextPrice)) {
+        const error = new Error("Enter a valid service price, or choose Price by agreement and leave the price blank") as Error & { status?: number };
         error.status = 400;
         throw error;
       }
@@ -377,17 +392,26 @@ export async function updateService(serviceId: string, providerId: string, input
         }
       }
 
-      const { serviceLocation, ...updatedInput } = input;
-      if (input.coverageRadiusKm != null && !serviceLocation && service.latitude == null) throw Object.assign(new Error("Choose a service base location before adding coverage."), { status: 400 });
+      const { serviceLocation, photoIds, ...updatedInput } = input;
+      if (photoIds !== undefined) await setListingPhotos(tx, providerId, photoIds, { serviceId });
+      assertLocationForArrangementChange(service.serviceLocationMode, input.serviceLocationMode, serviceLocation, 'PROVIDER_VISITS');
+      if ((input.serviceLocationMode ?? service.serviceLocationMode) !== 'PROVIDER_VISITS' && !serviceLocation && (service.latitude == null || service.longitude == null || !service.locationLabel)) {
+        throw Object.assign(new Error('Choose your service venue before accepting seeker visits.'), { status: 400 });
+      }
+      if (input.coverageRadiusKm != null && !serviceLocation && service.latitude == null) throw Object.assign(new Error("Choose a service area center or venue before adding travel coverage."), { status: 400 });
       const updated = await tx.service.update({
         where: { id: serviceId },
         data: {
           ...updatedInput,
           ...(serviceLocation && locationData(serviceLocation)),
+          ...(serviceLocation && input.publicMapPin === undefined &&
+            (serviceLocation.latitude !== service.latitude || serviceLocation.longitude !== service.longitude)
+            ? { publicMapPin: false } : {}),
           title: nextTitle,
           titleNormalized: normalizeServiceTitle(nextTitle),
           categoryId,
           price: nextPrice,
+          transportationFee: nextPriceType === 'BY_AGREEMENT' ? null : input.transportationFee !== undefined ? input.transportationFee : service.transportationFee,
           ...(materialChanged && assessment && {
             status: service.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
             isAvailable: service.status !== "INACTIVE",
@@ -397,7 +421,7 @@ export async function updateService(serviceId: string, providerId: string, input
             reviewedById: null, reviewedAt: null,
           }),
         },
-        include: { category: true },
+        include: { ...listingPhotosInclude, category: true },
       });
 
       if (!materialChanged) return { service: updated };
@@ -411,7 +435,7 @@ export async function updateService(serviceId: string, providerId: string, input
     });
 
     safeBroadcast("SERVICE_LISTINGS_CHANGED", { id: serviceId, status: result.service.status });
-    return result.service;
+    return withListingPhotos(result.service);
   } catch (error) {
     const rejectedDecision = (error as { moderationDecision?: ContentDecision }).moderationDecision;
     if (rejectedDecision) await prisma.contentModerationEvent.create({ data: {
@@ -482,6 +506,7 @@ export async function getMyServices(providerId: string) {
   const services = await prisma.service.findMany({
     where: { providerId, status: { not: "DELETED" } },
     include: {
+      ...listingPhotosInclude,
       provider: {
         select: {
           id: true,
@@ -499,7 +524,7 @@ export async function getMyServices(providerId: string) {
     },
     orderBy: { createdAt: "desc" },
   });
-  return attachEligibleProviderRatings(await attachProviderWorkload(services));
+  return (await attachEligibleProviderRatings(await attachProviderWorkload(services))).map(withListingPhotos);
 }
 
 export async function listAdminServices(page = 1, limit = 20, status?: ServiceStatus | "LIVE") {

@@ -1,5 +1,6 @@
-import { JobLocationSchema, TransportationFeeSchema } from './location.schema';
+import { JobLocationSchema, TransportationFeeSchema, ServiceLocationModeSchema, BookingLocationModeSchema } from './location.schema';
 import { z } from "zod";
+import { ListingPhotoIdsSchema } from './listing-photos.schema';
 import { VERIFICATION_PRIVACY_NOTICE_VERSION } from "../config/privacy";
 
 const Cuid = z.string().cuid();
@@ -14,6 +15,7 @@ export const RequestPaymentMethodsSchema = z.object({
 });
 
 export const DirectBookingSchema = z.object({
+  serviceLocationMode: BookingLocationModeSchema.optional(),
   jobLocation: JobLocationSchema.optional(),
   serviceId: Cuid,
   quantity: z.number().int().min(1).max(40).default(1),
@@ -21,7 +23,16 @@ export const DirectBookingSchema = z.object({
   message: Text(2_000).optional(),
 }).strict();
 
+export const ListingInquirySchema = z.object({
+  serviceId: Cuid,
+  serviceLocationMode: BookingLocationModeSchema.optional(),
+  jobLocation: JobLocationSchema.optional(),
+  message: Text(2_000).min(10, 'Describe the work needed using at least 10 characters.'),
+  photoIds: ListingPhotoIdsSchema.optional(),
+}).strict();
+
 export const InitiatePaymentSchema = z.object({
+  serviceLocationMode: BookingLocationModeSchema.optional(),
   retryPaymentIntentId: z.string().trim().min(3).max(255).optional(),
   jobLocation: JobLocationSchema.optional(),
   serviceId: Cuid.optional(),
@@ -37,6 +48,8 @@ export const ConfirmOnlineBookingSchema = z.object({
 }).strict();
 
 export const OfferSchema = z.object({
+  serviceLocationMode: BookingLocationModeSchema.optional(),
+  providerVenue: JobLocationSchema.optional(),
   requestId: Cuid,
   serviceId: Cuid.optional(),
   offeredPrice: Money,
@@ -50,6 +63,8 @@ export const RequestUrgencySchema = z.enum([
 ], { error: 'Select a valid urgency: ASAP / Today, Needs Tomorrow, Next 1-2 Days, This Week, or Flexible Schedule.' });
 
 export const ServiceRequestSchema = z.object({
+  photoIds: ListingPhotoIdsSchema.optional(),
+  serviceLocationMode: ServiceLocationModeSchema.default('PROVIDER_VISITS'),
   jobLocation: JobLocationSchema,
   transportationFee: TransportationFeeSchema.nullable().optional(),
   categoryId: Cuid,
@@ -65,6 +80,8 @@ export const ServiceRequestSchema = z.object({
 });
 
 export const ServiceRequestUpdateSchema = z.object({
+  photoIds: ListingPhotoIdsSchema.optional(),
+  serviceLocationMode: ServiceLocationModeSchema.optional(),
   jobLocation: JobLocationSchema.optional(),
   transportationFee: TransportationFeeSchema.nullable().optional(),
   title: RequestTitle.optional(),

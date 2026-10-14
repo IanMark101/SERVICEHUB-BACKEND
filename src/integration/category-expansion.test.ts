@@ -17,10 +17,13 @@ test('expanded Admin catalog preserves data and supports both marketplace flows'
   assert.match(new URL(env.DATABASE_URL).searchParams.get('schema') || '', /^servicehub_migration_test_[a-f0-9]{32}$/, 'Requires a disposable migration-test schema');
   t.after(() => prisma.$disconnect());
   const suffix = randomUUID();
-  const legacy = ['Aircon Service', 'Appliance Repair', 'Carpentry & Woodwork', 'Electrical Repair', 'House Cleaning', 'Lawn Care', 'Plumbing', 'Tutoring'];
+  // Start empty inside the explicitly checked disposable schema. Deployment
+  // already populated the new catalog; this fixture independently tests seeding.
+  await prisma.category.deleteMany();
+  const legacy = ['Aircon Cleaning & Repair', 'Appliance Repair', 'Carpentry & Furniture Repair', 'Electrical Wiring & Repairs', 'Home & Office Cleaning', 'Gardening & Landscaping', 'Plumbing', 'Tutoring & Lessons'];
   await prisma.category.createMany({ data: legacy.map(name => ({ name })) });
-  await prisma.category.create({ data: { name: 'Painting Services', isActive: false } });
-  await prisma.category.create({ data: { name: '  beauty & personal care  ' } });
+  await prisma.category.create({ data: { name: 'Painting', isActive: false } });
+  await prisma.category.create({ data: { name: '  haircuts & beauty  ' } });
   const before = await prisma.category.findMany({ orderBy: { id: 'asc' } });
   const makeUser = (name: string, role: 'admin' | 'user' = 'user', approved = true) => prisma.user.create({ data: {
     name, email: `${name}-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only',
@@ -36,18 +39,18 @@ test('expanded Admin catalog preserves data and supports both marketplace flows'
 
   await t.test('additive seed is normalized, idempotent and preserves Admin status and legacy references', async () => {
     const seeded = await ensureDefaultServiceCategories();
-    assert.equal(seeded.added.length, 14);
+    assert.equal(seeded.added.length, DEFAULT_SERVICE_CATEGORIES.length - before.length);
     const after = await prisma.category.findMany();
-    assert.equal(after.length, 24);
+    assert.equal(after.length, DEFAULT_SERVICE_CATEGORIES.length);
     for (const old of before) assert.deepEqual(after.find(c => c.id === old.id), old);
     for (const name of DEFAULT_SERVICE_CATEGORIES) assert.equal(after.filter(c => normalizedCategoryName(c.name) === normalizedCategoryName(name)).length, 1);
     assert.equal((await prisma.service.findUniqueOrThrow({ where: { id: retainedListing.id } })).categoryId, plumbing.id);
     assert.equal((await prisma.serviceRequest.findUniqueOrThrow({ where: { id: retainedRequest.id } })).categoryId, plumbing.id);
     assert.deepEqual((await ensureDefaultServiceCategories()).added, []);
-    assert.equal((await prisma.category.findUniqueOrThrow({ where: { name: 'Painting Services' } })).isActive, false);
+    assert.equal((await prisma.category.findUniqueOrThrow({ where: { name: 'Painting' } })).isActive, false);
   });
   const fallback = await prisma.category.findUniqueOrThrow({ where: { name: 'Other Services' } });
-  const computer = await prisma.category.findUniqueOrThrow({ where: { name: 'Computer / IT Services' } });
+  const computer = await prisma.category.findUniqueOrThrow({ where: { name: 'Computer & Laptop Repair' } });
   const tokens = new Map<string, string>();
   for (const user of [admin, seeker, provider, unverified]) {
     const session = await prisma.refreshToken.create({ data: { userId: user.id, token: createHash('sha256').update(`${user.id}-${suffix}`).digest('hex'), expiresAt: new Date(Date.now() + 900000) } });
@@ -82,7 +85,7 @@ test('expanded Admin catalog preserves data and supports both marketplace flows'
     assert.equal(changed.status, 200, changed.error);
     for (const isActive of [false, true]) assert.equal((await call(`/admin/categories/${createdCategoryId}`, admin.id, { isActive, reason: 'Manage catalog availability' }, 'PATCH')).status, 200);
     const catalog = await call('/admin/categories?page=1&limit=10', admin.id);
-    assert.equal(catalog.status, 200); assert.equal(catalog.data.length, 10); assert.equal(catalog.pagination.total, 25);
+    assert.equal(catalog.status, 200); assert.equal(catalog.data.length, 10); assert.equal(catalog.pagination.total, DEFAULT_SERVICE_CATEGORIES.length + 1);
     const active = await call('/categories', seeker.id);
     assert.equal(active.data.some((c: any) => c.id === fallback.id), true);
     assert.equal(active.data.some((c: any) => c.id === createdCategoryId), true);
@@ -104,7 +107,7 @@ test('expanded Admin catalog preserves data and supports both marketplace flows'
     }
     assert.equal((await call('/requests', unverified.id, { ...requestInput, categoryId: fallback.id, title: 'Aquarium pump inspection', description: 'Inspect the aquarium circulation pump and diagnose its fault.' })).status, 403);
     assert.equal((await call('/services', unverified.id, { ...listingInput, categoryId: fallback.id, title: 'Aquarium pump maintenance', description: 'Inspect and maintain aquarium circulation pumps and filters.' })).status, 403);
-    const inactive = await prisma.category.findUniqueOrThrow({ where: { name: 'Painting Services' } });
+    const inactive = await prisma.category.findUniqueOrThrow({ where: { name: 'Painting' } });
     const invalid = await call('/requests', seeker.id, { ...requestInput, categoryId: inactive.id, title: 'Paint bedroom walls', description: 'Paint all bedroom walls and prepare the surfaces.' });
     assert.equal(invalid.status, 400, invalid.error);
   });
@@ -120,7 +123,7 @@ test('expanded Admin catalog preserves data and supports both marketplace flows'
       assert.deepEqual(ids(await call(endpoint + query + '&search=aquarium&category=Plumbing', userId)), []);
       assert.deepEqual(ids(await call(endpoint + query.replace('latitude=10.3', 'latitude=10.4') + '&search=aquarium', userId)), []);
     }
-    const laptop = await call('/services/nearby' + query + '&search=motherboard&category=Computer%20%2F%20IT%20Services', seeker.id);
+    const laptop = await call('/services/nearby' + query + '&search=motherboard&category=Computer%20%26%20Laptop%20Repair', seeker.id);
     assert.equal(laptop.data.items[0].id, listings[1].id);
   });
 

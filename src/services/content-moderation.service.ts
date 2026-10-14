@@ -1,5 +1,7 @@
 /** Local, deliberately narrow marketplace content policy. No user text is executed or sent to AI. */
-export const CONTENT_POLICY_VERSION = "2026-09-30.1";
+import { canonicalCategoryName } from '../lib/category-catalog';
+
+export const CONTENT_POLICY_VERSION = "2026-10-13.1";
 
 export type ContentKind = "SERVICE_LISTING" | "SERVICE_REQUEST";
 export type ContentDecision = {
@@ -39,13 +41,17 @@ const highRiskPhrases = ["private security service", "medical treatment service"
 // categories outside this map receive no guessed vocabulary or invented label.
 const categoryCues: Record<string, string[]> = {
   plumbing: ["plumb", "pipe", "faucet", "leak", "toilet", "drain"],
-  "electrical repair": ["electrical", "electrician", "wiring", "outlet", "circuit"],
-  "house cleaning": ["clean", "mop", "sweep", "laundry"],
-  "lawn care": ["lawn", "grass", "garden", "mow"],
-  tutoring: ["tutor", "teach", "lesson", "calculus", "math", "study"],
-  "aircon service": ["aircon", "air conditioner", "air conditioning", "ac unit"],
+  "electrical wiring repairs": ["electrical", "electrician", "wiring", "outlet", "circuit"],
+  "home office cleaning": ["clean", "mop", "sweep"],
+  "gardening landscaping": ["lawn", "grass", "garden", "mow"],
+  "tutoring lessons": ["tutor", "teach", "lesson", "calculus", "math", "study"],
+  "aircon cleaning repair": ["aircon", "air conditioner", "air conditioning", "ac unit"],
   "appliance repair": ["appliance", "refrigerator", "washing machine", "microwave"],
-  "carpentry & woodwork": ["carpenter", "woodwork", "cabinet", "furniture"],
+  "carpentry furniture repair": ["carpenter", "woodwork", "cabinet", "furniture"],
+  "computer laptop repair": ["computer", "laptop", "desktop", "motherboard", "printer", "notebook"],
+  "phone tablet repair": ["phone", "tablet", "iphone", "ipad", "smartphone"],
+  "internet wi fi setup": ["router", "wifi", "wi fi", "internet", "network"],
+  "laundry ironing": ["laundry", "ironing", "clothes washing"],
 };
 
 function normalize(value: string) {
@@ -115,7 +121,7 @@ export function assessMarketplaceContent(input: ContentInput): ContentDecision {
     return decision("REVISE", "HIGH_RISK", "ServiceHub does not support private security or medical treatment services. Offer a supported type of service.", "description");
   }
 
-  const selected = normalize(input.categoryName);
+  const selected = normalize(canonicalCategoryName(input.categoryName));
   const selectedCues = categoryCues[selected];
   if (selectedCues && !selectedCues.some((cue) => hasCue(text, cue))) {
     const otherMatches = Object.entries(categoryCues)

@@ -13,6 +13,7 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().default("http://localhost:3000"),
   FRONTEND_ORIGINS: z.string().default(""),
   TRUSTED_PROXY_CIDRS: z.string().default(""),
+  SECURITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(7).max(365).default(90),
   PRISMA_LOG_QUERIES: z.enum(["true", "false"]).default("false"),
   // PayMongo (test mode for capstone)
   PAYMONGO_SECRET_KEY: z.string().optional(),
