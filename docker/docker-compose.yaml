@@ -1,6 +1,15 @@
 name: servicehub-backend
 
 services:
+  migrate:
+    image: ianmark123/servicehub-backend:migrator
+    env_file:
+      - /root/env/servicehub-backend/.env
+    environment:
+      NODE_ENV: production
+    profiles: ["migration"]
+    restart: "no"
+
   app:
     image: ianmark123/servicehub-backend
     ports:

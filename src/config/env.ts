@@ -1,6 +1,7 @@
 import { environmentFile } from "./load-environment";
 import { z } from "zod";
 import { isIP } from "node:net";
+import { canonicalFrontendUrl } from './frontend-url';
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -72,7 +73,10 @@ export const serviceHubEnvSchema = envSchema.superRefine((value, ctx) => {
 });
 
 export function validateEnvironment(input: NodeJS.ProcessEnv) {
-  return serviceHubEnvSchema.safeParse(input);
+  return serviceHubEnvSchema.safeParse({
+    ...input,
+    FRONTEND_URL: canonicalFrontendUrl(input.FRONTEND_URL, input.NODE_ENV),
+  });
 }
 
 const parsed = validateEnvironment(process.env);

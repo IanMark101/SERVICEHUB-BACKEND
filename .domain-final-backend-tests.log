@@ -1,0 +1,78 @@
+TAP version 13
+# Subtest: CAPTCHA defaults off and enabled deployment requires both keys and exact hostnames
+ok 1 - CAPTCHA defaults off and enabled deployment requires both keys and exact hostnames
+  ---
+  duration_ms: 5.5791
+  type: 'test'
+  ...
+# Subtest: production cannot activate Google always-passing test keys
+ok 2 - production cannot activate Google always-passing test keys
+  ---
+  duration_ms: 0.6886
+  type: 'test'
+  ...
+# Subtest: trusted proxy configuration accepts explicit peers and rejects unrestricted or malformed trust
+ok 3 - trusted proxy configuration accepts explicit peers and rejects unrestricted or malformed trust
+  ---
+  duration_ms: 7.5425
+  type: 'test'
+  ...
+# Subtest: deployment migrations require an explicit direct connection to the runtime database
+ok 4 - deployment migrations require an explicit direct connection to the runtime database
+  ---
+  duration_ms: 3.6195
+  type: 'test'
+  ...
+# Subtest: deployment migrates before replacing the API
+ok 5 - deployment migrates before replacing the API
+  ---
+  duration_ms: 282.5267
+  type: 'test'
+  ...
+# Subtest: deployment stops after a failed pull
+ok 6 - deployment stops after a failed pull
+  ---
+  duration_ms: 156.4538
+  type: 'test'
+  ...
+# Subtest: deployment stops after a failed migration
+ok 7 - deployment stops after a failed migration
+  ---
+  duration_ms: 190.2763
+  type: 'test'
+  ...
+# [Cloudinary] Configured successfully for cloud: arhsimmh
+# ✅ Socket.io initialized
+# Subtest: configured origins are normalized and unsafe or malformed entries are excluded
+ok 8 - configured origins are normalized and unsafe or malformed entries are excluded
+  ---
+  duration_ms: 2.6144
+  type: 'test'
+  ...
+# Subtest: HTTP, Socket.IO, and production cookie endpoints trust the three frontend hosts only by exact origin
+ok 9 - HTTP, Socket.IO, and production cookie endpoints trust the three frontend hosts only by exact origin
+  ---
+  duration_ms: 110.0884
+  type: 'test'
+  ...
+# Subtest: frontend links migrate only known frontend aliases and preserve local and API configuration
+ok 10 - frontend links migrate only known frontend aliases and preserve local and API configuration
+  ---
+  duration_ms: 2.5723
+  type: 'test'
+  ...
+# Subtest: validated runtime configuration supplies the new frontend for email and payment links
+ok 11 - validated runtime configuration supplies the new frontend for email and payment links
+  ---
+  duration_ms: 1.4529
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1904.0028

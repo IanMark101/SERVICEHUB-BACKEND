@@ -33,6 +33,13 @@ jobs:
           push: true
           tags: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).DOCKERHUB_USERNAME }}/servicehub-backend
 
+      - name: Build and push pinned migration image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          target: migrator
+          tags: ${{ fromJSON(secrets.SERVICEHUBSECRETKEY).DOCKERHUB_USERNAME }}/servicehub-backend:migrator
+
   deploy:
     needs: [build-and-push]
     runs-on: ubuntu-latest

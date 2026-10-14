@@ -1,11 +1,6 @@
 import { env } from "./env";
 
 export const deploymentFrontendOrigins = [
-<<<<<<< HEAD
-=======
-  "https://servicehub.bond",
-  "https://www.servicehub.bond",
->>>>>>> 63fb16029f9f91244082131cb03f99400a1aac40
   "https://servicehub-frontend-umber.vercel.app",
   "https://servicehub.bond",
   "https://www.servicehub.bond"

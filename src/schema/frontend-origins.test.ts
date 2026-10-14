@@ -11,7 +11,7 @@ test("configured origins are normalized and unsafe or malformed entries are excl
   const savedUrl = env.FRONTEND_URL;
   const savedOrigins = env.FRONTEND_ORIGINS;
   t.after(() => { env.FRONTEND_URL = savedUrl; env.FRONTEND_ORIGINS = savedOrigins; });
-  env.FRONTEND_URL = "https://servicehubcordova.tech/";
+  env.FRONTEND_URL = "https://www.servicehub.bond/";
   env.FRONTEND_ORIGINS = " https://extra.example/ , https://extra.example, *, https://*.example, not-a-url, https://extra.example/path, https://user:pass@extra.example, ftp://extra.example";
   const origins = getAllowedFrontendOrigins();
   assert.deepEqual(origins, [...deploymentFrontendOrigins, "https://extra.example"]);
@@ -47,7 +47,7 @@ test("HTTP, Socket.IO, and production cookie endpoints trust the three frontend 
     assert.equal(logout.status, 200);
   }
 
-  for (const origin of ["https://servicehubcordova.tech.evil.example", "https://evil.servicehubcordova.tech", "http://servicehubcordova.tech", "https://untrusted.example", "null"]) {
+  for (const origin of ["https://servicehub.bond.evil.example", "https://evil.servicehub.bond", "http://servicehub.bond", "https://untrusted.example", "null"]) {
     for (const route of ["/api/auth/google-login", "/socket.io/?EIO=4&transport=polling"]) {
       const response = await fetch(`${base}${route}`, {
         method: "OPTIONS",
