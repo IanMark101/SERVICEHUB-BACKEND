@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
 import type { Booking, CancellationRequest } from '@prisma/client';
 import { recordLifecycleNotice, publishLifecycleChange } from './bookings/lifecycle-events';
+import { missingBookingCancellationNotifications, recordAdminNotifications, publishNotifications } from './notifications.service';
 import { closeParticipantCancellationReport } from "./cancellation-report-finalization.service";
 import { bookingActorRole, recordBookingProgress } from "./booking-progress.service";
 import { applyBookingTrustPenalty } from "./trust-policy.service";
@@ -108,12 +109,12 @@ export async function performImmediateCancel(bookingId: string, actorId?: string
     if (current.offer?.requestId) await tx.serviceRequest.updateMany({ where: { id: current.offer.requestId }, data: { status: "CANCELED" } });
     // A refunded booking may already be cancelled before this transaction.
     // Retrying settlement must deliver missing notices without duplicating them.
-    if (current.status === 'CANCELED' && await tx.message.findFirst({ where: { bookingId, isSystem: true, content: 'Booking cancelled.' }, select: { id: true } })) return null;
-    const recorded = await recordLifecycleNotice(tx, current, {
-      userId: current.providerId, title: 'Booking cancelled', body: 'The booking has been cancelled.',
-      link: `/provider/provider-activity?tab=canceled&booking=${bookingId}`,
-    }, { senderId: current.seekerId, content: 'Booking cancelled.' });
-    const refunded = current.paymentStatus === 'REFUNDED';
+    const historyRecorded = current.status === 'CANCELED' && await tx.message.findFirst({ where: { bookingId, isSystem: true, content: 'Booking cancelled.' }, select: { id: true } });
+    const notices = await missingBookingCancellationNotifications(tx, current);
+    if (!notices.length) return null;
+    const recorded = await recordLifecycleNotice(tx, current, notices,
+      historyRecorded ? undefined : { senderId: actorId === current.providerId ? current.providerId : current.seekerId, content: 'Booking cancelled.' });
+    const refunded = current.paymentStatus === 'REFUNDED' && !historyRecorded;
     if (refunded) await tx.notification.create({ data: {
       userId: current.seekerId, title: 'Refund processed', body: 'Your online payment was refunded because the booking was cancelled.',
       link: `/seeker/seeker-activity?tab=canceled&booking=${bookingId}`,
@@ -273,7 +274,7 @@ export async function escalateCancellationRequest(requestId: string, userId: str
     await lockBookingLifecycle(tx, initial.bookingId);
     const request = await tx.cancellationRequest.findUnique({ where: { id: requestId }, include: { booking: true, report: true } });
     if (!request || request.requestedBy !== userId) throw httpError("Cancellation request not found or access denied", 404);
-    if (request.status === "ESCALATED" && request.report) return { request, report: request.report, created: false };
+    if (request.status === "ESCALATED" && request.report) return { request, report: request.report, created: false, adminIds: [] as string[] };
     if (request.status !== "DECLINED") throw httpError("Only a declined cancellation request can be escalated", 409);
     await assertNoFinancialResolutionReserved(tx, request.bookingId);
     const otherPartyId = userId === request.booking.seekerId ? request.booking.providerId : request.booking.seekerId;
@@ -282,8 +283,13 @@ export async function escalateCancellationRequest(requestId: string, userId: str
     const updated = await tx.cancellationRequest.update({ where: { id: request.id }, data: { status: "ESCALATED", reportId: report.id } });
     await recordBookingProgress(tx, request.bookingId, "CANCELLATION_ESCALATED", bookingActorRole(request.booking, userId), `${request.id}:escalated`);
     await tx.notification.create({ data: { userId: otherPartyId, title: "Cancellation escalated to Admin", body: `The ${requesterRole} escalated the declined request for administrator review.`, link: userId === request.booking.seekerId ? `/provider/provider-activity?tab=disputed&booking=${request.bookingId}` : `/seeker/seeker-activity?tab=disputed&booking=${request.bookingId}` } });
-    return { request: updated, report, created: true };
+    const adminIds = await recordAdminNotifications(tx, {
+      title: 'Cancellation escalation requires review', body: 'A booking participant escalated a declined cancellation request.',
+      link: `/admin/reports?report=${report.id}`,
+    });
+    return { request: updated, report, created: true, adminIds };
   });
+  if (result.created) publishNotifications(result.adminIds, 'Cancellation escalation requires review');
   safeEmit(`user:${result.report.reportedUserId}`, "notification", { title: "Cancellation escalated to Admin" });
   safeEmit(`user:${result.request.requestedBy}`, "ENGAGEMENT_CHANGED", { bookingId: result.request.bookingId, type: "cancellation_escalated" });
   safeEmit(`user:${result.request.responderId}`, "ENGAGEMENT_CHANGED", { bookingId: result.request.bookingId, type: "cancellation_escalated" });

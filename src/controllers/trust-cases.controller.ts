@@ -6,6 +6,7 @@ import { applyTrustEventInTransaction } from '../services/trust.service';
 import { lockBookingLifecycle } from '../services/booking-lifecycle.service';
 import { safeEmit } from '../lib/socket';
 import { invalidateReviewSummaries } from '../services/ai.service';
+import { recordAdminNotifications, publishNotifications } from '../services/notifications.service';
 
 const message = z.string().trim().min(20).max(2000);
 export const TrustCaseSchema = z.object({ reviewId: z.string().min(1).optional(), trustEventId: z.string().min(1).optional(), description: message })
@@ -30,10 +31,16 @@ export async function submitTrustCase(req: Request, res: Response, next: NextFun
       const created = await tx.trustCase.create({ data: { ...input, userId, respondentId: review?.authorId } });
       if (review) await tx.notification.create({ data: { userId: review.authorId, title: 'Review disputed',
         body: 'The recipient reported a possible review policy violation. You can explain your experience in Trust History.', link: '/seeker/user-profile?tab=trust' } });
-      return created;
+      const adminIds = await recordAdminNotifications(tx, {
+        title: 'Review or trust appeal requires review', body: 'A member submitted a review dispute or trust penalty appeal.',
+        link: '/admin/reviews',
+      });
+      return { created, adminIds };
     });
-    safeEmit('admin', 'ADMIN_MODERATION_CHANGED', { trustCaseId: item.id });
-    res.status(201).json({ success: true, data: item });
+    publishNotifications(item.adminIds, 'Review or trust appeal requires review');
+    if (item.created.respondentId) publishNotifications([item.created.respondentId], 'Review disputed');
+    safeEmit('admin', 'ADMIN_MODERATION_CHANGED', { trustCaseId: item.created.id });
+    res.status(201).json({ success: true, data: item.created });
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') return res.status(409).json({ success: false, error: 'A case already exists for this source' });
     next(error);
@@ -98,6 +105,7 @@ export async function decideTrustCase(req: Request, res: Response, next: NextFun
       return { decided, changedTrust, targetId: item.review?.targetId };
     });
     if (result.targetId) invalidateReviewSummaries(result.targetId);
+    publishNotifications([result.decided.userId, result.decided.respondentId].filter((id): id is string => !!id), 'Review or trust appeal decided');
     safeEmit(`user:${result.decided.userId}`, 'accountStatusChanged', { trustChanged: result.changedTrust });
     res.json({ success: true, data: result.decided });
   } catch (error) { next(error); }

@@ -12,6 +12,8 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     cancellations: Row[]; reports: Row[]; operations: Row[]; escalations: Row[]; directRequests: Row[]; refunds: Row[]; offers: Row[]; requests: Row[]; attempts: Row[] };
   let inTransaction = false;
   let failNotice = false;
+  let failNoticeFor: string | null = null;
+  let admins: Row[] = [];
   let otherOngoing = false;
   let refundProcessing = false;
   let slowQueueBroadcast = false;
@@ -24,11 +26,14 @@ test('booking lifecycle commits before realtime publication and does not wait fo
       state.queue = { id: 'queue', bookingId: 'booking', providerId: 'provider', seekerId: 'seeker', status: 'WAITING', paymentStatus: 'PAID_HELD', position: 1, estimatedWait: 0, paymentId: 'intent', paymongoPaymentId: 'payment' };
     }
     failNotice = otherOngoing = refundProcessing = slowQueueBroadcast = false;
+    failNoticeFor = null; admins = [{ id: 'admin', role: 'admin', isActive: true, moderationStatus: 'ACTIVE' }];
   };
   reset();
   const fullBooking = () => ({ ...state.booking, provider: eligibility, seeker: eligibility, queue: state.queue, completedService: state.completed, offer: null,
     directRequest: state.directRequests.find(row => row.id === state.booking.directRequestId) || null });
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([key, value]) => {
+    if (key === 'OR') return value.some((condition: Row) => matches(row, condition));
+    if (key === 'AND') return value.every((condition: Row) => matches(row, condition));
     if (value && typeof value === 'object') {
       if ('in' in value) return value.in.includes(row[key]);
       if ('not' in value) return row[key] !== value.not;
@@ -77,13 +82,13 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     },
     queueNotify: { findFirst: async () => null, deleteMany: async () => ({ count: 0 }) },
     service: { findMany: async () => [], findUnique: async () => ({ providerId: 'provider', title: 'Repair', status: 'ACTIVE', isAvailable: true, priceType: 'FIXED', price: new Prisma.Decimal(500), estimatedDurationMins: 60, paymentMethods: { cash: true }, provider: eligibility }) },
-    user: { findUnique: async () => eligibility, findMany: async ({ where }: Row) => where.role === 'admin' ? [{ id: 'admin' }] : ['seeker', 'provider'].map(id => ({ id, ...eligibility })), update: async () => ({}) },
+    user: { findUnique: async () => eligibility, findMany: async ({ where }: Row) => where.role === 'admin' ? admins.filter(row => matches(row, where)) : ['seeker', 'provider'].map(id => ({ id, ...eligibility })), update: async () => ({}) },
     paymentRefund: { ...table('refunds'), findUnique: async ({ where }: Row) => refundProcessing ? { status: 'PROCESSING' } : state.refunds.find(row => matches(row, where)) || null },
     notification: { create: async ({ data }: Row) => {
       assert.equal(inTransaction, true, 'durable notices belong to the transition transaction');
-      if (failNotice) throw new Error('Notice storage unavailable');
+      if (failNotice || data.userId === failNoticeFor) throw new Error('Notice storage unavailable');
       state.notifications.push(data); return data;
-    }, createMany: async ({ data }: Row) => { assert.equal(inTransaction, true); state.notifications.push(...data); return { count: data.length }; } },
+    }, findMany: async ({ where }: Row) => state.notifications.filter(row => matches(row, where)), createMany: async ({ data }: Row) => { assert.equal(inTransaction, true); state.notifications.push(...data); return { count: data.length }; } },
     message: { findFirst: async ({ where }: Row) => state.messages.find(row => matches(row, where)) || null, create: async ({ data }: Row) => {
       assert.equal(inTransaction, true);
       const message = { ...data, id: `message-${state.messages.length}`, sender: { id: data.senderId, name: data.senderId, avatarUrl: null } };
@@ -162,7 +167,11 @@ test('booking lifecycle commits before realtime publication and does not wait fo
       await confirmCompletionService('booking', 'seeker');
       assert.equal(confirmed.booking.status, 'COMPLETED');
       assert.equal(confirmed.progressEvent?.kind, 'COMPLETION_CONFIRMED');
-      assert.equal(state.notifications.length, 3);
+      assert.equal(state.notifications.length, 4);
+      for (const userId of ['seeker', 'provider']) {
+        assert.equal(state.notifications.filter(row => row.userId === userId && row.title === 'Completion confirmed').length, 1);
+        assert.ok(emitted.some(event => event.room === `user:${userId}` && event.event === 'notification' && event.data.title === 'Completion confirmed'));
+      }
       assert.equal(state.messages.length, 2);
       assert.equal(state.progress.length, 3);
       assert.equal(state.earnings.length, paid ? 1 : 0);
@@ -195,6 +204,26 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     assert.equal(state.booking.status, 'ACCEPTED');
     assert.equal(state.progress.length, 0);
     assert.equal(emitted.length, 0);
+  });
+
+  await t.test('a failed second cancellation alert rolls back cash cancellation for both accounts', async () => {
+    reset(); emitted.length = 0; failNoticeFor = 'provider';
+    await assert.rejects(performImmediateCancel('booking', 'seeker'), /Notice storage unavailable/);
+    assert.equal(state.booking.status, 'ACCEPTED');
+    assert.equal(state.notifications.length, 0); assert.equal(state.messages.length, 0);
+    assert.equal(emitted.length, 0);
+  });
+
+  await t.test('a historical provider-only cancellation is repaired once without repeating its history', async () => {
+    reset(); emitted.length = 0; state.booking.status = 'CANCELED';
+    state.messages.push({ bookingId: 'booking', senderId: 'seeker', isSystem: true, content: 'Booking cancelled.' });
+    state.notifications.push({ id: 'legacy', userId: 'provider', title: 'Booking cancelled', link: '/provider/provider-activity?tab=canceled&booking=booking' });
+    await performImmediateCancel('booking', 'seeker');
+    assert.equal(state.notifications.length, 2);
+    assert.equal(state.notifications.filter(row => row.userId === 'seeker').length, 1);
+    assert.equal(state.messages.length, 1);
+    await performImmediateCancel('booking', 'provider');
+    assert.equal(state.notifications.length, 2); assert.equal(state.messages.length, 1);
   });
 
   await t.test('start still enforces the single-job and refund guards', async () => {
@@ -244,12 +273,12 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     assertBothNotified('accepted_offer');
   });
 
-  for (const paid of [false, true]) {
-    await t.test(`${paid ? 'paid' : 'cash'} cancellation remains authoritative and ignores stalled audience queries`, async () => {
+  for (const paid of [false, true]) for (const requester of ['seeker', 'provider']) {
+    await t.test(`${requester} ${paid ? 'paid' : 'cash'} cancellation remains authoritative and ignores stalled audience queries`, async () => {
       reset(paid); emitted.length = 0; slowQueueBroadcast = true;
       let finished = false;
       holdGateway = paid;
-      const action = requestCancellation('booking', 'seeker', 'Cannot attend').then(result => { finished = true; return result; });
+      const action = requestCancellation('booking', requester, 'Cannot attend').then(result => { finished = true; return result; });
       if (paid) {
         await new Promise(resolve => setTimeout(resolve, 10));
         assert.equal(finished, false, 'cancellation must wait for actual payment verification');
@@ -265,10 +294,17 @@ test('booking lifecycle commits before realtime publication and does not wait fo
         assert.equal(state.messages.length, 1);
         assert.equal(state.earnings.length, paid ? 1 : 0);
         assertBothNotified('cancellation_approved');
+        for (const userId of ['seeker', 'provider']) {
+          const notices = state.notifications.filter(row => row.userId === userId && row.title === 'Booking cancelled');
+          assert.equal(notices.length, 1, `${userId} needs one saved cancellation alert`);
+          assert.match(notices[0].link, new RegExp(`/${userId}/.*booking=booking`));
+          assert.ok(emitted.some(event => event.room === `user:${userId}` && event.event === 'notification' && event.data.title === 'Booking cancelled'));
+        }
+        assert.equal(state.messages[0].senderId, requester);
       } finally { clearTimeout(timer); slowQueueBroadcast = false; broadcastFinishes.splice(0).forEach(finish => finish()); }
       const count = state.notifications.length;
-      await requestCancellation('booking', 'seeker', 'Cannot attend');
-      await performImmediateCancel('booking', 'seeker');
+      await requestCancellation('booking', requester, 'Cannot attend');
+      await performImmediateCancel('booking', requester);
       assert.equal(state.notifications.length, count);
       assert.equal(state.messages.length, 1);
     });
@@ -369,10 +405,12 @@ test('booking lifecycle commits before realtime publication and does not wait fo
       assert.equal(result.created, true);
       assert.equal(state.attempts[0].status, 'SUCCEEDED');
       assert.equal(state.queue?.status, 'WAITING');
-      assert.equal(state.notifications.length, 1);
+      assert.equal(state.notifications.length, 2);
       assertBothNotified('queue_created');
       await finalizeSuccessfulPayment(input);
-      assert.equal(state.notifications.length, 1);
+      assert.equal(state.notifications.length, 2);
+      assert.equal(state.notifications.filter(row => row.userId === 'seeker' && row.title === 'Payment confirmed').length, 1);
+      assert.ok(emitted.some(event => event.room === 'user:seeker' && event.event === 'notification' && event.data.title === 'Payment confirmed'));
     } finally { clearTimeout(timer); slowQueueBroadcast = false; broadcastFinishes.splice(0).forEach(finish => finish()); }
   });
 });

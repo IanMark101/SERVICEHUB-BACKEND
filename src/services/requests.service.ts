@@ -6,6 +6,7 @@ import { canonicalCategoryName } from '../lib/category-catalog';
 import type { JobLocation, NearbyQuery, ServiceLocationMode } from '../schema/location.schema';
 import { publicOffer, assertLocationForArrangementChange } from '../lib/service-arrangement';
 import { prisma } from "../lib/prisma";
+import { publishNotifications } from './notifications.service';
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
 import { RequestPaymentMethodsSchema, RequestUrgencySchema } from "../schema/marketplace.schema";
@@ -320,7 +321,7 @@ export async function updateRequest(requestId: string, seekerId: string, params:
 }
 
 export async function cancelRequest(requestId: string, seekerId: string) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${requestId}`}))`;
     const request = await tx.serviceRequest.findFirst({ where: { id: requestId, seekerId } });
     if (!request) {
@@ -328,7 +329,7 @@ export async function cancelRequest(requestId: string, seekerId: string) {
       err.status = 404;
       throw err;
     }
-    const offers = await tx.offer.findMany({ where: { requestId }, select: { id: true, status: true, booking: { select: { status: true } } } });
+    const offers = await tx.offer.findMany({ where: { requestId }, select: { id: true, providerId: true, status: true, booking: { select: { status: true } } } });
     const offerIds = offers.map((offer) => offer.id);
     const payments = offerIds.length === 0 ? [] : await tx.paymentAttempt.findMany({
       where: { offerId: { in: offerIds }, status: { in: protectedRequestPaymentStatuses } },
@@ -347,8 +348,16 @@ export async function cancelRequest(requestId: string, seekerId: string) {
       throw err;
     }
     await tx.offer.updateMany({ where: { requestId, status: "PENDING" }, data: { status: "REJECTED" } });
-    return tx.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
+    const pending = [...new Map(offers.filter(offer => offer.status === 'PENDING').map(offer => [offer.providerId, offer])).values()];
+    if (pending.length) await tx.notification.createMany({ data: pending.map(offer => ({
+      id: `request-closed:${requestId}:${offer.providerId}`, userId: offer.providerId, title: 'Request closed',
+      body: `The seeker closed "${request.title}". Your pending offer is now closed.`,
+      link: `/provider/provider-activity?tab=all&offer=${offer.id}`,
+    })) });
+    return { request: await tx.serviceRequest.findUniqueOrThrow({ where: { id: requestId } }), providerIds: pending.map(offer => offer.providerId) };
   });
+  publishNotifications(result.providerIds, 'Request closed');
+  return result.request;
 }
 
 export async function archiveCompletedRequest(requestId: string, seekerId: string) {

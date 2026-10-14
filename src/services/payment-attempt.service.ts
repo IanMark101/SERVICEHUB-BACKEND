@@ -568,13 +568,17 @@ export async function finalizeSuccessfulPayment(params: {
       await tx.serviceRequest.update({ where: { id: offer.requestId }, data: { status: "IN_PROGRESS" } });
     }
     const title = offerTerms?.request.title ?? service?.title ?? 'your service';
-    const recorded = await recordLifecycleNotice(tx, booking, {
+    const recorded = await recordLifecycleNotice(tx, booking, [{
       userId: booking.providerId, title: 'Paid booking ready to start',
       body: queue.position === 1
         ? `Payment was confirmed for "${title}". This seeker is first in your paid work queue and ready for you to start.`
         : `Payment was confirmed for "${title}". This seeker is now in your paid work queue at position ${queue.position}.`,
       link: `/provider/provider-activity?tab=waiting&booking=${booking.id}`,
-    });
+    }, {
+      userId: booking.seekerId, title: 'Payment confirmed',
+      body: `Your payment for "${title}" was confirmed. Your booking is in the provider's paid work queue.`,
+      link: `/seeker/seeker-activity?tab=active&booking=${booking.id}`,
+    }]);
     return { booking, queue, created: true, refundRequired: false, title, losingProviderIds, recorded };
   });
 

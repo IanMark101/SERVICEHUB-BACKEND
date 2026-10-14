@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { getPrivateVerificationUrl } from "../config/cloudinary";
 import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
+import { recordLifecycleNotice, publishLifecycleChange } from './bookings/lifecycle-events';
 import { assertNoRefundInProgress, lockBookingLifecycle } from "./booking-lifecycle.service";
 import { assertNoFinancialResolutionReserved } from "./case-resolution.service";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
@@ -57,7 +58,8 @@ export async function createSafetyReport(params: {
     const report = await tx.report.create({
       data: { bookingId: booking.id, reporterId: params.reporterId, reportedUserId, reason: params.reason, description: params.description.trim(), evidenceStorageKey: params.evidenceStorageKey, reportType: "SAFETY", dedupeKey },
     });
-    if (["ACCEPTED", "ONGOING", "AWAITING_CONFIRMATION"].includes(booking.status)) {
+    const pauseBooking = ["ACCEPTED", "ONGOING", "AWAITING_CONFIRMATION"].includes(booking.status);
+    if (pauseBooking) {
       await tx.booking.update({
         where: { id: booking.id },
         data: { statusBeforeDispute: booking.status, status: "DISPUTED", ...(booking.paymentStatus === "PAID_HELD" ? { paymentStatus: "FROZEN_HELD" } : {}) },
@@ -72,12 +74,17 @@ export async function createSafetyReport(params: {
         data: admins.map((admin) => ({ userId: admin.id, title: "Safety report requires review", body: "A booking participant submitted a safety report.", link: `/admin/reports?report=${report.id}` })),
       });
     }
-    return { report, created: true, admins, participantIds: [booking.seekerId, booking.providerId] };
+    const recorded = pauseBooking ? await recordLifecycleNotice(tx, booking, [
+      { userId: booking.seekerId, title: 'Booking under review', body: 'This booking is under administrator review. Check Activity for its current status.', link: `/seeker/seeker-activity?tab=disputed&booking=${booking.id}` },
+      { userId: booking.providerId, title: 'Booking under review', body: 'This booking is under administrator review. Check Activity for its current status.', link: `/provider/provider-activity?tab=disputed&booking=${booking.id}` },
+    ]) : null;
+    return { report, created: true, admins, participantIds: [booking.seekerId, booking.providerId], recorded, booking };
   });
   if (result.created) {
     result.admins.forEach((admin) => safeEmit(`user:${admin.id}`, "notification", { title: "Safety report requires review" }));
     safeEmit("admin", "ADMIN_MODERATION_CHANGED", { type: "safety_report", reportId: result.report.id });
-    result.participantIds.forEach(userId => safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId: params.bookingId, type: 'safety_report' }));
+    if ('recorded' in result && result.recorded && result.booking) publishLifecycleChange(result.booking, 'safety_report', result.recorded);
+    else result.participantIds.forEach(userId => safeEmit(`user:${userId}`, "ENGAGEMENT_CHANGED", { bookingId: params.bookingId, type: 'safety_report' }));
   }
   const { evidenceStorageKey: _key, ...safeReport } = result.report;
   return { ...safeReport, hasPrivateEvidence: Boolean(result.report.evidenceStorageKey), created: result.created };

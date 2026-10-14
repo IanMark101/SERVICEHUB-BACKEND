@@ -493,11 +493,19 @@ export async function deleteService(serviceId: string, providerId: string) {
     throw err;
   }
 
-  await prisma.queueNotify.deleteMany({ where: { serviceId } });
-  return prisma.service.update({
-    where: { id: serviceId },
-    data: { status: "DELETED", isAvailable: false },
+  const result = await prisma.$transaction(async tx => {
+    await tx.queueNotify.deleteMany({ where: { serviceId } });
+    const inquiries = await tx.serviceRequest.findMany({ where: { targetServiceId: serviceId, status: 'OPEN' }, select: { id: true, seekerId: true } });
+    if (inquiries.length) await tx.notification.createMany({ data: inquiries.map(inquiry => ({
+      id: `listing-removed:${serviceId}:${inquiry.id}`, userId: inquiry.seekerId, title: 'Requested service listing removed',
+      body: `The provider removed "${service.title}". Check your request and choose another service.`,
+      link: `/seeker/request-manager?requestId=${inquiry.id}`,
+    })), skipDuplicates: true });
+    const removed = await tx.service.update({ where: { id: serviceId }, data: { status: 'DELETED', isAvailable: false } });
+    return { removed, seekerIds: inquiries.map(inquiry => inquiry.seekerId) };
   });
+  for (const seekerId of new Set(result.seekerIds)) safeEmit(`user:${seekerId}`, 'notification', { title: 'Requested service listing removed' });
+  return result.removed;
 }
 
 // ── Get My Listings (Provider) ─────────────────────────────────────────────────

@@ -4,19 +4,21 @@ import { emitProviderQueueUpdates } from '../queue.service';
 import { assertDistinctAccounts } from '../../utils/security';
 
 type Participants = { id: string; seekerId: string; providerId: string };
-type Notice = Pick<Prisma.NotificationUncheckedCreateInput, 'userId' | 'title' | 'body' | 'link'>;
+type Notice = Pick<Prisma.NotificationUncheckedCreateInput, 'id' | 'userId' | 'title' | 'body' | 'link'>;
 
 /** Persist the notice together with the transition. A failed response must not
  * leave a changed booking without its notification or system history. */
 export async function recordLifecycleNotice(
   tx: Prisma.TransactionClient,
   booking: Participants,
-  notice: Notice,
+  notice: Notice | Notice[],
   system?: { senderId: string; content: string },
 ) {
   if (system) assertDistinctAccounts(system.senderId,
     system.senderId === booking.seekerId ? booking.providerId : booking.seekerId, 'send message');
-  await tx.notification.create({ data: notice });
+  const notices = Array.isArray(notice) ? notice : [notice];
+  if (!notices.length) throw new Error('A lifecycle notification needs a recipient');
+  for (const item of notices) await tx.notification.create({ data: item });
   const message = system ? await tx.message.create({
     data: {
       bookingId: booking.id,
@@ -28,7 +30,7 @@ export async function recordLifecycleNotice(
     include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
   }) : null;
   // Recording a system event is not the same as reading the conversation.
-  return { notice, message };
+  return { notice: notices[0], notices, message };
 }
 
 /** All authoritative writes are committed before any event is published.
@@ -43,7 +45,7 @@ export function publishLifecycleChange(
   for (const room of new Set([`user:${booking.seekerId}`, `user:${booking.providerId}`, `booking:${booking.id}`])) {
     safeEmit(room, 'ENGAGEMENT_CHANGED', { bookingId: booking.id, type });
   }
-  safeEmit(`user:${recorded.notice.userId}`, 'notification', { title: recorded.notice.title });
+  for (const notice of recorded.notices) safeEmit(`user:${notice.userId}`, 'notification', { title: notice.title });
   if (recorded.message) {
     const message = recorded.message;
     safeEmit(`booking:${booking.id}`, 'new_message', message);

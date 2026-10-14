@@ -90,7 +90,8 @@ async function main() {
       SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '', PRISMA_LOG_QUERIES: 'false' };
     const migration = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env, encoding: 'utf8', timeout: 180000 });
     if (migration.status !== 0) {
-      console.error((migration.stderr || migration.stdout).replaceAll(base, '[database]').replaceAll(url.toString(), '[isolated database]'));
+      console.error({ status: migration.status, signal: migration.signal, error: migration.error?.message });
+      console.error(`${migration.stdout || ''}\n${migration.stderr || ''}`.replaceAll(base, '[database]').replaceAll(url.toString(), '[isolated database]'));
       throw new Error('Isolated migration failed');
     }
     console.log('Fresh isolated audit schema migrated successfully.');

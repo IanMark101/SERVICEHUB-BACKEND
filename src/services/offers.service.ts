@@ -260,9 +260,9 @@ export async function rejectOffer(offerId: string, userId: string) {
     }
     const closesInquiry = Boolean(current.request.targetServiceId && current.request.preferredPaymentMethod === null);
     if (closesInquiry) await tx.serviceRequest.update({ where: { id: offer.requestId }, data: { status: 'CANCELED' } });
-    if (closesInquiry && isProvider) await tx.notification.create({ data: {
-      id: `price-withdrawn:${offerId}`, userId: offer.request.seekerId,
-      title: 'Proposed price withdrawn', body: `The provider withdrew the price for "${current.request.title}". This request is closed. You can send a new request; no booking or payment was created.`,
+    if (isProvider) await tx.notification.create({ data: {
+      id: `${closesInquiry ? 'price-withdrawn' : 'offer-withdrawn'}:${offerId}`, userId: offer.request.seekerId,
+      title: closesInquiry ? 'Proposed price withdrawn' : 'Offer withdrawn', body: closesInquiry ? `The provider withdrew the price for "${current.request.title}". This request is closed. You can send a new request; no booking or payment was created.` : `The provider withdrew their offer for "${current.request.title}". Your request remains open to other offers.`,
       link: `/seeker/request-manager?requestId=${encodeURIComponent(offer.requestId)}`,
     } });
     if (!isProvider) await tx.notification.create({ data: {
@@ -280,7 +280,7 @@ export async function rejectOffer(offerId: string, userId: string) {
     safeEmit(`user:${offer.request.seekerId}`, 'OFFERS_CHANGED', event);
     safeEmit(`user:${offer.providerId}`, 'OFFERS_CHANGED', event);
     if (result.closesInquiry) for (const participant of [offer.request.seekerId, offer.providerId]) safeEmit(`user:${participant}`, 'SERVICE_REQUESTS_CHANGED', { id: offer.requestId, status: 'CANCELED' });
-    if (result.closesInquiry && isProvider) safeEmit(`user:${offer.request.seekerId}`, 'notification', { id: `price-withdrawn:${offerId}`, title: 'Proposed price withdrawn' });
+    if (isProvider) safeEmit(`user:${offer.request.seekerId}`, 'notification', { id: `${result.closesInquiry ? 'price-withdrawn' : 'offer-withdrawn'}:${offerId}`, title: result.closesInquiry ? 'Proposed price withdrawn' : 'Offer withdrawn' });
     if (!isProvider) safeEmit(`user:${offer.providerId}`, 'notification', { id: `offer-declined:${offerId}`, title: 'Offer declined', offerId });
   }
   return publicOffer(result.updatedOffer);

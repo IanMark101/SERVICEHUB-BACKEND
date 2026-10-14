@@ -17,6 +17,7 @@
     "db:seed": "npx tsx prisma/seed.ts",
     "test:admin-contracts": "tsx --test src/schema/admin-contracts.test.ts",
     "test": "tsx --test src/schema/*.test.ts",
+    "notifications:audit": "node dist/scripts/audit-notifications.js",
     "test:booking-integration": "tsx --test src/integration/booking-flows.test.ts",
     "test:provider-workload": "tsx --test src/integration/provider-wide-workload.test.ts",
     "test:high-priority-integration": "tsx --test src/integration/high-priority-case-workflows.test.ts",

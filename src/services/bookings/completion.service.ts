@@ -13,6 +13,7 @@ import { assertNoRefundInProgress, lockBookingLifecycle } from "../booking-lifec
 import { assertNoFinancialResolutionReserved } from "../case-resolution.service";
 import { recordBookingProgress } from "../booking-progress.service";
 import { recordLifecycleNotice, publishLifecycleChange } from './lifecycle-events';
+import { recordAdminNotifications, publishNotifications } from '../notifications.service';
 
 function httpError(message: string, status: number, code?: string) {
   const error = new Error(message) as Error & { status?: number; code?: string };
@@ -147,7 +148,7 @@ export async function settleCompletedBooking(
     }
 
     await awardBookingCompletionTrust(tx, booking.id);
-    const recorded = await recordLifecycleNotice(tx, updatedBooking, {
+    const recorded = await recordLifecycleNotice(tx, updatedBooking, [{
       userId: booking.providerId,
       title: "Completion confirmed",
       body: actor.type === "ADMIN"
@@ -157,6 +158,10 @@ export async function settleCompletedBooking(
           : "The seeker confirmed completion and the internal payment hold was released.",
       link: `/provider/provider-activity?tab=all&booking=${booking.id}`,
     }, {
+      userId: booking.seekerId, title: 'Completion confirmed',
+      body: actor.type === 'ADMIN' ? 'An administrator reviewed the booking and confirmed completion.' : 'Your booking is complete. You can now review the service.',
+      link: `/seeker/seeker-activity?tab=all&booking=${booking.id}`,
+    }], {
       senderId: actor.userId,
       content: isCash ? "Cash service completion confirmed." : "Online payment released after completion confirmation.",
     });
@@ -222,8 +227,13 @@ export async function disputeJobService(
       body: "The seeker opened a completion dispute for administrator review.",
       link: `/provider/provider-activity?tab=disputed&booking=${bookingId}`,
     });
-    return { report, booking: updatedBooking, recorded };
+    const adminIds = await recordAdminNotifications(tx, {
+      title: 'Completion dispute requires review', body: 'A seeker disputed completion of a booking.',
+      link: `/admin/reports?report=${report.id}`,
+    });
+    return { report, booking: updatedBooking, recorded, adminIds };
   });
   publishLifecycleChange(result.booking, 'disputed', result.recorded);
+  publishNotifications(result.adminIds, 'Completion dispute requires review');
   return { ...result.report, booking: result.booking };
 }

@@ -13,7 +13,7 @@ import { startModerationReview } from '../services/admin-case-workspace.service'
 test('booking action history is transactional, shared, ordered, and retry safe', async t => {
   // This test must never write fixtures into the deployed application's schema.
   const schemaName = new URL(process.env.DATABASE_URL!).searchParams.get('schema') || '';
-  assert.match(schemaName, /^servicehub_migration_test_[a-f0-9]{32}$/);
+  assert.match(schemaName, /^(?:servicehub_migration_test_|audit_20260924_)[a-f0-9]{32}$/);
   const [connection] = await prisma.$queryRaw<Array<{ schema: string }>>`SELECT current_schema() AS schema`;
   assert.equal(connection.schema, schemaName, 'Raw SQL must also target the disposable schema');
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;

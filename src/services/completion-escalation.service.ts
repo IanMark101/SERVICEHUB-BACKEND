@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { awardBookingCompletionTrust } from './trust-policy.service';
 import { safeBroadcast, safeEmit } from "../lib/socket";
+import { recordLifecycleNotice, publishLifecycleChange } from './bookings/lifecycle-events';
 import { settleCompletedBooking } from "./bookings/completion.service";
 import { performImmediateCancel } from "./cancellation.service";
 import { lockBookingLifecycle } from "./booking-lifecycle.service";
@@ -62,10 +63,16 @@ export async function createCompletionEscalation(bookingId: string, providerId: 
         link: `/admin/reports?booking=${bookingId}`,
       })) });
     }
-    return { escalation, created: true, adminIds: admins.map((admin) => admin.id) };
+    const recorded = await recordLifecycleNotice(tx, booking, {
+      userId: booking.seekerId, title: 'Completion review requested',
+      body: 'The provider requested administrator review of completion. You can still review the booking and respond.',
+      link: `/seeker/seeker-activity?tab=action_required&booking=${bookingId}`,
+    });
+    return { escalation, created: true, adminIds: admins.map((admin) => admin.id), booking, recorded };
   });
 
   if (result.created) {
+    if ('recorded' in result && result.booking && result.recorded) publishLifecycleChange(result.booking, 'completion_escalated', result.recorded);
     result.adminIds.forEach((adminId) => safeEmit(`user:${adminId}`, "notification", { title: "Completion escalation requires review" }));
     safeEmit("admin", "ADMIN_MODERATION_CHANGED", { type: "completion_escalation", bookingId });
   }

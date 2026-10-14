@@ -3,6 +3,7 @@ import { requireAuth } from "../middlewares/auth.middleware";
 import {
   getMyNotifications,
   markAllAsRead,
+  markOneAsRead,
 } from "../controllers/notifications.controller";
 
 const router = Router();
@@ -15,5 +16,6 @@ router.get("/", getMyNotifications);
 
 // PATCH /notifications/read-all — mark all notifications as read
 router.patch("/read-all", markAllAsRead);
+router.patch('/:id/read', markOneAsRead);
 
 export default router;
