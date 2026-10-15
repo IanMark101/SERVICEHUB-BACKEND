@@ -21,9 +21,9 @@ test('policy transition and review response safeguards in a disposable schema', 
     await handler({ user: { id: userId }, body, params: { id } } as never, { status() { return this; }, json(value: unknown) { data = value; return this; } } as never, value => { error = value; });
     if (error) throw error; return data;
   };
-  await t.test('recipient ownership, one case, 48-hour response opportunity and policy finding', async () => {
-    const item = await invoke(submitTrustCase, recipient.id, { reviewId: review.id, description: 'The original review contains abusive statements unrelated to work.' });
-    await assert.rejects(invoke(submitTrustCase, recipient.id, { reviewId: review.id, description: 'Duplicate cases must not be accepted for the same original review.' }), /already been submitted/);
+  await t.test('existing disputes retain the 48-hour response opportunity and policy finding', async () => {
+    const existing = await prisma.trustCase.create({ data: { userId: recipient.id, respondentId: author.id, reviewId: review.id, description: 'A review dispute submitted before new reports were removed.' } });
+    const item = { data: existing };
     const decision = { uphold: true, violation: 'HARASSMENT', reason: 'Documented abusive content violates the review policy.' };
     await assert.rejects(invoke(decideTrustCase, admin.id, decision, item.data.id), /48 hours/);
     await assert.rejects(invoke(respondToTrustCase, recipient.id, { response: 'The recipient cannot pretend to be the original review author.' }, item.data.id), /other participant/);

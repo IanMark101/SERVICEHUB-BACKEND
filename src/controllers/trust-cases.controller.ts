@@ -9,8 +9,7 @@ import { invalidateReviewSummaries } from '../services/ai.service';
 import { recordAdminNotifications, publishNotifications } from '../services/notifications.service';
 
 const message = z.string().trim().min(20).max(2000);
-export const TrustCaseSchema = z.object({ reviewId: z.string().min(1).optional(), trustEventId: z.string().min(1).optional(), description: message })
-  .strict().refine(value => !!value.reviewId !== !!value.trustEventId, 'Select one review or trust penalty');
+export const TrustCaseSchema = z.object({ trustEventId: z.string().min(1), description: message }).strict();
 export const TrustCaseDecisionSchema = z.object({ uphold: z.boolean(), reason: message,
   violation: z.enum(['MANIPULATION', 'HARASSMENT', 'FABRICATED', 'IRRELEVANT', 'OTHER_POLICY']).optional() }).strict();
 const fail = (text: string, status = 422) => Object.assign(new Error(text), { status });
@@ -22,23 +21,18 @@ export async function submitTrustCase(req: Request, res: Response, next: NextFun
   try {
     const input = TrustCaseSchema.parse(req.body); const userId = actor(req);
     const item = await prisma.$transaction(async tx => {
-      const review = input.reviewId ? await tx.review.findUnique({ where: { id: input.reviewId } }) : null;
-      const event = input.trustEventId ? await tx.trustScoreEvent.findUnique({ where: { id: input.trustEventId }, include: { reversal: true } }) : null;
-      if (input.reviewId && (!review || review.targetId !== userId || review.visibility !== 'VISIBLE')) throw fail('Only the recipient can dispute a visible review', 403);
-      if (input.trustEventId && (!event || event.userId !== userId || event.reversal || !['REPORT_PENALTY', 'CANCELLATION_PENALTY'].includes(event.category))) throw fail('Select an uncorrected penalty on your own account', 403);
-      const prior = await tx.trustCase.findFirst({ where: input.reviewId ? { reviewId: input.reviewId } : { trustEventId: input.trustEventId } });
-      if (prior) throw fail('A case has already been submitted for this review or penalty', 409);
-      const created = await tx.trustCase.create({ data: { ...input, userId, respondentId: review?.authorId } });
-      if (review) await tx.notification.create({ data: { userId: review.authorId, title: 'Review disputed',
-        body: 'The recipient reported a possible review policy violation. You can explain your experience in Trust History.', link: '/seeker/user-profile?tab=trust' } });
+      const event = await tx.trustScoreEvent.findUnique({ where: { id: input.trustEventId }, include: { reversal: true } });
+      if (!event || event.userId !== userId || event.reversal || !['REPORT_PENALTY', 'CANCELLATION_PENALTY'].includes(event.category)) throw fail('Select an uncorrected penalty on your own account', 403);
+      const prior = await tx.trustCase.findFirst({ where: { trustEventId: input.trustEventId } });
+      if (prior) throw fail('A case has already been submitted for this penalty', 409);
+      const created = await tx.trustCase.create({ data: { ...input, userId } });
       const adminIds = await recordAdminNotifications(tx, {
-        title: 'Review or trust appeal requires review', body: 'A member submitted a review dispute or trust penalty appeal.',
+        title: 'Trust penalty appeal requires review', body: 'A member submitted an appeal against a recorded trust penalty.',
         link: '/admin/reviews',
       });
       return { created, adminIds };
     });
-    publishNotifications(item.adminIds, 'Review or trust appeal requires review');
-    if (item.created.respondentId) publishNotifications([item.created.respondentId], 'Review disputed');
+    publishNotifications(item.adminIds, 'Trust penalty appeal requires review');
     safeEmit('admin', 'ADMIN_MODERATION_CHANGED', { trustCaseId: item.created.id });
     res.status(201).json({ success: true, data: item.created });
   } catch (error) {
@@ -108,15 +102,6 @@ export async function decideTrustCase(req: Request, res: Response, next: NextFun
     publishNotifications([result.decided.userId, result.decided.respondentId].filter((id): id is string => !!id), 'Review or trust appeal decided');
     safeEmit(`user:${result.decided.userId}`, 'accountStatusChanged', { trustChanged: result.changedTrust });
     res.json({ success: true, data: result.decided });
-  } catch (error) { next(error); }
-}
-
-export async function respondToReview(req: Request, res: Response, next: NextFunction) {
-  try {
-    const input = z.object({ response: z.string().trim().min(10).max(1000) }).strict().parse(req.body);
-    const result = await prisma.review.updateMany({ where: { id: req.params.id as string, targetId: actor(req), visibility: 'VISIBLE' }, data: { ...input, respondedAt: new Date() } });
-    if (!result.count) throw fail('Only the recipient can respond to a visible review', 403);
-    res.json({ success: true });
   } catch (error) { next(error); }
 }
 

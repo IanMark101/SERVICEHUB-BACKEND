@@ -9,7 +9,7 @@ import { applyBookingTrustPenalty, awardBookingCompletionTrust } from '../servic
 import { applyManualTrustAdjustment } from '../services/trust.service';
 import { submitReview, updateReview } from '../controllers/reviews.controller';
 import { moderateReview } from '../controllers/admin/reviews.controller';
-import { submitTrustCase, decideTrustCase, respondToReview, listTrustCases } from '../controllers/trust-cases.controller';
+import { submitTrustCase, decideTrustCase, respondToTrustCase, listTrustCases } from '../controllers/trust-cases.controller';
 import { TrustAdjustmentSchema } from '../schema/marketplace.schema';
 
 test('evidence-based trust in an isolated migrated schema', async t => {
@@ -76,7 +76,7 @@ test('evidence-based trust in an isolated migrated schema', async t => {
     });
     assert.equal(await score(p.id), 40); assert.equal(await score(s.id), 53);
   });
-  await t.test('all ratings, edits, moderation and public responses are trust-neutral; low stars require explanations', async () => {
+  await t.test('all ratings, edits and moderation are trust-neutral; low stars require explanations', async () => {
     for (const rating of [1, 2, 3, 4, 5]) {
       const p = await account(); const s = await account(); const a = await booking(p.id, s.id);
       const done = await settleCompletedBooking(a.id, { type: 'SEEKER', userId: s.id });
@@ -84,7 +84,6 @@ test('evidence-based trust in an isolated migrated schema', async t => {
       const created = await invoke(submitReview, s.id, { completedServiceId: done.id, rating, text: 'Feedback about the completed booking' });
       const id = created.result.data.id;
       await invoke(updateReview, s.id, { rating: 1, text: 'Changed opinion about this experience' }, id);
-      await invoke(respondToReview, p.id, { response: 'Here is my respectful explanation of the service.' }, id);
       await invoke(moderateReview, admin.id, { action: 'hide', violation: 'HARASSMENT', reason: 'Abusive statements documented in this review' }, id, 'admin');
       await invoke(moderateReview, admin.id, { action: 'restore', reason: 'Review restored after checking the actual context' }, id, 'admin');
       assert.equal(await score(p.id), 53); assert.equal(await score(s.id), 53);
@@ -108,14 +107,19 @@ test('evidence-based trust in an isolated migrated schema', async t => {
     await assert.rejects(invoke(decideTrustCase, otherAdmin.id, { uphold: true, reason: 'Repeated decision must not add another reversal.' }, appeal.result.data.id, 'admin'), /already been decided/);
     assert.equal((await invoke(listTrustCases, s.id)).result.data.length, 0);
   });
-  await t.test('review disputes require recipient ownership and a policy violation to uphold', async () => {
+  await t.test('new review reports are rejected and existing disputes retain their private response and moderation safeguards', async () => {
     const p = await account(); const s = await account(); const a = await booking(p.id, s.id);
     const done = await settleCompletedBooking(a.id, { type: 'SEEKER', userId: s.id });
     const review = await invoke(submitReview, s.id, { completedServiceId: done.id, rating: 1, text: 'I did not like the service experience.' });
-    await assert.rejects(invoke(submitTrustCase, s.id, { reviewId: review.result.data.id, description: 'I cannot dispute the review I wrote myself.' }), /recipient/);
-    const item = await invoke(submitTrustCase, p.id, { reviewId: review.result.data.id, description: 'This review contains unrelated abusive statements.' });
-    await assert.rejects(invoke(decideTrustCase, admin.id, { uphold: true, reason: 'The provider simply disagrees with this rating.' }, item.result.data.id, 'admin'), /policy violation/);
-    await invoke(decideTrustCase, admin.id, { uphold: false, reason: 'This is genuine customer criticism and remains visible.' }, item.result.data.id, 'admin');
+    for (const userId of [s.id, p.id]) {
+      await assert.rejects(invoke(submitTrustCase, userId, { reviewId: review.result.data.id, description: 'This review contains unrelated abusive statements.' }), error => error instanceof Error && error.name === 'ZodError');
+    }
+    assert.equal(await prisma.trustCase.count({ where: { reviewId: review.result.data.id } }), 0);
+    const item = await prisma.trustCase.create({ data: { userId: p.id, respondentId: s.id, reviewId: review.result.data.id, description: 'A review dispute submitted before reports were removed.' } });
+    await assert.rejects(invoke(respondToTrustCase, p.id, { response: 'The reporter cannot respond as the review author.' }, item.id), /other participant/);
+    await invoke(respondToTrustCase, s.id, { response: 'The review describes my completed booking experience.' }, item.id);
+    await assert.rejects(invoke(decideTrustCase, admin.id, { uphold: true, reason: 'The provider simply disagrees with this rating.' }, item.id, 'admin'), /policy violation/);
+    await invoke(decideTrustCase, admin.id, { uphold: false, reason: 'This is genuine customer criticism and remains visible.' }, item.id, 'admin');
     assert.equal((await prisma.review.findUniqueOrThrow({ where: { id: review.result.data.id } })).visibility, 'VISIBLE');
     assert.equal(await score(p.id), 53);
   });
