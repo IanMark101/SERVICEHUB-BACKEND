@@ -38,7 +38,7 @@ export function getUserPermissions(user: any): UserPermissions {
     canBookServices: isEligible,
     canAcceptBookings: isEligible,
     canMessage: true,
-    canReview: isVerified && isActive,
+    canReview: isEligible,
     canReport: true,
   };
 }
