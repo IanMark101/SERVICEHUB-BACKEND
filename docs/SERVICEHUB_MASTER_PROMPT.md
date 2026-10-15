@@ -876,7 +876,7 @@ Request Manager exposes AI Matches for the seeker's own open public request; Ser
 
 ### Priority 3 — Category assistance; other AI assistants remain future work
 
-Post Request and Offer Services expose Suggest category and manual category search. POST /api/ai/suggest-category accepts a bounded title/description and returns up to three current active catalog IDs. Confirmation is explicit and never silently overrides the selected category. Gemini configuration and rate limits remain server-only; unavailable/invalid AI output preserves manual entry. This does not reinstate the removed member proposals for creating new categories. AI listing drafting, report assistance and AI moderation decisions remain unimplemented; local publication policy and Admin decisions stay authoritative.
+Post Request and Offer Services expose Suggest category and manual category search. POST /api/ai/suggest-category accepts a bounded title/description and returns up to three current active catalog IDs, rechecked before return. Confirmation is explicit and never silently overrides the selected category. Category AI requests have an eight-second deadline and constrained JSON output; the configured Gemini 2.5 Flash model uses no thinking budget for this small classification task. If AI is unavailable or returns unusable results, conservative catalog matching supplies clearly labeled suggestions with source "catalog"; vague input asks for more detail or manual selection. Gemini configuration and rate limits remain server-only. This does not reinstate the removed member proposals for creating new categories. AI listing drafting, report assistance and AI moderation decisions remain unimplemented; local publication policy and Admin decisions stay authoritative.
 
 
 ---

@@ -42,7 +42,9 @@ test('AI assists only eligible official categories and reciprocal marketplace re
   await t.test('category suggestions never invent IDs or return inactive choices',async()=>{
     env.GEMINI_API_KEY='fixture-key-not-real';
     globalThis.fetch=(async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({ids:['invented-category']})}]}}]}),{status:200})) as typeof fetch;
-    assert.equal((await suggestCategories({title:'LAPTOP FAN NOT TURNING',description:''},seeker.id)).suggestions.length,0);
+    const fallback=await suggestCategories({title:'LAPTOP FAN NOT TURNING',description:''},seeker.id);
+    assert.equal(fallback.source,'catalog');
+    assert.deepEqual(fallback.suggestions,[{id:category.id,name:category.name}]);
     let sent='';
     globalThis.fetch=(async(_input,init)=>{sent=String(init?.body);return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({ids:[category.id]})}]}}]}),{status:200});}) as typeof fetch;
     const suggestion=await suggestCategories({title:'FIX MY LAPTOP FAN',description:'It stopped spinning.'},seeker.id);
