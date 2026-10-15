@@ -24,3 +24,5 @@ Verified October 14, 2026: 57 frontend tests, 2 backend contract tests and 6 iso
 ## Required for GCash listings
 
 Offer Services, Edit Service Listing and Post Request require a successfully loaded, valid saved number when GCash is selected. The create/update APIs repeat this check under the account lifecycle lock, using effective payment methods for edits. Cash-only listings need no number. Number removal checks retained service listings and active public requests under the same lock. No number is copied into public listing payloads or treated as a verified payout destination.
+
+The shared listing modal uses the registration formatter with fixed +63, ten national digits starting with 9, digit grouping and input sanitization. Paste accepts national, 09 or +63 forms; saving sends the canonical 09 format to the existing strict API. Both workspaces and service editing share this control.

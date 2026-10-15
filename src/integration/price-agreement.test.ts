@@ -125,6 +125,8 @@ test('private service requests reuse offers and create a booking only after pric
       assert.equal(await prisma.queue.count({ where: { bookingId: booking.id } }), 0);
     });
     await t.test('GCash uses the approved offer total, holds payment before booking, and finalizes idempotently', async () => {
+      // A new quote requires the source listing to still permit agreement pricing.
+      await updateService(service.id, provider.id, { priceType:'BY_AGREEMENT', price:null });
       const offer = await submitOffer(provider.id, { requestId: onlineInquiry.id, serviceId: service.id, offeredPrice: 2200, estimatedDuration: 90, serviceLocationMode: 'SEEKER_VISITS', message: 'Screen replacement with parts and labor included in the final total.' });
       assert.equal(offer.venueLabel, 'Cordova'); assert.ok(!JSON.stringify(offer).includes('PRIVATE WORKSHOP'));
       const attempt = await initiateOnlinePayment({ seekerId: onlineSeeker.id, offerId: offer.id, paymentMethod: 'gcash' });

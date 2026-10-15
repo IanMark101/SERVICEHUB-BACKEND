@@ -57,12 +57,6 @@ export function resolveOfferArrangement(request: RequestLocation, service: Servi
   return { serviceLocationMode, providerVenue: undefined };
 }
 
-/** A travelling provider must review the job and send an offer before GCash. */
-export function assertDirectPaymentArrangement(mode: ServiceLocationMode | undefined) {
-  if (mode === 'BOTH') throw failure('Choose one agreed arrangement before payment.');
-  if (mode === 'PROVIDER_VISITS') throw Object.assign(new Error('Send a service request first. The provider must agree to your job location and final price before GCash payment.'), { status: 409, code: 'PROVIDER_CONFIRMATION_REQUIRED' });
-}
-
 export function offerJobLocation(offer: { serviceLocationMode?: ServiceLocationMode | null; providerVenue?: unknown; request: RequestLocation }) {
   if (offer.serviceLocationMode === 'REMOTE') return undefined;
   if (offer.serviceLocationMode === 'SEEKER_VISITS') return JobLocationSchema.parse(offer.providerVenue);

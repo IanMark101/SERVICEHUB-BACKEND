@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Prisma } from '@prisma/client';
-import { assertDirectPaymentArrangement, resolveDirectArrangement, resolveOfferArrangement, offerJobLocation, publicOffer, assertLocationForArrangementChange } from '../lib/service-arrangement';
+import { resolveDirectArrangement, resolveOfferArrangement, offerJobLocation, publicOffer, assertLocationForArrangementChange } from '../lib/service-arrangement';
 import { CreateServiceSchema } from './services.schema';
 import { publicLocation } from '../lib/proximity';
 import { calculateDirectListingTerms } from '../services/bookings/direct-listing-pricing';
@@ -115,7 +115,8 @@ test('booking and offer contracts reject BOTH as an agreed arrangement', () => {
   assert.equal(OfferSchema.safeParse({ requestId: id, offeredPrice: 500, estimatedDuration: 60, serviceLocationMode: 'BOTH' }).success, false);
 });
 
-test('a travelling provider must agree before direct GCash, while shop visits and online work retain checkout', () => {
-  assert.throws(() => assertDirectPaymentArrangement('PROVIDER_VISITS'), { code: 'PROVIDER_CONFIRMATION_REQUIRED' });
-  for (const mode of ['SEEKER_VISITS', 'REMOTE'] as const) assert.doesNotThrow(() => assertDirectPaymentArrangement(mode));
+test('physical delivery keeps fixed and metered posted pricing, with a single travel fee', () => {
+  const arrangement = resolveDirectArrangement(base, 'PROVIDER_VISITS', { ...job, latitude: 11 });
+  assert.equal(Number(calculateDirectListingTerms('FIXED', new Prisma.Decimal(300), 1, 60, arrangement.transportationFee).amount), 375);
+  for (const type of ['PER_HOUR', 'PER_DAY'] as const) assert.equal(Number(calculateDirectListingTerms(type, new Prisma.Decimal(300), 2, 60, arrangement.transportationFee).amount), 675);
 });

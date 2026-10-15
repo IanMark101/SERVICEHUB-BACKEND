@@ -26,8 +26,8 @@ export async function createListingInquiry(seekerId: string, input: unknown) {
     if (!service || service.providerId !== source.providerId || service.status !== 'ACTIVE' || !service.isAvailable || !service.category.isActive) throw fail('This listing is no longer available.', 404);
     const methods = service.paymentMethods as { cash?: boolean; gcash?: boolean } | null;
     if (!methods?.cash && !methods?.gcash) throw fail('This listing has no available payment method.');
+    if (service.priceType !== 'BY_AGREEMENT') throw fail('This service has a set price. Book it at the listed price instead of requesting a quote.', 409, 'FIXED_PRICE_BOOKING_REQUIRED');
     const arrangement = resolveDirectArrangement(service, params.serviceLocationMode, params.jobLocation);
-    if (service.priceType !== 'BY_AGREEMENT' && arrangement.serviceLocationMode !== 'PROVIDER_VISITS') throw fail('Use the normal booking request for this listing and arrangement.', 400);
     const activeBooking = await tx.booking.findFirst({ where: { seekerId, serviceId: service.id, status: { in: ['PENDING_APPROVAL', 'WAITING', 'ACCEPTED', 'ONGOING', 'AWAITING_CONFIRMATION', 'UNDER_REVIEW', 'DISPUTED'] } }, select: { id: true } });
     if (activeBooking) throw fail('You already have an active booking for this service. Check Activity.', 409, 'ACTIVE_BOOKING_EXISTS');
     const existing = await tx.serviceRequest.findMany({ where: { seekerId, targetServiceId: service.id, status: { in: ['OPEN', 'PAYMENT_PENDING', 'IN_PROGRESS'] } }, select: { offers: { select: { status: true, booking: { select: { status: true } } } } } });

@@ -8,7 +8,7 @@ Seeker public requests select one job point for Provider visits or Both, and a d
 
 Search results and map pins are alternative ways to select the same location. A successful reverse lookup supplies its city/barangay name. The listing control closes to one selected-place summary. Manual label recovery appears only if lookup fails.
 
-A Provider-visits listing request creates a private inquiry, including for fixed/rate listings. The provider reviews work and job area, then declines or sends a final offer including agreed travel. The seeker approves terms before booking/payment. Direct GCash initiation and pending-attempt reuse cannot bypass this agreement. Shop/online set-price bookings retain direct Cash approval and verified GCash checkout. Historical accepted bookings and already-created payment attempts keep their existing settlement snapshots.
+Pricing is independent of delivery arrangement. Fixed and hourly/daily/project listings use direct Cash approval or verified GCash checkout at posted terms in every arrangement. Provider visits sends the private job point and adds the displayed travel fee once. Only BY_AGREEMENT creates a private inquiry and approved provider offer. The inquiry and offer APIs reject attempts to negotiate a new price for a fixed/rate private inquiry; old unquoted inquiries show guidance to close and rebook. Historical accepted bookings and already-created payment attempts keep their existing settlement snapshots.
 
 Exact private coordinates/directions remain outside public maps and unpaid previews. Shop pin publication still requires explicit provider consent. New public requests always require coordinates; historical unlocated cash listings retain their compatibility path.
 

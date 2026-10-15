@@ -61,7 +61,7 @@ export async function submitOffer(providerId: string, params: {
 
   const service = serviceId ? await tx.service.findUnique({
       where: { id: serviceId },
-      select: { providerId: true, categoryId: true, status: true, isAvailable: true, latitude: true, longitude: true, coverageRadiusKm: true, locationLabel: true, serviceLocationMode: true, venueAddress: true },
+      select: { providerId: true, categoryId: true, priceType: true, status: true, isAvailable: true, latitude: true, longitude: true, coverageRadiusKm: true, locationLabel: true, serviceLocationMode: true, venueAddress: true },
     }) : null;
   if (serviceId) {
     if (!service || service.providerId !== providerId || service.categoryId !== request.categoryId || service.status !== "ACTIVE" || !service.isAvailable) {
@@ -69,6 +69,9 @@ export async function submitOffer(providerId: string, params: {
         ? 'The requested listing is no longer available. Ask the seeker to choose an available listing or post a new request.'
         : 'That listing is unavailable or does not match this request. Choose an active listing in this category, or select “No listing” to send a custom offer.'), { status: 400, code: 'OFFER_LISTING_UNAVAILABLE' });
     }
+  }
+  if (request.targetServiceId && !request.preferredPaymentMethod && service?.priceType !== 'BY_AGREEMENT') {
+    throw Object.assign(new Error('This service has a set price. Close the old inquiry and ask the seeker to book at the listed price.'), { status: 409, code: 'FIXED_PRICE_BOOKING_REQUIRED' });
   }
   const arrangement = resolveOfferArrangement(request, service, params.serviceLocationMode, params.providerVenue);
 

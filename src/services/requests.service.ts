@@ -109,6 +109,13 @@ export function publicRequestWhere(providerId?: string): Prisma.ServiceRequestWh
   };
 }
 
+// targetServiceId is an application-managed scalar, not a Prisma relation.
+async function inquiryServicePrices(requests: { targetServiceId: string | null }[]) {
+  const ids = [...new Set(requests.flatMap(request => request.targetServiceId ? [request.targetServiceId] : []))];
+  const services = ids.length ? await prisma.service.findMany({ where:{ id:{ in:ids } }, select:{ id:true, priceType:true, price:true } }) : [];
+  return new Map(services.map(service => [service.id, {priceType:service.priceType,price:service.price}]));
+}
+
 export async function listRequests(categoryId?: string, providerId?: string, nearby?: NearbyQuery, ids?: string[]) {
   const requests = await prisma.serviceRequest.findMany({
     where: {
@@ -146,8 +153,10 @@ export async function listRequests(categoryId?: string, providerId?: string, nea
   const stats = getSeekerReviewStats(reviews.map(review => ({
     ...review, completedService: { seekerId: review.seekerId },
   })));
+  const sourcePrices = await inquiryServicePrices(requests);
   return requests.map(request => ({
     ...withListingPhotos(request),
+    ...(request.targetServiceId && { targetService:sourcePrices.get(request.targetServiceId) ?? null }),
     offersCount: request._count.offers,
     targetProviderId: request.targetServiceId ? request.targetProviderId : null,
     seeker: { ...request.seeker, ...(stats.get(request.seekerId) ?? { clientRating: 0, clientReviewCount: 0 }) },
@@ -191,8 +200,10 @@ export async function getMyRequests(seekerId: string) {
     select: { offerId: true, status: true },
   }) : [];
   const paymentsByOffer = new Map(payments.map(payment => [payment.offerId, payment]));
+  const sourcePrices = await inquiryServicePrices(managedRequests);
   return managedRequests.map(request => ({
     ...withListingPhotos(request),
+    ...(request.targetServiceId && { targetService:sourcePrices.get(request.targetServiceId) ?? null }),
     offers: request.offers.map(publicOffer),
     canArchive: canArchiveCompletedRequest(request.offers),
     ...requestDeletionEligibility(request, request.offers.flatMap(offer => {

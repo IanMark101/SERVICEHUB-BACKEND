@@ -10,7 +10,6 @@ import { assertProximityDatabase } from '../../scripts/proximity-db-target';
 import { providerStartJob } from '../services/bookings/provider-operations.service';
 import { markJobComplete, confirmCompletionService } from '../services/bookings/completion.service';
 import { respondToDirectBookingService, createDirectFromOfferService } from '../services/bookings/direct-bookings.service';
-import { createListingInquiry } from '../services/listing-inquiries.service';
 import { initiateOnlinePayment, finalizeSuccessfulPayment, markPaymentAttemptFailed } from '../services/payment-attempt.service';
 import { submitOffer } from '../services/offers.service';
 
@@ -170,16 +169,14 @@ test('nearby discovery enters the existing cash, custom offer and verified GCash
       throw new Error('Unexpected mocked payment request');
     };
     try {
-      const inquiry = await createListingInquiry(seeker.id, { serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', jobLocation: job, message: 'Repair the kitchen pipe at this job location.' });
-      const offer = await submitOffer(provider.id, { requestId: inquiry.id, serviceId: service.id, offeredPrice: 500, estimatedDuration: 120, serviceLocationMode: 'PROVIDER_VISITS', message: 'Pipe repair and agreed travel, estimated two hours.' });
-      const first = await initiateOnlinePayment({ seekerId: seeker.id, offerId: offer.id, paymentMethod: 'gcash' });
+      const first = await initiateOnlinePayment({ seekerId: seeker.id, serviceId: service.id, quantity: 2, jobLocation: job, serviceLocationMode:'PROVIDER_VISITS', paymentMethod:'gcash' });
       assert.equal(await prisma.booking.count({ where: { paymentAttemptId: first.id } }), 0, 'initiation is not a booking');
       await markPaymentAttemptFailed(first.providerIntentId!, 'Test payment failed');
-      await assert.rejects(initiateOnlinePayment({ seekerId: sibling.id, offerId: offer.id, retryPaymentIntentId: first.providerIntentId!, paymentMethod: 'gcash' }), /not found/);
-      const retry = await initiateOnlinePayment({ seekerId: seeker.id, offerId: offer.id, retryPaymentIntentId: first.providerIntentId!, paymentMethod: 'gcash' });
+      await assert.rejects(initiateOnlinePayment({ seekerId: sibling.id, serviceId: service.id, retryPaymentIntentId: first.providerIntentId!, paymentMethod: 'gcash' }), /not found/);
+      const retry = await initiateOnlinePayment({ seekerId: seeker.id, serviceId: service.id, retryPaymentIntentId: first.providerIntentId!, paymentMethod: 'gcash' });
       assert.deepEqual(retry.jobLocation, job); assert.equal(Number(retry.amount), 500);
       await prisma.service.update({ where: { id: service.id }, data: { latitude: 11, transportationFee: 300, estimatedDurationMins: 90 } });
-      const payment = { paymentIntentId: retry.providerIntentId!, paymentId: `pay_${suffix}`, amount: 500, currency: 'PHP', metadata: { servicehub_attempt_id: retry.id, servicehub_seeker_id: seeker.id, servicehub_service_id: service.id, servicehub_offer_id: offer.id, servicehub_expected_amount: '500.00', servicehub_payment_method: 'gcash' } };
+      const payment = { paymentIntentId: retry.providerIntentId!, paymentId: `pay_${suffix}`, amount: 500, currency: 'PHP', metadata: { servicehub_attempt_id: retry.id, servicehub_seeker_id: seeker.id, servicehub_service_id: service.id, servicehub_expected_amount: '500.00', servicehub_payment_method: 'gcash' } };
       const paid = await finalizeSuccessfulPayment(payment);
       assert.ok(paid.booking); assert.deepEqual(paid.booking.jobLocation, job); assert.equal(Number(paid.booking.agreedAmount), 500); assert.equal(paid.booking.estimatedDurationMins, 120);
       await finalizeSuccessfulPayment(payment);

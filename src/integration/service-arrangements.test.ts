@@ -4,7 +4,7 @@ import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { createDirectRequest, createDirectFromOfferService } from '../services/bookings/direct-bookings.service';
 import { submitOffer, listReceivedOffers } from '../services/offers.service';
-import { updateRequest } from '../services/requests.service';
+import { updateRequest, getMyRequests, listRequests } from '../services/requests.service';
 import { createListingInquiry } from '../services/listing-inquiries.service';
 import { matchProvidersToRequest, matchRequestsToService } from '../services/ai-marketplace.service';
 import { initiateOnlinePayment } from '../services/payment-attempt.service';
@@ -24,25 +24,36 @@ test('both marketplace directions persist the agreed arrangement, private pin an
   const [provider, seekerA, seekerB, seekerC] = users;
   const service = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: 'LAPTOP REPAIR SERVICES', description: 'Repair a laptop at a workshop or job site.', titleNormalized: `arrangement-${suffix}`, price: 1500, priceType: 'FIXED', estimatedDurationMins: 60, paymentMethods: { cash: true, gcash: true }, status: 'ACTIVE', isAvailable: true, serviceLocationMode: 'BOTH', latitude: 10.3, longitude: 123.9, locationLabel: 'Cordova workshop', venueAddress: 'Private workshop entrance', coverageRadiusKm: 2, transportationFee: 75 } });
   const job = { latitude: 10.301, longitude: 123.901, label: 'Day-as job site', address: 'Private job entrance' };
-  await t.test('a distant physical job can be reviewed, and direct GCash cannot bypass provider agreement', async () => {
+  await t.test('fixed-price jobs outside an old travel radius book at posted terms and cannot enter quote negotiation', async () => {
     const farJob = { ...job, latitude: 11.3, label: 'Distant job area' };
     const keys = [env.PAYMONGO_PUBLIC_KEY, env.PAYMONGO_SECRET_KEY, env.PAYMONGO_WEBHOOK_SECRET];
     const originalFetch = globalThis.fetch;
-    let externalCalls = 0;
+    let intents = 0;
     try {
       env.PAYMONGO_PUBLIC_KEY = 'pk_test_synthetic'; env.PAYMONGO_SECRET_KEY = 'sk_test_synthetic'; env.PAYMONGO_WEBHOOK_SECRET = 'synthetic';
-      globalThis.fetch = async () => { externalCalls++; throw new Error('External payment calls are forbidden in this test.'); };
-      await assert.rejects(initiateOnlinePayment({ seekerId: seekerA.id, serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', jobLocation: farJob, paymentMethod: 'gcash' }), { code: 'PROVIDER_CONFIRMATION_REQUIRED' });
-      assert.equal(externalCalls, 0);
-      assert.equal(await prisma.paymentAttempt.count({ where: { serviceId: service.id } }), 0);
-      const inquiry = await createListingInquiry(seekerA.id, { serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', jobLocation: farJob, message: 'Please repair my laptop at this job location.' });
-      assert.equal(inquiry.privateAddress, undefined);
-      assert.equal(inquiry.latitude, undefined);
-      const quoted = await submitOffer(provider.id, { requestId: inquiry.id, serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', offeredPrice: 1800, estimatedDuration: 60, message: 'Laptop diagnostics and repair, including agreed travel.' });
-      assert.equal(quoted.status, 'PENDING');
-      assert.equal(await prisma.booking.count({ where: { serviceId: service.id } }), 0);
-      await prisma.offer.update({ where: { id: quoted.id }, data: { status: 'REJECTED' } });
-      await prisma.serviceRequest.update({ where: { id: inquiry.id }, data: { status: 'CANCELED' } });
+      globalThis.fetch = async input => {
+        const url = String(input);
+        if (url.endsWith('/payment_intents')) return Response.json({ data:{ id:`pi_arrangement_${suffix}_${++intents}`, attributes:{client_key:'test_client'} } });
+        if (url.endsWith('/payment_methods')) return Response.json({data:{id:`pm_arrangement_${suffix}`}});
+        if (url.endsWith('/attach')) return Response.json({data:{attributes:{status:'awaiting_next_action',next_action:{type:'redirect',redirect:{url:'https://test-sources.paymongo.com/sources/arrangement'}}}}});
+        if (url.includes('/payment_intents/pi_arrangement_')) return Response.json({data:{id:url.split('/').at(-1),attributes:{status:'awaiting_next_action',amount:157500,currency:'PHP',payments:[]}}});
+        throw new Error('Unexpected payment request');
+      };
+      await assert.rejects(createListingInquiry(seekerA.id, {serviceId:service.id,serviceLocationMode:'PROVIDER_VISITS',jobLocation:farJob,message:'Repair my laptop at this job location.'}), {code:'FIXED_PRICE_BOOKING_REQUIRED'});
+      assert.equal(await prisma.serviceRequest.count({where:{targetServiceId:service.id}}),0);
+      const args = {seekerId:seekerA.id,serviceId:service.id,serviceLocationMode:'PROVIDER_VISITS' as const,jobLocation:farJob,paymentMethod:'gcash' as const};
+      const attempt = await initiateOnlinePayment(args);
+      assert.equal(Number(attempt.amount),1575); assert.deepEqual(attempt.jobLocation,farJob);
+      assert.equal(attempt.serviceLocationMode,'PROVIDER_VISITS');
+      assert.equal((await initiateOnlinePayment(args)).id,attempt.id); assert.equal(intents,1);
+      assert.equal(await prisma.booking.count({where:{serviceId:service.id}}),0,'checkout preparation alone is not a booking');
+      await prisma.paymentAttempt.delete({where:{id:attempt.id}});
+      const legacy = await prisma.serviceRequest.create({data:{seekerId:seekerA.id,categoryId:category.id,targetProviderId:provider.id,targetServiceId:service.id,title:'Old fixed-price inquiry',description:'Created by the previous incorrect flow.',budgetMin:0,budgetMax:0,urgency:'This Week',serviceLocationMode:'PROVIDER_VISITS',latitude:farJob.latitude,longitude:farJob.longitude,locationLabel:farJob.label,paymentMethods:{cash:true,gcash:true}}});
+      assert.deepEqual((await getMyRequests(seekerA.id)).find(row=>row.id===legacy.id)?.targetService,{priceType:'FIXED',price:new (await import('@prisma/client')).Prisma.Decimal(1500)});
+      assert.equal((await listRequests(undefined,provider.id,undefined,[legacy.id]))[0].targetService?.priceType,'FIXED');
+      await assert.rejects(submitOffer(provider.id,{requestId:legacy.id,serviceId:service.id,offeredPrice:1800,estimatedDuration:60,message:'Changed price is not allowed.'}),{code:'FIXED_PRICE_BOOKING_REQUIRED'});
+      assert.equal(await prisma.offer.count({where:{requestId:legacy.id}}),0);
+      await prisma.serviceRequest.update({where:{id:legacy.id},data:{status:'CANCELED'}});
     } finally {
       [env.PAYMONGO_PUBLIC_KEY, env.PAYMONGO_SECRET_KEY, env.PAYMONGO_WEBHOOK_SECRET] = keys;
       globalThis.fetch = originalFetch;
