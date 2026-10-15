@@ -399,6 +399,7 @@ export async function updateService(serviceId: string, providerId: string, input
       const { serviceLocation, photoIds, ...updatedInput } = input;
       if (photoIds !== undefined) await setListingPhotos(tx, providerId, photoIds, { serviceId });
       assertLocationForArrangementChange(service.serviceLocationMode, input.serviceLocationMode, serviceLocation, 'PROVIDER_VISITS');
+      if (['SEEKER_VISITS', 'BOTH'].includes(input.serviceLocationMode ?? service.serviceLocationMode) && input.venueAddress !== undefined && (input.venueAddress?.trim().length ?? 0) < 5) throw Object.assign(new Error('Enter your workplace address for seekers who visit you.'), { status:400 });
       if (serviceLocation === null && (input.serviceLocationMode ?? service.serviceLocationMode) !== 'REMOTE') throw Object.assign(new Error('In-person services need a base area or shop location.'), {status:400});
       if (['SEEKER_VISITS', 'BOTH'].includes(input.serviceLocationMode ?? service.serviceLocationMode) && !serviceLocation && (service.latitude == null || service.longitude == null || !service.locationLabel)) {
         throw Object.assign(new Error('Choose your service venue before accepting seeker visits.'), { status: 400 });

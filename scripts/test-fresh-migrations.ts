@@ -182,8 +182,10 @@ async function main() {
     }
 
     if (process.env.SERVICEHUB_ARRANGEMENTS_ONLY === '1') {
-      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/service-arrangements.test.ts'], isolatedEnv);
-      assert.equal(result.status, 0, 'service arrangement integration failed');
+      for (const file of ['service-arrangements.test.ts', 'simplified-discovery.test.ts', 'request-payment-selection.test.ts']) {
+        const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
+        assert.equal(result.status, 0, `${file} integration failed`);
+      }
       return;
     }
 

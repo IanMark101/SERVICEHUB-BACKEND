@@ -5,9 +5,15 @@ export const LocationPointSchema = z.object({
   longitude: z.number().finite().min(-180).max(180),
   label: z.string().trim().min(2).max(160),
 }).strict();
-export const JobLocationSchema = LocationPointSchema.extend({
+// A discovery point always has coordinates. A private booking address may be
+// written directions instead; never invent an exact job pin from a base area.
+export const JobLocationSchema = LocationPointSchema.partial({ latitude: true, longitude: true }).extend({
   address: z.string().trim().max(500).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const hasPoint = value.latitude !== undefined && value.longitude !== undefined;
+  if ((value.latitude !== undefined) !== (value.longitude !== undefined)) context.addIssue({ code: 'custom', path: ['latitude'], message: 'Provide both map coordinates.' });
+  if (!hasPoint && (value.address?.length ?? 0) < 5) context.addIssue({ code: 'custom', path: ['address'], message: 'Enter the job address or directions, or choose a job pin.' });
+});
 export type LocationPoint = z.infer<typeof LocationPointSchema>;
 export type JobLocation = z.infer<typeof JobLocationSchema>;
 export const ServiceLocationModeSchema = z.enum(['PROVIDER_VISITS', 'SEEKER_VISITS', 'BOTH', 'REMOTE']);

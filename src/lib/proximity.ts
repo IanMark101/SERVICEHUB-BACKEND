@@ -9,10 +9,10 @@ export function distanceKm(a: Pick<LocationPoint, 'latitude' | 'longitude'>, b: 
   return 2 * EARTH_KM * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
 }
 
-export function locationData(point: LocationPoint) {
+export function locationData(point: Pick<JobLocation, 'latitude' | 'longitude' | 'label'>) {
   return { latitude: point.latitude, longitude: point.longitude, locationLabel: point.label };
 }
-export function locationFromRecord(record: { latitude?: number | null; longitude?: number | null; locationLabel?: string | null; privateAddress?: string | null }): JobLocation | undefined {
+export function locationFromRecord(record: { latitude?: number | null; longitude?: number | null; locationLabel?: string | null; privateAddress?: string | null }): (LocationPoint & { address?: string }) | undefined {
   if (record.latitude == null || record.longitude == null || !record.locationLabel) return undefined;
   return { latitude: record.latitude, longitude: record.longitude, label: record.locationLabel,
     ...(record.privateAddress ? { address: record.privateAddress } : {}) };

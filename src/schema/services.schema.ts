@@ -54,6 +54,7 @@ export const CreateServiceSchema = z.object({
   queueLimit: z.number().int().min(1).max(10).default(3),
   paymentMethods,
 }).superRefine((value, context) => {
+  if (['SEEKER_VISITS', 'BOTH'].includes(value.serviceLocationMode) && (value.venueAddress?.length ?? 0) < 5) context.addIssue({ code: 'custom', path: ['venueAddress'], message: 'Enter your workplace address or directions for seekers who visit you.' });
   if (value.serviceLocationMode !== 'REMOTE' && !value.serviceLocation) context.addIssue({ code:'custom',path:['serviceLocation'],message:'Choose your base area or shop location for an in-person service.' });
   if (value.priceType === 'BY_AGREEMENT' ? value.price != null : value.price == null) {
     context.addIssue({ code: 'custom', path: ['price'], message: value.priceType === 'BY_AGREEMENT' ? 'Leave the price blank for Price by agreement.' : 'Enter the service price or choose Price by agreement.' });

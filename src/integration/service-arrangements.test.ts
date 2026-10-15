@@ -65,7 +65,7 @@ test('both marketplace directions persist the agreed arrangement, private pin an
   });
   const venueBooking = await createDirectRequest({ seekerId: seekerA.id, providerId: provider.id, serviceId: service.id, serviceLocationMode: 'SEEKER_VISITS', jobLocation: job });
   assert.equal(venueBooking.booking.serviceLocationMode, 'SEEKER_VISITS');
-  assert.deepEqual(venueBooking.booking.jobLocation, { latitude: 10.3, longitude: 123.9, label: 'Cordova workshop', address: 'Private workshop entrance' });
+  assert.deepEqual(venueBooking.booking.jobLocation, { label: 'Cordova workshop', address: 'Private workshop entrance' });
   assert.equal(Number(venueBooking.booking.agreedAmount), 1500);
   assert.equal(Number(venueBooking.booking.transportationFee), 0);
   const travelBooking = await createDirectRequest({ seekerId: seekerB.id, providerId: provider.id, serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', jobLocation: job });
@@ -117,7 +117,7 @@ test('both marketplace directions persist the agreed arrangement, private pin an
     const created=await createService(provider.id,CreateServiceSchema.parse({categoryId:remoteCategory.id,title:'ONLINE TUTORING LESSONS',description:'I teach mathematics in online video lessons for students.',price:300,estimatedDurationMins:60,paymentMethods:{cash:true,gcash:false},serviceLocationMode:'REMOTE'}));
     assert.equal(created.latitude,null);assert.equal(created.longitude,null);assert.equal(created.publicMapPin,false);
     for(const mode of ['PROVIDER_VISITS','SEEKER_VISITS','BOTH'] as const) {
-      await assert.rejects(updateService(created.id,provider.id,{serviceLocationMode:mode}),/Choose a new location/);
+      await assert.rejects(updateService(created.id,provider.id,{serviceLocationMode:mode}),/Choose your discovery location/);
       await updateService(created.id,provider.id,{serviceLocationMode:mode,serviceLocation:job,venueAddress:job.address,publicMapPin:true});
       const converted=await updateService(created.id,provider.id,{serviceLocationMode:'REMOTE',serviceLocation:null});
       assert.equal(converted.latitude,null);assert.equal(converted.longitude,null);assert.equal(converted.locationLabel,null);
@@ -133,7 +133,7 @@ test('both marketplace directions persist the agreed arrangement, private pin an
     assert.ok(services.items.some(item=>item.id===created.id&&item.distanceKm===null));
     assert.ok(requests.items.some(item=>item.id===posted.id&&item.distanceKm===null));
     assert.deepEqual(services.mapPins,[]);assert.deepEqual(requests.mapPins,[]);
-    await assert.rejects(updateService(created.id,provider.id,{serviceLocationMode:'SEEKER_VISITS',serviceLocation:null}),/Choose a new location/);
-    await assert.rejects(updateRequest(posted.id,seekerC.id,{serviceLocationMode:'PROVIDER_VISITS',jobLocation:null}),/Choose a new location/);
+    await assert.rejects(updateService(created.id,provider.id,{serviceLocationMode:'SEEKER_VISITS',serviceLocation:null}),/Choose your discovery location/);
+    await assert.rejects(updateRequest(posted.id,seekerC.id,{serviceLocationMode:'PROVIDER_VISITS',jobLocation:null}),/Choose your discovery location/);
   });
 });

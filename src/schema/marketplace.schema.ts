@@ -1,4 +1,4 @@
-import { JobLocationSchema, TransportationFeeSchema, ServiceLocationModeSchema, BookingLocationModeSchema } from './location.schema';
+import { JobLocationSchema, LocationPointSchema, TransportationFeeSchema, ServiceLocationModeSchema, BookingLocationModeSchema } from './location.schema';
 import { z } from "zod";
 import { ListingPhotoIdsSchema } from './listing-photos.schema';
 import { VERIFICATION_PRIVACY_NOTICE_VERSION } from "../config/privacy";
@@ -65,7 +65,7 @@ export const RequestUrgencySchema = z.enum([
 export const ServiceRequestSchema = z.object({
   photoIds: ListingPhotoIdsSchema.optional(),
   serviceLocationMode: ServiceLocationModeSchema.default('PROVIDER_VISITS'),
-  jobLocation: JobLocationSchema.nullable().optional(),
+  jobLocation: LocationPointSchema.extend({ address: z.string().trim().max(500).optional() }).nullable().optional(),
   transportationFee: TransportationFeeSchema.nullable().optional(),
   categoryId: Cuid,
   title: RequestTitle,
@@ -84,7 +84,7 @@ export const ServiceRequestSchema = z.object({
 export const ServiceRequestUpdateSchema = z.object({
   photoIds: ListingPhotoIdsSchema.optional(),
   serviceLocationMode: ServiceLocationModeSchema.optional(),
-  jobLocation: JobLocationSchema.nullable().optional(),
+  jobLocation: LocationPointSchema.extend({ address: z.string().trim().max(500).optional() }).nullable().optional(),
   transportationFee: TransportationFeeSchema.nullable().optional(),
   title: RequestTitle.optional(),
   description: Text(2_000).min(10).optional(),
@@ -195,7 +195,7 @@ export const BooleanDecisionSchema = z.object({
   }
 });
 export const DirectResponseSchema = z.object({ accept: z.boolean() }).strict();
-export const DirectOfferSchema = z.object({ offerId: Cuid }).strict();
+export const DirectOfferSchema = z.object({ offerId: Cuid, jobLocation: JobLocationSchema.optional() }).strict();
 export const TrustAdjustmentSchema = z.object({
   eventId: Cuid,
   reason: Text(500).min(20),

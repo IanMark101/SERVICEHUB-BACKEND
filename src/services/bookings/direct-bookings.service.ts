@@ -367,7 +367,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
 
 // ── Create Direct Booking from Offer (Flow B Cash path) ─────────────────────────
 
-export async function createDirectFromOfferService(offerId: string, seekerId: string) {
+export async function createDirectFromOfferService(offerId: string, seekerId: string, jobLocation?: JobLocation) {
   const offer = await prisma.offer.findUnique({
     where: { id: offerId },
     include: { request: true }
@@ -482,7 +482,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
         originType: "OFFER",
         paymentMethod: "On-site Cash",
         agreedAmount: freshOffer.offeredPrice,
-        jobLocation: offerJobLocation(freshOffer),
+        jobLocation: offerJobLocation(freshOffer, jobLocation),
         serviceLocationMode: freshOffer.serviceLocationMode ?? 'PROVIDER_VISITS',
         estimatedDurationMins: offer.estimatedDuration,
         paymentStatus: "UNPAID",

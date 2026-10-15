@@ -72,7 +72,7 @@ export async function initiateOnlinePayment(params: {
     const previous = await prisma.paymentAttempt.findUnique({ where: { providerIntentId: params.retryPaymentIntentId } });
     if (!previous || previous.seekerId !== params.seekerId || previous.offerId !== (params.offerId || null) || (!params.offerId && previous.serviceId !== params.serviceId)) throw httpError('Previous payment attempt not found', 404);
     if (!['FAILED', 'EXPIRED'].includes(previous.status)) throw httpError('Check the previous payment before trying again', 409);
-    if (!params.offerId && !params.jobLocation && previous.jobLocation) params.jobLocation = JobLocationSchema.parse(previous.jobLocation);
+    if (!params.jobLocation && previous.jobLocation) params.jobLocation = JobLocationSchema.parse(previous.jobLocation);
     if (!params.offerId && !params.serviceLocationMode) params.serviceLocationMode = previous.serviceLocationMode === 'REMOTE' ? 'REMOTE' : previous.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
   }
   const expiresAt = new Date(Date.now() + ATTEMPT_TTL_MS);
@@ -124,7 +124,7 @@ export async function initiateOnlinePayment(params: {
     });
     if (existing) {
       if (!params.offerId && params.serviceLocationMode && params.serviceLocationMode !== (existing.serviceLocationMode ?? 'PROVIDER_VISITS')) throw httpError('A payment is already pending for another service arrangement. Finish or cancel that payment first.', 409);
-      if (!params.offerId && params.jobLocation && (!existing.jobLocation || JSON.stringify(JobLocationSchema.parse(existing.jobLocation)) !== JSON.stringify(JobLocationSchema.parse(params.jobLocation)))) throw httpError('A payment is already pending for another job location. Finish or cancel that payment first.', 409);
+      if (params.jobLocation && (!existing.jobLocation || JSON.stringify(JobLocationSchema.parse(existing.jobLocation)) !== JSON.stringify(JobLocationSchema.parse(params.jobLocation)))) throw httpError('A payment is already pending for another job location. Finish or cancel that payment first.', 409);
       if (existing.quantity !== quantity) throw httpError("A payment is already pending for a different quantity", 409);
       return { attempt: existing, reused: true };
     }
@@ -209,7 +209,7 @@ export async function initiateOnlinePayment(params: {
           throw httpError("This listing no longer accepts GCash", 409);
         }
       }
-      jobLocation = offerJobLocation(offer);
+      jobLocation = offerJobLocation(offer, params.jobLocation);
       serviceLocationMode = offer.serviceLocationMode === 'REMOTE' ? 'REMOTE' : offer.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
       estimatedDurationMins = offer.estimatedDuration;
       amount = Number(offer.offeredPrice);

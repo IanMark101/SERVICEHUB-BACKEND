@@ -11,11 +11,12 @@ type ServiceVenue = {
 type RequestLocation = ServiceVenue & { privateAddress?: string | null };
 const failure = (message: string) => Object.assign(new Error(message), { status: 400, code: 'SERVICE_ARRANGEMENT_INVALID' });
 
-/** A discovery area must never silently become an exact job pin or visit venue. */
+/** Physical arrangements share one discovery point. Only an unlocated record
+ * needs a new point when becoming a physical listing. */
 export function assertLocationForArrangementChange(previous: ServiceLocationMode, next: ServiceLocationMode | undefined, location: unknown, areaMode: 'PROVIDER_VISITS' | 'SEEKER_VISITS') {
-  const isArea = (mode: ServiceLocationMode) => mode === areaMode || mode === 'REMOTE';
-  if (next && next !== 'REMOTE' && (previous === 'REMOTE' || isArea(previous) !== isArea(next)) && !location) {
-    throw failure('Choose a new location for this arrangement. General search areas cannot be reused as exact job locations or provider venues.');
+  void areaMode;
+  if (next && next !== 'REMOTE' && previous === 'REMOTE' && !location) {
+    throw failure('Choose your discovery location so nearby users can find this listing.');
   }
 }
 
@@ -28,6 +29,9 @@ export function resolveVisitMode(available: ServiceLocationMode | undefined, sel
 }
 
 export function providerVenue(service: ServiceVenue): JobLocation {
+  if (service.venueAddress?.trim()) return JobLocationSchema.parse({ label: service.locationLabel || 'Provider workplace', address: service.venueAddress });
+  // Retain venues explicitly pinned by older listings. New shop listings save
+  // a separate workplace address and never promote a discovery point to a venue.
   const point = locationFromRecord({ ...service, privateAddress: service.venueAddress });
   if (!point) throw failure('The provider must set a service venue before accepting visits.');
   return JobLocationSchema.parse(point);
@@ -57,10 +61,14 @@ export function resolveOfferArrangement(request: RequestLocation, service: Servi
   return { serviceLocationMode, providerVenue: undefined };
 }
 
-export function offerJobLocation(offer: { serviceLocationMode?: ServiceLocationMode | null; providerVenue?: unknown; request: RequestLocation }) {
+export function offerJobLocation(offer: { serviceLocationMode?: ServiceLocationMode | null; providerVenue?: unknown; request: RequestLocation & { targetServiceId?: string | null } }, selectedJobLocation?: JobLocation) {
   if (offer.serviceLocationMode === 'REMOTE') return undefined;
   if (offer.serviceLocationMode === 'SEEKER_VISITS') return JobLocationSchema.parse(offer.providerVenue);
-  return locationFromRecord(offer.request);
+  if (selectedJobLocation) return JobLocationSchema.parse(selectedJobLocation);
+  // Private listing inquiries already collected the job address. Public
+  // discovery posts collect it at acceptance, independently of their map pin.
+  if (!offer.request.targetServiceId && !offer.request.privateAddress && offer.request.latitude != null) assertJobLocation(undefined);
+  return locationFromRecord(offer.request) ?? (offer.request.privateAddress ? JobLocationSchema.parse({ label:offer.request.locationLabel || 'Job address', address:offer.request.privateAddress }) : undefined);
 }
 
 /** An unpaid offer may disclose its general venue area, never its exact pin/address. */

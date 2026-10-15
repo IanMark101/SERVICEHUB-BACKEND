@@ -6,11 +6,13 @@ import { CreateServiceSchema, UpdateServiceSchema } from './services.schema';
 import { publicLocation } from '../lib/proximity';
 import { calculateDirectListingTerms } from '../services/bookings/direct-listing-pricing';
 import { DirectBookingSchema, OfferSchema, ServiceRequestSchema, ServiceRequestUpdateSchema } from './marketplace.schema';
+import { JobLocationSchema } from './location.schema';
 
 const venue = { latitude: 10.3, longitude: 123.9, label: 'Cordova, Cebu', address: 'Private workshop directions' };
 const job = { latitude: 10.301, longitude: 123.901, label: 'Day-as, Cordova', address: 'Private job directions' };
 const base = { latitude: venue.latitude, longitude: venue.longitude, locationLabel: venue.label, venueAddress: venue.address, coverageRadiusKm: 2, transportationFee: new Prisma.Decimal(75) };
 const request = { latitude: job.latitude, longitude: job.longitude, locationLabel: job.label, privateAddress: job.address };
+const workplace = {label:venue.label,address:venue.address};
 
 test('remote publication accepts no area while physical listings and requests retain their location requirement',()=>{
   const listing={categoryId:'clxxxxxxxxxxxxxxxxxxxxxxx',title:'ONLINE TUTORING LESSONS',description:'An online tutoring lesson delivered using a video call.',price:300,estimatedDurationMins:60,paymentMethods:{cash:true,gcash:false}};
@@ -67,12 +69,12 @@ test('traveling providers may publish a general service area without a physical 
   assert.equal(result.success,true, JSON.stringify(result.error?.issues));
 });
 
-test('general discovery areas cannot silently become exact locations when arrangements change', () => {
+test('physical arrangement changes keep a discovery location without turning it into a job pin', () => {
   for (const [previous,next,areaMode] of [
     ['PROVIDER_VISITS','SEEKER_VISITS','PROVIDER_VISITS'], ['PROVIDER_VISITS','BOTH','PROVIDER_VISITS'],
     ['SEEKER_VISITS','PROVIDER_VISITS','SEEKER_VISITS'], ['SEEKER_VISITS','BOTH','SEEKER_VISITS'],
   ] as const) {
-    assert.throws(() => assertLocationForArrangementChange(previous,next,undefined,areaMode), {code:'SERVICE_ARRANGEMENT_INVALID'});
+    assert.doesNotThrow(() => assertLocationForArrangementChange(previous,next,undefined,areaMode));
     assert.doesNotThrow(() => assertLocationForArrangementChange(previous,next,job,areaMode));
   }
   assert.doesNotThrow(() => assertLocationForArrangementChange('BOTH','SEEKER_VISITS',undefined,'PROVIDER_VISITS'));
@@ -91,7 +93,7 @@ test('legacy listings keep provider visits, chosen job pin and one travel fee wi
 
 test('seeker visits use the authoritative venue without provider travel fees or home coverage', () => {
   const result = resolveDirectArrangement({ ...base, serviceLocationMode: 'SEEKER_VISITS' }, 'SEEKER_VISITS', { ...job, latitude: 11 });
-  assert.deepEqual(result.jobLocation, venue);
+  assert.deepEqual(result.jobLocation, workplace);
   assert.equal(Number(result.transportationFee), 0);
   assert.equal(Number(calculateDirectListingTerms('FIXED', new Prisma.Decimal(1500), 1, 60, result.transportationFee).amount), 1500);
   assert.throws(() => resolveDirectArrangement({ serviceLocationMode: 'SEEKER_VISITS' }), { code: 'SERVICE_ARRANGEMENT_INVALID' });
@@ -100,7 +102,7 @@ test('seeker visits use the authoritative venue without provider travel fees or 
 test('both requires a concrete choice and fixed listings reject unsupported arrangements', () => {
   assert.throws(() => resolveDirectArrangement({ ...base, serviceLocationMode: 'BOTH' }, undefined, job), { code: 'SERVICE_ARRANGEMENT_INVALID' });
   assert.throws(() => resolveDirectArrangement(base, 'SEEKER_VISITS', job), { code: 'SERVICE_ARRANGEMENT_INVALID' });
-  assert.deepEqual(resolveDirectArrangement({ ...base, serviceLocationMode: 'BOTH' }, 'SEEKER_VISITS').jobLocation, venue);
+  assert.deepEqual(resolveDirectArrangement({ ...base, serviceLocationMode: 'BOTH' }, 'SEEKER_VISITS').jobLocation, workplace);
   assert.throws(() => resolveOfferArrangement(request, { ...base, serviceLocationMode: 'SEEKER_VISITS' }, 'PROVIDER_VISITS'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
 });
 
@@ -109,8 +111,8 @@ test('custom offers supply a private venue; linked offers use the saved venue', 
   assert.throws(() => resolveOfferArrangement(flexible, null, 'SEEKER_VISITS'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
   assert.deepEqual(resolveOfferArrangement(flexible, null, 'SEEKER_VISITS', venue).providerVenue, venue);
   const offered = resolveOfferArrangement(flexible, { ...base, serviceLocationMode: 'BOTH' }, 'SEEKER_VISITS', job);
-  assert.deepEqual(offered.providerVenue, venue);
-  assert.deepEqual(offerJobLocation({ ...offered, request: flexible }), venue);
+  assert.deepEqual(offered.providerVenue, workplace);
+  assert.deepEqual(offerJobLocation({ ...offered, request: flexible }), workplace);
   assert.deepEqual(offerJobLocation({ request }), job);
   assert.throws(() => resolveOfferArrangement(request, base, 'SEEKER_VISITS', venue), { code: 'SERVICE_ARRANGEMENT_INVALID' });
 });
@@ -135,4 +137,23 @@ test('physical delivery keeps fixed and metered posted pricing, with a single tr
   const arrangement = resolveDirectArrangement(base, 'PROVIDER_VISITS', { ...job, latitude: 11 });
   assert.equal(Number(calculateDirectListingTerms('FIXED', new Prisma.Decimal(300), 1, 60, arrangement.transportationFee).amount), 375);
   for (const type of ['PER_HOUR', 'PER_DAY'] as const) assert.equal(Number(calculateDirectListingTerms(type, new Prisma.Decimal(300), 2, 60, arrangement.transportationFee).amount), 675);
+});
+
+test('public discovery pins cannot become a job location without seeker confirmation', () => {
+  const discovery = { latitude:10.3,longitude:123.9,locationLabel:'Ibabao, Cordova' };
+  const offer = { serviceLocationMode:'PROVIDER_VISITS' as const,request:discovery };
+  assert.throws(() => offerJobLocation(offer), {code:'JOB_LOCATION_REQUIRED'});
+  assert.deepEqual(offerJobLocation(offer,job),job);
+  assert.deepEqual(offerJobLocation(offer,{label:'Job address',address:'Blue gate beside Ibabao barangay hall'}),{label:'Job address',address:'Blue gate beside Ibabao barangay hall'});
+  assert.deepEqual(discovery,{latitude:10.3,longitude:123.9,locationLabel:'Ibabao, Cordova'});
+});
+
+test('private booking addresses work without inventing coordinates while partial pins are rejected', () => {
+  assert.equal(JobLocationSchema.safeParse(workplace).success,true);
+  assert.equal(JobLocationSchema.safeParse({label:'Workplace'}).success,false);
+  assert.equal(JobLocationSchema.safeParse({...workplace,latitude:10.3}).success,false);
+  assert.equal(JobLocationSchema.safeParse({...workplace,latitude:NaN,longitude:123.9}).success,false);
+  assert.deepEqual(resolveDirectArrangement({...base,serviceLocationMode:'SEEKER_VISITS'},'SEEKER_VISITS',job).jobLocation,workplace);
+  const legacy = {...base,venueAddress:null,serviceLocationMode:'SEEKER_VISITS' as const};
+  assert.deepEqual(resolveDirectArrangement(legacy,'SEEKER_VISITS').jobLocation,{latitude:venue.latitude,longitude:venue.longitude,label:venue.label});
 });

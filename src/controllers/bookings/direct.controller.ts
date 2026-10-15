@@ -86,10 +86,10 @@ export async function respondDirectRequest(req: Request, res: Response, next: Ne
 export async function bookDirectFromOffer(req: Request, res: Response, next: NextFunction) {
   try {
     const user = (req as AuthenticatedRequest).user;
-    const { offerId } = DirectOfferSchema.parse(req.body);
+    const { offerId, jobLocation } = DirectOfferSchema.parse(req.body);
 
     const { createDirectFromOfferService } = await import("../../services/bookings.service.js");
-    const booking = await createDirectFromOfferService(offerId, user.id);
+    const booking = await createDirectFromOfferService(offerId, user.id, jobLocation);
 
     res.status(201).json({
       success: true,
