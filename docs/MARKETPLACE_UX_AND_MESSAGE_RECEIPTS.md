@@ -1,6 +1,6 @@
 # Marketplace UX and message receipts — October 15, 2026
 
-Both repositories use `feature/marketplace-ux-message-receipts`, created from local development after fast-forwarding to the current main implementation. No production deployment was performed.
+Developed on feature/marketplace-ux-message-receipts and released to main on October 15, 2026. Production uses frontend e1ab120 and API edfea27; both deployments were verified.
 
 ## Behavior
 
@@ -15,7 +15,7 @@ Both repositories use `feature/marketplace-ux-message-receipts`, created from lo
 
 `20261015010000_message_read_receipts` adds nullable `messages.readAt TIMESTAMP(3)`. No historical time is backfilled. The generated Prisma client must be regenerated; the existing client contract check now rejects clients missing Message.readAt. The established migration deployment step must run before replacing the API container.
 
-The guarded `scripts/migrate-development-message-receipts.ts` verifies DATABASE_URL and DIRECT_URL against the recorded development endpoint, requires development mode and refuses unrelated pending migrations. It applied this migration successfully to that development target. Production is unchanged and still requires migration plus backend/frontend deployment.
+The guarded `scripts/migrate-development-message-receipts.ts` verifies DATABASE_URL and DIRECT_URL against the recorded development endpoint, requires development mode and refuses unrelated pending migrations. It applied this migration successfully to that development target. Production deployment subsequently completed successfully; its migration check found no pending migration among the 49 checked-in migrations, including the message-read addition.
 
 ## Verification
 
@@ -25,3 +25,12 @@ The guarded `scripts/migrate-development-message-receipts.ts` verifies DATABASE_
 - Browser review uses intercepted API fixtures at 1440px and 390px, light and dark, for both roles. It checks compact cover/title/empty-photo behavior, text wrapping, card/modal overflow, visible footer, Escape handling and both location-map APIs. This is not a live production, real-user or external-tile availability certification.
 
 Primary files: frontend TrailCard/ListingCardTools, ServiceMarketplaceCard/JobRequestCard, ServiceDetailsPanel/JobRequestDetailsModal and shared styles; MoneyInput and existing price/budget/offer/travel fields; BrowseJobs, MarketplaceLocationControl, LocationEditor and useProviderMapListings; both message pages, MessageReceipt, useMessagesPage, messages API/cache policy. Backend: Message schema/migration, messages service/controller, generated-client guard and receipt integration/migration scripts.
+
+
+## Production release verified October 15 2026
+
+The compatible application release was published to main: frontend e1ab120e8dd121b6260abbbcef14c9387025205a and API edfea27a70c9fd33a1898cb8471fd180628baab0. Frontend CI and security, backend CI and security, Vercel production deployment and the VPS deployment workflow succeeded. Final CI logs confirm 1,334 frontend tests and 233 backend regression tests, plus the backend integration stages. Production dependency audits passed.
+
+The successful API migration step reported 49 migrations and no pending migration. The history includes nullable Message.readAt and retains unknown historical read times as null. Public website/API health, protected-route authentication responses, exact CORS origins for both servicehub.bond hosts and new served feature assets were checked. These are public smoke checks, not signed-in production matching, live message, real-wallet or community acceptance results.
+
+The revised capstone sources, editable Word book and matching PDF record this release. Evidence with workflow URLs and resolved dependency versions is retained in DOCUMENTATION_REVISED_2026-10-15/TECHNICAL_REFERENCE/Production_Release_Evidence_2026-10-15.json.

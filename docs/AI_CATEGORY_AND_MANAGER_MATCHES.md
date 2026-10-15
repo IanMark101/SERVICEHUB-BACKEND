@@ -1,6 +1,6 @@
 # AI category assistance and listing managers — October 15, 2026
 
-Implemented on the existing `feature/marketplace-ux-message-receipts` branch in both repositories, as requested. Earlier work is preserved; nothing was committed, pushed or deployed for this task.
+Implemented on feature/marketplace-ux-message-receipts, then merged to main and deployed on October 15, 2026. The verified production revisions are frontend e1ab120 and API edfea27. See the release record below for final CI and deployment evidence.
 
 ## User behavior
 
@@ -26,7 +26,7 @@ Frontend: `CategorySuggestion.tsx`, `MarketplaceMatchesModal.tsx` and `Marketpla
 
 The focused frontend component checks, desktop/mobile light/dark browser fixtures, pending-save color/state check, TypeScript, lint and production builds are recorded in the task evidence. Browser fixtures cover both category forms and both role matching modals; they do not modify production records or invoke paid AI. The isolated backend suite uses mocked Gemini responses and a fresh disposable schema on the recorded development target; the harness replays existing migrations, checks drift and removes the schema. A separate real configured Gemini check successfully classified the synthetic laptop-fan example as Computer & Laptop Repair. Production end-to-end acceptance remains separate.
 
-No new database migration is required for these AI/manager changes. The earlier nullable message-read migration remains part of this branch's existing release requirements. Deploy the updated backend and frontend together. Existing Word/PDF publication exports were not regenerated; source SRS/SDD/STD/SPMP/User Manual and both master prompts are updated.
+No new database migration is required for these AI/manager changes. The earlier nullable message-read migration remains part of this branch's existing release requirements. The compatible backend/frontend release is deployed. The revised capstone sources, Word/PDF publication and master prompts now record the verified release and its remaining acceptance boundaries.
 
 ### Executed verification
 
@@ -35,3 +35,12 @@ No new database migration is required for these AI/manager changes. The earlier 
 - Eight local browser scenarios passed across Seeker/Provider, desktop/mobile and light/dark themes. They covered matching modals, compact rows/full Details, pending-save feedback and both creation-form category controls using intercepted API fixtures.
 - Frontend targeted lint and both TypeScript/production builds passed. The final frontend build generated 112 pages.
 - One live configured Gemini request classified synthetic laptop-fan work as Computer & Laptop Repair. Reciprocal production matching and real-user acceptance were not performed.
+
+
+## Production release verified October 15 2026
+
+The compatible application release was published to main: frontend e1ab120e8dd121b6260abbbcef14c9387025205a and API edfea27a70c9fd33a1898cb8471fd180628baab0. Frontend CI and security, backend CI and security, Vercel production deployment and the VPS deployment workflow succeeded. Final CI logs confirm 1,334 frontend tests and 233 backend regression tests, plus the backend integration stages. Production dependency audits passed.
+
+The successful API migration step reported 49 migrations and no pending migration. The history includes nullable Message.readAt and retains unknown historical read times as null. Public website/API health, protected-route authentication responses, exact CORS origins for both servicehub.bond hosts and new served feature assets were checked. These are public smoke checks, not signed-in production matching, live message, real-wallet or community acceptance results.
+
+The revised capstone sources, editable Word book and matching PDF record this release. Evidence with workflow URLs and resolved dependency versions is retained in DOCUMENTATION_REVISED_2026-10-15/TECHNICAL_REFERENCE/Production_Release_Evidence_2026-10-15.json.
