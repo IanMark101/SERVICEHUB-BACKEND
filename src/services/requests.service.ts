@@ -71,8 +71,8 @@ export async function createRequest(seekerId: string, params: {
     const request = await tx.serviceRequest.create({
       data: {
         seekerId, categoryId, title, description, budgetMin, budgetMax, urgency,
-        ...(params.jobLocation && { ...locationData(params.jobLocation), privateAddress: params.serviceLocationMode === 'SEEKER_VISITS' ? null : params.jobLocation.address || null }),
-        transportationFee: params.serviceLocationMode === 'SEEKER_VISITS' ? null : params.transportationFee,
+        ...(params.jobLocation && { ...locationData(params.jobLocation), privateAddress: ['SEEKER_VISITS', 'REMOTE'].includes(params.serviceLocationMode ?? 'PROVIDER_VISITS') ? null : params.jobLocation.address || null }),
+        transportationFee: ['SEEKER_VISITS', 'REMOTE'].includes(params.serviceLocationMode ?? 'PROVIDER_VISITS') ? null : params.transportationFee,
         serviceLocationMode: params.serviceLocationMode,
         // Post Request always creates a public job, never a provider assignment.
         targetProviderId: null, targetServiceId: null,
@@ -301,7 +301,7 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   }
   const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: request.status }, data: {
     ...changes, ...(jobLocation && { ...locationData(jobLocation), privateAddress: jobLocation.address || null }),
-    ...((params.serviceLocationMode ?? request.serviceLocationMode) === 'SEEKER_VISITS' && { privateAddress: null, transportationFee: null }),
+    ...(['SEEKER_VISITS', 'REMOTE'].includes(params.serviceLocationMode ?? request.serviceLocationMode) && { privateAddress: null, transportationFee: null }),
   } });
   if (changed.count !== 1) {
     const err = new Error("The request changed before it could be updated") as Error & { status?: number };

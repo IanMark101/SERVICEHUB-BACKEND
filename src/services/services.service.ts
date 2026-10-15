@@ -286,6 +286,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
           transportationFee: input.priceType === 'BY_AGREEMENT' ? null : input.transportationFee,
           serviceLocationMode: input.serviceLocationMode,
           venueAddress: input.venueAddress,
+          ...(input.serviceLocationMode === 'REMOTE' && { venueAddress: null, publicMapPin: false, coverageRadiusKm: null, transportationFee: null }),
           price: input.price,
           priceType: input.priceType,
           serviceType: input.serviceType,
@@ -395,7 +396,7 @@ export async function updateService(serviceId: string, providerId: string, input
       const { serviceLocation, photoIds, ...updatedInput } = input;
       if (photoIds !== undefined) await setListingPhotos(tx, providerId, photoIds, { serviceId });
       assertLocationForArrangementChange(service.serviceLocationMode, input.serviceLocationMode, serviceLocation, 'PROVIDER_VISITS');
-      if ((input.serviceLocationMode ?? service.serviceLocationMode) !== 'PROVIDER_VISITS' && !serviceLocation && (service.latitude == null || service.longitude == null || !service.locationLabel)) {
+      if (['SEEKER_VISITS', 'BOTH'].includes(input.serviceLocationMode ?? service.serviceLocationMode) && !serviceLocation && (service.latitude == null || service.longitude == null || !service.locationLabel)) {
         throw Object.assign(new Error('Choose your service venue before accepting seeker visits.'), { status: 400 });
       }
       if (input.coverageRadiusKm != null && !serviceLocation && service.latitude == null) throw Object.assign(new Error("Choose a service area center or venue before adding travel coverage."), { status: 400 });
@@ -412,6 +413,7 @@ export async function updateService(serviceId: string, providerId: string, input
           categoryId,
           price: nextPrice,
           transportationFee: nextPriceType === 'BY_AGREEMENT' ? null : input.transportationFee !== undefined ? input.transportationFee : service.transportationFee,
+          ...((input.serviceLocationMode ?? service.serviceLocationMode) === 'REMOTE' && { venueAddress: null, publicMapPin: false, coverageRadiusKm: null, transportationFee: null }),
           ...(materialChanged && assessment && {
             status: service.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
             isAvailable: service.status !== "INACTIVE",

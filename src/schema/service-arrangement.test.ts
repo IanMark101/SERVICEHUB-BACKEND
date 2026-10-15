@@ -12,6 +12,40 @@ const job = { latitude: 10.301, longitude: 123.901, label: 'Day-as, Cordova', ad
 const base = { latitude: venue.latitude, longitude: venue.longitude, locationLabel: venue.label, venueAddress: venue.address, coverageRadiusKm: 2, transportationFee: new Prisma.Decimal(75) };
 const request = { latitude: job.latitude, longitude: job.longitude, locationLabel: job.label, privateAddress: job.address };
 
+test('remote bookings ignore supplied pins and stale travel fees while retaining exact pricing', () => {
+  const online = { ...base, serviceLocationMode: 'REMOTE' as const };
+  for (const point of [undefined, job, { ...job, latitude: 80 }]) {
+    const result = resolveDirectArrangement(online, undefined, point);
+    assert.equal(result.serviceLocationMode, 'REMOTE');
+    assert.equal(result.jobLocation, undefined);
+    assert.equal(Number(result.transportationFee), 0);
+    assert.equal(Number(calculateDirectListingTerms('PER_HOUR', new Prisma.Decimal(500), 3, 60, result.transportationFee).amount), 1500);
+  }
+  assert.throws(() => resolveDirectArrangement(online, 'PROVIDER_VISITS', job), { code: 'SERVICE_ARRANGEMENT_INVALID' });
+  assert.throws(() => resolveDirectArrangement({ ...base, serviceLocationMode: 'BOTH' }, 'REMOTE'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
+});
+
+test('remote offers require matching delivery modes and never carry a provider venue or job pin', () => {
+  const onlineRequest = { ...request, serviceLocationMode: 'REMOTE' as const };
+  const onlineService = { ...base, serviceLocationMode: 'REMOTE' as const };
+  for (const service of [onlineService, null]) {
+    const result = resolveOfferArrangement(onlineRequest, service, 'REMOTE', venue);
+    assert.equal(result.providerVenue, undefined);
+    assert.equal(offerJobLocation({ ...result, request: onlineRequest }), undefined);
+  }
+  assert.throws(() => resolveOfferArrangement(onlineRequest, base, 'REMOTE'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
+  assert.throws(() => resolveOfferArrangement({ ...request, serviceLocationMode: 'BOTH' }, onlineService, 'REMOTE'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
+});
+
+test('remote booking contracts accept online work without a meetup location', () => {
+  const serviceId = 'clxxxxxxxxxxxxxxxxxxxxxxx';
+  assert.equal(DirectBookingSchema.safeParse({ serviceId, serviceLocationMode: 'REMOTE' }).success, true);
+  assert.equal(OfferSchema.safeParse({ requestId: serviceId, offeredPrice: 500, estimatedDuration: 60, serviceLocationMode: 'REMOTE' }).success, true);
+  assert.doesNotThrow(() => assertLocationForArrangementChange('REMOTE', 'PROVIDER_VISITS', undefined, 'PROVIDER_VISITS'));
+  assert.throws(() => assertLocationForArrangementChange('REMOTE', 'SEEKER_VISITS', undefined, 'PROVIDER_VISITS'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
+  assert.throws(() => assertLocationForArrangementChange('REMOTE', 'PROVIDER_VISITS', undefined, 'SEEKER_VISITS'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
+});
+
 test('traveling providers may publish a general service area without a physical operating address', () => {
   const result = CreateServiceSchema.safeParse({ categoryId:'clxxxxxxxxxxxxxxxxxxxxxxx', title:'LAPTOP REPAIR SERVICES', description:'Laptop diagnostics and repair at the seeker’s job location.', price:500, estimatedDurationMins:30, serviceLocationMode:'PROVIDER_VISITS', serviceLocation:{latitude:10.3,longitude:123.9,label:'Cordova, Cebu'}, coverageRadiusKm:10, paymentMethods:{cash:true,gcash:false} });
   assert.equal(result.success,true, JSON.stringify(result.error?.issues));

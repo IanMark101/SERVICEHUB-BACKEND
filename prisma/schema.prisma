@@ -412,6 +412,7 @@ enum ServiceLocationMode {
   PROVIDER_VISITS
   SEEKER_VISITS
   BOTH
+  REMOTE
 }
 
 model Service {

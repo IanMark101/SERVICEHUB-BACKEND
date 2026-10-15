@@ -5,6 +5,8 @@ import { prisma } from '../lib/prisma';
 import { createDirectRequest, createDirectFromOfferService } from '../services/bookings/direct-bookings.service';
 import { submitOffer, listReceivedOffers } from '../services/offers.service';
 import { updateRequest } from '../services/requests.service';
+import { createListingInquiry } from '../services/listing-inquiries.service';
+import { matchProvidersToRequest, matchRequestsToService } from '../services/ai-marketplace.service';
 
 test('both marketplace directions persist the agreed arrangement, private pin and correct price', async t => {
   // This suite must never create bookings or remove data in a live schema.
@@ -43,4 +45,31 @@ test('both marketplace directions persist the agreed arrangement, private pin an
   assert.deepEqual(bookedOffer.jobLocation, venueBooking.booking.jobLocation);
   assert.equal(Number(bookedOffer.agreedAmount), 1400);
   assert.equal(bookedOffer.transportationFee, null);
+
+  await t.test('remote bookings and reciprocal matching retain online delivery without private venue data', async () => {
+    const previousKey = env.GEMINI_API_KEY;
+    env.GEMINI_API_KEY = undefined;
+    try {
+      const remoteSeeker = await prisma.user.create({ data: { name:'Remote seeker',email:`remote-${suffix}@example.test`,passwordHash:'test-only',phone:'fixture',location:'Cordova',emailVerified:true,verificationStatus:'APPROVED' } });
+      const remoteService = await prisma.service.create({ data: { providerId:provider.id,categoryId:category.id,title:'WEBSITE DESIGN SERVICE',titleNormalized:`remote-${suffix}`,description:'Build a website online without a meetup.',price:1500,priceType:'FIXED',estimatedDurationMins:60,paymentMethods:{cash:true,gcash:true},status:'ACTIVE',isAvailable:true,serviceLocationMode:'REMOTE',latitude:10.3,longitude:123.9,locationLabel:'Cordova',venueAddress:'STALE PRIVATE VENUE',coverageRadiusKm:1,transportationFee:999 } });
+      const remoteBooking = await createDirectRequest({ seekerId:remoteSeeker.id,providerId:provider.id,serviceId:remoteService.id,serviceLocationMode:'REMOTE',jobLocation:job });
+      assert.equal(remoteBooking.booking.serviceLocationMode,'REMOTE');
+      assert.equal(remoteBooking.booking.jobLocation,null);
+      assert.equal(Number(remoteBooking.booking.agreedAmount),1500);
+      assert.equal(Number(remoteBooking.booking.transportationFee),0);
+      const remoteRequest = await prisma.serviceRequest.create({ data: { seekerId:seekerA.id,categoryId:category.id,title:'Build a website online',description:'Create a five-page website without an in-person meeting.',budgetMin:500,budgetMax:2000,urgency:'This Week',serviceLocationMode:'REMOTE',latitude:10.3,longitude:123.9,locationLabel:'Cordova',paymentMethods:{cash:true,gcash:true} } });
+      assert.deepEqual((await matchProvidersToRequest(remoteRequest.id,seekerA.id)).suggestions.map(item=>item.id),[remoteService.id]);
+      assert.deepEqual((await matchRequestsToService(remoteService.id,provider.id)).suggestions.map(item=>item.id),[remoteRequest.id]);
+      await prisma.service.update({ where:{id:remoteService.id},data:{priceType:'BY_AGREEMENT',price:null} });
+      const inquiry = await createListingInquiry(seekerB.id,{serviceId:remoteService.id,serviceLocationMode:'REMOTE',message:'Build a five-page website with a contact form.'});
+      assert.equal(inquiry.privateAddress,undefined);
+      assert.equal((await prisma.serviceRequest.findUniqueOrThrow({where:{id:inquiry.id}})).privateAddress,null);
+      const remoteOffer = await submitOffer(provider.id,{requestId:inquiry.id,serviceId:remoteService.id,offeredPrice:1400,estimatedDuration:60,serviceLocationMode:'REMOTE',providerVenue:job,message:'Five website pages and one contact form, delivered online.'});
+      assert.equal(remoteOffer.venueLabel,undefined);
+      const remoteOfferBooking = await createDirectFromOfferService(remoteOffer.id,seekerB.id);
+      assert.equal(remoteOfferBooking.serviceLocationMode,'REMOTE');
+      assert.equal(remoteOfferBooking.jobLocation,null);
+      assert.equal(Number(remoteOfferBooking.agreedAmount),1400);
+    } finally { env.GEMINI_API_KEY = previousKey; }
+  });
 });

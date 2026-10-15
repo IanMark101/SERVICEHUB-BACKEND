@@ -73,7 +73,7 @@ export async function initiateOnlinePayment(params: {
     if (!previous || previous.seekerId !== params.seekerId || previous.offerId !== (params.offerId || null) || (!params.offerId && previous.serviceId !== params.serviceId)) throw httpError('Previous payment attempt not found', 404);
     if (!['FAILED', 'EXPIRED'].includes(previous.status)) throw httpError('Check the previous payment before trying again', 409);
     if (!params.offerId && !params.jobLocation && previous.jobLocation) params.jobLocation = JobLocationSchema.parse(previous.jobLocation);
-    if (!params.offerId && !params.serviceLocationMode) params.serviceLocationMode = previous.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
+    if (!params.offerId && !params.serviceLocationMode) params.serviceLocationMode = previous.serviceLocationMode === 'REMOTE' ? 'REMOTE' : previous.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
   }
   const expiresAt = new Date(Date.now() + ATTEMPT_TTL_MS);
   const targetOffer = params.offerId
@@ -210,7 +210,7 @@ export async function initiateOnlinePayment(params: {
         }
       }
       jobLocation = offerJobLocation(offer);
-      serviceLocationMode = offer.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
+      serviceLocationMode = offer.serviceLocationMode === 'REMOTE' ? 'REMOTE' : offer.serviceLocationMode === 'SEEKER_VISITS' ? 'SEEKER_VISITS' : 'PROVIDER_VISITS';
       estimatedDurationMins = offer.estimatedDuration;
       amount = Number(offer.offeredPrice);
       offerRequestId = offer.requestId;

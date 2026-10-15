@@ -65,7 +65,7 @@ type LocationRecord={latitude:number|null;longitude:number|null;locationLabel:st
 function distance(a:LocationRecord,b:LocationRecord){const point=locationFromRecord(a),other=locationFromRecord(b);return point&&other?distanceKm(point,other):null;}
 function compatible(request:Parameters<typeof resolveOfferArrangement>[0],service:Parameters<typeof resolveOfferArrangement>[1]) {
   // Try every mutually available visit mode using the booking authority itself.
-  return (['PROVIDER_VISITS','SEEKER_VISITS'] as const).some(mode=>{
+  return (['PROVIDER_VISITS','SEEKER_VISITS','REMOTE'] as const).some(mode=>{
     try { resolveOfferArrangement(request,service,mode);return true; }catch{return false;}
   });
 }

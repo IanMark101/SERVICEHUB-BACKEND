@@ -13,7 +13,8 @@ const failure = (message: string) => Object.assign(new Error(message), { status:
 
 /** A discovery area must never silently become an exact job pin or visit venue. */
 export function assertLocationForArrangementChange(previous: ServiceLocationMode, next: ServiceLocationMode | undefined, location: unknown, areaMode: 'PROVIDER_VISITS' | 'SEEKER_VISITS') {
-  if (next && (previous === areaMode) !== (next === areaMode) && !location) {
+  const isArea = (mode: ServiceLocationMode) => mode === areaMode || mode === 'REMOTE';
+  if (next && isArea(previous) !== isArea(next) && !location) {
     throw failure('Choose a new location for this arrangement. General search areas cannot be reused as exact job locations or provider venues.');
   }
 }
@@ -22,7 +23,7 @@ export function resolveVisitMode(available: ServiceLocationMode | undefined, sel
   const supported = available ?? 'PROVIDER_VISITS';
   if (!selected && supported === 'BOTH') throw failure('Choose whether the provider visits or the seeker visits the provider.');
   const mode = BookingLocationModeSchema.parse(selected ?? supported);
-  if (supported !== 'BOTH' && mode !== supported) throw failure('This service arrangement is not available. Review the listing or request and choose an available arrangement.');
+  if (supported === 'BOTH' ? mode === 'REMOTE' : mode !== supported) throw failure('This service arrangement is not available. Review the listing or request and choose an available arrangement.');
   return mode;
 }
 
@@ -34,6 +35,9 @@ export function providerVenue(service: ServiceVenue): JobLocation {
 
 export function resolveDirectArrangement(service: ServiceVenue, selected?: BookingLocationMode, jobLocation?: JobLocation) {
   const serviceLocationMode = resolveVisitMode(service.serviceLocationMode, selected);
+  if (serviceLocationMode === 'REMOTE') {
+    return { serviceLocationMode, jobLocation: undefined, transportationFee: new Prisma.Decimal(0) };
+  }
   if (serviceLocationMode === 'SEEKER_VISITS') {
     return { serviceLocationMode, jobLocation: providerVenue(service), transportationFee: new Prisma.Decimal(0) };
   }
@@ -44,6 +48,7 @@ export function resolveDirectArrangement(service: ServiceVenue, selected?: Booki
 export function resolveOfferArrangement(request: RequestLocation, service: ServiceVenue | null, selected?: BookingLocationMode, customVenue?: JobLocation) {
   const serviceLocationMode = resolveVisitMode(request.serviceLocationMode, selected);
   if (service) resolveVisitMode(service.serviceLocationMode, serviceLocationMode);
+  if (serviceLocationMode === 'REMOTE') return { serviceLocationMode, providerVenue: undefined };
   if (serviceLocationMode === 'SEEKER_VISITS') {
     if (!service && !customVenue) throw failure('Choose your service venue so the seeker knows where the work will happen.');
     return { serviceLocationMode, providerVenue: service ? providerVenue(service) : JobLocationSchema.parse(customVenue) };
@@ -53,6 +58,7 @@ export function resolveOfferArrangement(request: RequestLocation, service: Servi
 }
 
 export function offerJobLocation(offer: { serviceLocationMode?: ServiceLocationMode | null; providerVenue?: unknown; request: RequestLocation }) {
+  if (offer.serviceLocationMode === 'REMOTE') return undefined;
   if (offer.serviceLocationMode === 'SEEKER_VISITS') return JobLocationSchema.parse(offer.providerVenue);
   return locationFromRecord(offer.request);
 }
