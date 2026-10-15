@@ -13,3 +13,8 @@ test('rejects the old generated enum that caused production services/mine P2023'
 test('the installed client recognizes all current enum values and the consent field', () => {
   assert.doesNotThrow(() => assertPrismaClientMatchesSchema(require('@prisma/client'), readFileSync(resolve('prisma/schema.prisma'), 'utf8')));
 });
+
+test('a stale message client is rejected before serving receipt-dependent reads', () => {
+  const schema = 'model Message {\n readAt DateTime?\n}';
+  assert.throws(() => assertPrismaClientMatchesSchema({ Prisma:{ dmmf:{datamodel:{models:[{name:'Message',fields:[]}]}} } }, schema), /Message.readAt is missing/);
+});

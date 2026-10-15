@@ -1,4 +1,3 @@
-import { locationBounds, locationFromRecord, inRadius } from '../lib/proximity';
 import { createHash } from "node:crypto";
 import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
@@ -173,37 +172,4 @@ async function summarizeReviews(userId: string, context: ReviewContext, preferFa
   return request;
 }
 
-export async function matchProvidersToRequest(requestId: string, seekerId: string) {
-  try {
-    const request = await prisma.serviceRequest.findUnique({ where: { id: requestId, seekerId }, include: { category: true } });
-    if (!request) return { suggestions: [], reason: "Request not found or access denied" };
-    const job = locationFromRecord(request);
-    if (!job) return { suggestions: [], reason: 'Add the job location before requesting nearby provider suggestions' };
-    const area = { ...job, radiusKm: 30 };
-    if (!env.GEMINI_API_KEY) return { suggestions: [], reason: "AI not configured" };
-    const candidates = await prisma.service.findMany({
-      where: { AND: [locationBounds(area)], providerId: { not: seekerId }, categoryId: request.categoryId, status: "ACTIVE", isAvailable: true, provider: { isActive: true, moderationStatus: "ACTIVE", verificationStatus: "APPROVED", emailVerified: true } },
-      include: { provider: { select: { id: true, name: true, trustScore: true, verificationStatus: true } } },
-      orderBy: { provider: { trustScore: "desc" } },
-    });
-    const providers = candidates.flatMap(service => {
-      const distance = inRadius(service, area);
-      return distance == null || (service.coverageRadiusKm != null && distance > service.coverageRadiusKm) ? [] : [{ ...service, distance }];
-    }).sort((a, b) => a.distance - b.distance || b.provider.trustScore - a.provider.trustScore).slice(0, 10);
-    if (!providers.length) return { suggestions: [], reason: "No eligible providers within 30 km of this job location" };
-    const providerList = providers.map((item) => `Provider: ${item.provider.name} | Trust: ${item.provider.trustScore} | Service: ${item.title} | Listed price: ${item.price ?? "quotation required"}`).join("\n");
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(5_000),
-      body: JSON.stringify({ contents: [{ parts: [{ text: `Rank up to three suitable providers for this request: "${request.title}" - "${request.description}". Budget: ${request.budgetMin}-${request.budgetMax}.\n${providerList}\nReturn a JSON array with name and rationale.` }] }] }),
-    });
-    if (!response.ok) return { suggestions: [], reason: "AI service temporarily unavailable" };
-    const data = await response.json() as any;
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]";
-    const match = text.match(/\[[\s\S]*\]/);
-    return { suggestions: match ? JSON.parse(match[0]) : [] };
-  } catch {
-    return { suggestions: [], reason: "AI service temporarily unavailable" };
-  }
-}
+export { matchProvidersToRequest } from './ai-marketplace.service';

@@ -15,6 +15,10 @@ function assertPrismaClientMatchesSchema(client, schema) {
     && !client.Prisma?.dmmf?.datamodel?.models?.find(model => model.name === 'Service')?.fields?.some(field => field.name === 'publicMapPin')) {
     throw new Error('Generated Prisma client is stale: Service.publicMapPin is missing. Rebuild the API image from the current schema.');
   }
+  if (/\breadAt\s+DateTime\?/.test(schema)
+    && !client.Prisma?.dmmf?.datamodel?.models?.find(model => model.name === 'Message')?.fields?.some(field => field.name === 'readAt' && field.type === 'DateTime' && !field.isRequired)) {
+    throw new Error('Generated Prisma client is stale: Message.readAt is missing. Rebuild the API image from the current schema.');
+  }
 }
 
 module.exports = { assertPrismaClientMatchesSchema };
@@ -22,7 +26,7 @@ if (require.main === module) {
   try {
     const schema = readFileSync(resolve(__dirname, '../prisma/schema.prisma'), 'utf8');
     assertPrismaClientMatchesSchema(require('@prisma/client'), schema);
-    console.log('[Prisma] Generated client matches the checked-in enum and listing map contract.');
+    console.log('[Prisma] Generated client matches the checked-in enums, listing map and message receipt contracts.');
   } catch (error) {
     console.error(`[Prisma] ${error.message}`);
     process.exitCode = 1;

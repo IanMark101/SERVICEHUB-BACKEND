@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import test, { after } from 'node:test';
+import { prisma } from '../lib/prisma';
+import { env } from '../config/env';
+import { suggestCategories, matchProvidersToRequest, matchRequestsToService, CategorySuggestionSchema } from '../services/ai-marketplace.service';
+
+assert.equal(env.NODE_ENV,'test');
+assert.match(new URL(env.DATABASE_URL).searchParams.get('schema')||'',/^servicehub_migration_test_[a-f0-9]{32}$/);
+after(()=>prisma.$disconnect());
+test('AI assists only eligible official categories and reciprocal marketplace records', {timeout:150000},async t=>{
+  const tag=randomUUID();
+  const category=await prisma.category.create({data:{name:`Laptop repair ${tag}`}});
+  const wrong=await prisma.category.create({data:{name:`Plumbing ${tag}`}});
+  const makeUser=(name:string,trustScore:number)=>prisma.user.create({data:{name,email:`${name}-${tag}@example.test`,passwordHash:'fixture',phone:'fixture',location:'Cordova',emailVerified:true,verificationStatus:'APPROVED',trustScore}});
+  const [seeker,provider,other,blocked]=await Promise.all([makeUser('Seeker',75),makeUser('Provider',85),makeUser('Other',50),makeUser('Blocked',99)]);
+  const makeService=(providerId:string,categoryId=category.id)=>prisma.service.create({data:{providerId,categoryId,title:'LAPTOP REPAIR',titleNormalized:`laptop ${randomUUID()}`,description:'Laptop diagnosis and fan repair',price:500,estimatedDurationMins:60,priceType:'FIXED',status:'ACTIVE',isAvailable:true,latitude:10.26,longitude:123.95,locationLabel:'Cordova',serviceLocationMode:'BOTH',venueAddress:'PRIVATE PROVIDER DIRECTIONS',coverageRadiusKm:10,paymentMethods:{cash:true,gcash:false}}});
+  const [service,second,hidden,unrelated]=await Promise.all([makeService(provider.id),makeService(other.id),makeService(blocked.id),makeService(other.id,wrong.id)]);
+  await prisma.user.update({where:{id:blocked.id},data:{moderationStatus:'BANNED'}});
+  const completed=await prisma.completedService.create({data:{seekerId:seeker.id,providerId:provider.id,finalPrice:500,paymentStatus:'CASH_CONFIRMED'}});
+  await prisma.review.create({data:{completedServiceId:completed.id,authorId:seeker.id,targetId:provider.id,rating:5,editableUntil:new Date()}});
+  const makeRequest=(ownerId:string,categoryId=category.id)=>prisma.serviceRequest.create({data:{seekerId:ownerId,categoryId,title:'LAPTOP FAN NOT TURNING',description:'Fan does not spin and laptop overheats',budgetMin:500,budgetMax:1500,urgency:'This Week',status:'OPEN',latitude:10.261,longitude:123.951,locationLabel:'Cordova',privateAddress:'PRIVATE SEEKER DIRECTIONS',serviceLocationMode:'PROVIDER_VISITS',paymentMethods:{cash:true,gcash:false}}});
+  const request=await makeRequest(seeker.id);
+  const wrongRequest=await makeRequest(seeker.id,wrong.id);
+  const ownRequest=await makeRequest(provider.id);
+  const closed=await makeRequest(other.id);await prisma.serviceRequest.update({where:{id:closed.id},data:{status:'CLOSED'}});
+  const nativeFetch=globalThis.fetch;const previousKey=env.GEMINI_API_KEY;
+  t.after(()=>{globalThis.fetch=nativeFetch;env.GEMINI_API_KEY=previousKey;});
+  env.GEMINI_API_KEY=undefined;
+  await t.test('AI outages preserve real ranked same-category matches, ratings, ownership and privacy',async()=>{
+    const result=await matchProvidersToRequest(request.id,seeker.id);
+    assert.equal(result.source,'computed');assert.equal(result.suggestions[0]?.id,service.id);
+    assert.equal(result.suggestions[0]?.trustScore,85);assert.equal(result.suggestions[0]?.rating,5);assert.equal(result.suggestions[0]?.reviewCount,1);
+    assert.deepEqual(new Set(result.suggestions.map(item=>item.id)),new Set([service.id,second.id]));
+    assert.ok(!JSON.stringify(result).includes('PRIVATE'));assert.ok(!JSON.stringify(result).includes('latitude'));
+    const reverse=await matchRequestsToService(service.id,provider.id);
+    assert.deepEqual(reverse.suggestions.map(item=>item.id),[request.id]);
+    await assert.rejects(matchProvidersToRequest(request.id,other.id),{status:404});await assert.rejects(matchRequestsToService(service.id,seeker.id),{status:404});
+    await prisma.service.update({where:{id:second.id},data:{isAvailable:false}});
+    assert.deepEqual((await matchProvidersToRequest(request.id,seeker.id)).suggestions.map(item=>item.id),[service.id]);
+  });
+  await t.test('category suggestions never invent IDs or return inactive choices',async()=>{
+    env.GEMINI_API_KEY='fixture-key-not-real';
+    globalThis.fetch=(async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({ids:['invented-category']})}]}}]}),{status:200})) as typeof fetch;
+    assert.equal((await suggestCategories({title:'LAPTOP FAN NOT TURNING',description:''},seeker.id)).suggestions.length,0);
+    let sent='';
+    globalThis.fetch=(async(_input,init)=>{sent=String(init?.body);return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({ids:[category.id]})}]}}]}),{status:200});}) as typeof fetch;
+    const suggestion=await suggestCategories({title:'FIX MY LAPTOP FAN',description:'It stopped spinning.'},seeker.id);
+    assert.deepEqual(suggestion.suggestions,[{id:category.id,name:category.name}]);assert.ok(!sent.includes('PRIVATE'));
+    assert.equal(CategorySuggestionSchema.safeParse({title:'x',description:''}).success,false);
+  });
+  await t.test('AI cannot inject a foreign service into rankings, and failed upstream calls recover',async()=>{
+    globalThis.fetch=(async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({ids:[hidden.id,unrelated.id]})}]}}]}),{status:200})) as typeof fetch;
+    const result=await matchProvidersToRequest(request.id,seeker.id);assert.equal(result.source,'computed');assert.deepEqual(result.suggestions.map(item=>item.id),[service.id]);
+    globalThis.fetch=(async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({ids:[service.id]})}]}}]}),{status:200})) as typeof fetch;
+    assert.equal((await matchProvidersToRequest(request.id,seeker.id)).source,'gemini');
+    globalThis.fetch=(async()=>{throw new Error('Fixture upstream failure');}) as typeof fetch;
+    assert.equal((await matchRequestsToService(service.id,provider.id)).suggestions[0]?.id,request.id);
+    await prisma.service.update({where:{id:service.id},data:{latitude:10.42,longitude:123.95}});
+    assert.equal((await matchRequestsToService(service.id,provider.id)).suggestions.length,0);
+  });
+  assert.ok(wrongRequest.id&&ownRequest.id);
+});

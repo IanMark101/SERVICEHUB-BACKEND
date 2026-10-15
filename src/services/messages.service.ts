@@ -233,7 +233,7 @@ export async function getConversationGroupForBooking(userId: string, bookingId: 
   return makeContactGroup(await loadContactBookings(userId, [otherPartyId]), userId);
 }
 
-export async function getMessages(bookingId: string, userId: string, userRole?: string) {
+export async function getMessages(bookingId: string, userId: string, userRole?: string, markRead = true) {
   // Validate basic access (seeker or provider check, admin bypass)
   const booking = await checkMessagingAccess(bookingId, userId, userRole);
 
@@ -244,16 +244,24 @@ export async function getMessages(bookingId: string, userId: string, userRole?: 
     throw err;
   }
 
-  // Only mark messages as read if the user is a participant (not admin viewing)
-  if (userRole !== 'admin') {
-    await prisma.message.updateMany({
-      where: {
-        bookingId,
-        receiverId: userId,
-        isRead: false,
-      },
-      data: { isRead: true },
+  // Capture the returned history before marking: concurrent arrivals are not
+  // seen until loaded. Admin inspection and background reads never mark seen.
+  const snapshot = await prisma.message.findMany({
+    where: { bookingId },
+    include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  if (userRole !== 'admin' && markRead) {
+    const changed = await prisma.message.updateManyAndReturn({
+      where: { id: { in: snapshot.filter(message => message.receiverId === userId && !message.isRead).map(message => message.id) }, bookingId, receiverId: userId, isRead: false },
+      data: { isRead: true, readAt: new Date() },
+      select: { id: true, readAt: true },
     });
+    if (changed.length) {
+      const receipt = { bookingId, receiverId: userId, messages: changed };
+      safeEmit(`user:${booking.seekerId}`, 'messages_read', receipt);
+      safeEmit(`user:${booking.providerId}`, 'messages_read', receipt);
+    }
 
     // Auto mark matching notification alerts as read
     await prisma.notification.updateMany({
@@ -273,11 +281,9 @@ export async function getMessages(bookingId: string, userId: string, userRole?: 
   }
 
   return prisma.message.findMany({
-    where: { bookingId },
-    include: {
-      sender: { select: { id: true, name: true, avatarUrl: true } },
-    },
-    orderBy: { createdAt: "asc" },
+    where: { id: { in: snapshot.map(message => message.id) }, bookingId },
+    include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
 }
 
@@ -372,17 +378,9 @@ export async function sendMessage(
     },
   });
 
-  // Mark receiver's previous messages as read
-  await prisma.message.updateMany({
-    where: {
-      bookingId,
-      receiverId: senderId,
-      isRead: false,
-    },
-    data: { isRead: true },
-  });
+  // A reply does not prove that unseen history was displayed. Only a visible
+  // conversation read writes a receipt.
 
-  // ── Real-time: broadcast to booking room ─────────────────────────────────
   safeEmit(`booking:${bookingId}`, "new_message", message);
   
   // Message notifications are no longer logged in database/shown in bell dropdown to avoid redundancy.

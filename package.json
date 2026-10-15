@@ -51,7 +51,7 @@
     "express-rate-limit": "^8.6.2",
     "geoip-lite": "1.4.10",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^9.0.6",
+    "nodemailer": "^10.1.1",
     "pg": "^8.21.0",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"
@@ -79,7 +79,7 @@
     "proxy-addr": "2.0.8",
     "ip-address": "10.7.4",
     "socket.io-parser": "4.2.7",
-    "fast-uri": "3.1.6",
+    "fast-uri": "3.1.8",
     "body-parser": "2.3.0",
     "deepmerge-ts": "8.0.2",
     "esbuild": "0.28.2",

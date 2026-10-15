@@ -211,7 +211,10 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   assert.equal(repeatedSettlement.id, firstSettlement.id);
   assert.equal(firstSettlement.paymentStatus, "RELEASED");
   assert.equal(await prisma.transaction.count({ where: { idempotencyKey: `booking-completion:${onlineBookingId}` } }), 1);
-  assert.equal(await prisma.trustScoreEvent.count({ where: { eventKey: `booking-completion:${onlineBookingId}:provider` } }), 1);
+  // The earlier cash job already rewarded this pair within the rolling 30-day
+  // window. Repeated settlement must not bypass the completion reward limit.
+  assert.equal(await prisma.trustScoreEvent.count({ where: { eventKey: `booking-completion:${acceptedCash.id}:provider` } }), 1);
+  assert.equal(await prisma.trustScoreEvent.count({ where: { eventKey: `booking-completion:${onlineBookingId}:provider` } }), 0);
   assert.equal((await prisma.queue.findUniqueOrThrow({ where: { bookingId: onlineBookingId } })).status, "DONE");
   assert.equal((await prisma.queue.findUniqueOrThrow({ where: { bookingId: secondFinalized.booking!.id } })).position, 1);
 
@@ -283,7 +286,7 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   const suspensionReport = await prisma.report.create({ data: { bookingId: capacityBlocker.id, reporterId: seeker.id, reportedUserId: provider.id, reason: "NO_SHOW", reportType: "SAFETY", description: "Administrative suspension guard integration case." } });
   await assert.rejects(
     resolveAdminReport(suspensionReport.id, admin.id, "resolve_safety", "Temporary suspension requested by integration test.", "suspend"),
-    /Resolve or administratively cancel/i,
+    (error: any) => error?.code === 'SUSPENSION_BOOKINGS_BLOCKED' && error?.status === 409,
   );
   assert.equal((await prisma.report.findUniqueOrThrow({ where: { id: suspensionReport.id } })).status, "UNDER_REVIEW");
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: provider.id } })).moderationStatus, "ACTIVE");

@@ -21,7 +21,11 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
-if (process.env.SERVICEHUB_LISTING_MAP_ONLY === '1' || process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1' || process.env.SERVICEHUB_ADMIN_CASES_ONLY === '1' || process.env.SERVICEHUB_SAVED_ONLY === '1' || process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1' || process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') {
+if (process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1') {
+  isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+  isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+}
+if (process.env.SERVICEHUB_AI_ASSIST_ONLY === '1' || process.env.SERVICEHUB_MESSAGE_RECEIPTS_ONLY === '1' || process.env.SERVICEHUB_LISTING_MAP_ONLY === '1' || process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1' || process.env.SERVICEHUB_ADMIN_CASES_ONLY === '1' || process.env.SERVICEHUB_SAVED_ONLY === '1' || process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1' || process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') {
   isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
   isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
 }
@@ -51,8 +55,9 @@ function runNpm(args: string[], env: NodeJS.ProcessEnv) {
 }
 
 async function main() {
+  if (process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1') assertCategoryDevelopmentTarget();
   if (process.env.SERVICEHUB_PROXIMITY_ONLY === '1') assertProximityDatabase();
-  if (process.env.SERVICEHUB_LISTING_MAP_ONLY === '1' || process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1' || process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_SECURITY_HISTORY_ONLY === '1' || process.env.SERVICEHUB_SAVED_ONLY === '1' || process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1' || process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') assertCategoryDevelopmentTarget();
+  if (process.env.SERVICEHUB_AI_ASSIST_ONLY === '1' || process.env.SERVICEHUB_MESSAGE_RECEIPTS_ONLY === '1' || process.env.SERVICEHUB_LISTING_MAP_ONLY === '1' || process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1' || process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_SECURITY_HISTORY_ONLY === '1' || process.env.SERVICEHUB_SAVED_ONLY === '1' || process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1' || process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') assertCategoryDevelopmentTarget();
   await admin.connect();
   await admin.query(`CREATE SCHEMA "${schemaName}"`);
 
@@ -102,6 +107,20 @@ async function main() {
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
 
+    if (process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1') {
+      const result = runNpm(['run', 'test:booking-integration'], isolatedEnv);
+      assert.equal(result.status, 0, 'Booking lifecycle integration failed');
+      return;
+    }
+    if (process.env.SERVICEHUB_AI_ASSIST_ONLY === '1') {
+      const result=runNpm(['exec','--','tsx','--test','src/integration/ai-marketplace.test.ts'],isolatedEnv);
+      assert.equal(result.status,0,'AI marketplace integration failed');return;
+    }
+    if (process.env.SERVICEHUB_MESSAGE_RECEIPTS_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/message-read-receipts.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'Message receipt lifecycle integration failed');
+      return;
+    }
     if (process.env.SERVICEHUB_LISTING_MAP_ONLY === '1') {
       for (const file of ['listing-map-consent.test.ts', 'service-arrangements.test.ts']) {
         const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);

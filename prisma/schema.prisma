@@ -889,6 +889,7 @@ model Message {
   content    String
   imageUrl   String?
   isRead     Boolean  @default(false)
+  readAt     DateTime?
   isSystem   Boolean  @default(false)
   createdAt  DateTime @default(now())
 

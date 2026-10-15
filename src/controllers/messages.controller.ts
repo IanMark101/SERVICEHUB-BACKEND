@@ -45,7 +45,7 @@ export async function list(req: Request, res: Response, next: NextFunction) {
     const user = (req as AuthenticatedRequest).user;
     const bookingId = req.params.bookingId || req.params.completedServiceId;
 
-    const messages = await getMessages(bookingId as string, user.id, user.role);
+    const messages = await getMessages(bookingId as string, user.id, user.role, req.query.markRead !== "false");
     res.json({ success: true, data: messages });
   } catch (err: any) {
     if (err.code === "MESSAGES_LOCKED") {

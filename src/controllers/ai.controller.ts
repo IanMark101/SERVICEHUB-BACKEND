@@ -1,3 +1,4 @@
+import { suggestCategories, CategorySuggestionSchema, RequestMatchesSchema, matchRequestsToService } from '../services/ai-marketplace.service';
 import type { Request, Response, NextFunction } from "express";
 import { summarizeProviderReviews, summarizeSeekerReviews, matchProvidersToRequest } from "../services/ai.service";
 import type { AuthenticatedRequest } from "../middlewares/auth.middleware";
@@ -39,4 +40,11 @@ export async function matchProviders(req: Request, res: Response, next: NextFunc
   } catch (err) {
     next(err);
   }
+}
+
+export async function categorySuggestions(req:Request,res:Response,next:NextFunction) {
+  try {res.json({success:true,data:await suggestCategories(CategorySuggestionSchema.parse(req.body),(req as AuthenticatedRequest).user.id)});}catch(error){next(error);}
+}
+export async function matchRequests(req:Request,res:Response,next:NextFunction) {
+  try {const {serviceId}=RequestMatchesSchema.parse(req.body);res.json({success:true,data:await matchRequestsToService(serviceId,(req as AuthenticatedRequest).user.id)});}catch(error){next(error);}
 }
