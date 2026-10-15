@@ -48,6 +48,7 @@ test("listing concurrency, exact pricing and trust retries", async (t) => {
   assert.equal(await prisma.adminAuditLog.count({ where: { actorId: admin.id, action: "CATEGORY_UPDATED" } }), 1);
   const input = (title: string) => CreateServiceSchema.parse({ categoryId: category.id, title,
     description: "A sufficiently detailed test description for a provider listing.", price: 500,
+    serviceLocation: { latitude: 10.26, longitude: 123.95, label: 'Cordova, Cebu' }, coverageRadiusKm: 10,
     estimatedDurationMins: 30, queueLimit: 3, paymentMethods: { cash: true } });
   const results = await Promise.allSettled(Array.from({ length: 4 }, (_, index) => createService(provider.id, input(`Listing ${index} ${suffix}`))));
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 3);
@@ -93,10 +94,12 @@ test("listing concurrency, exact pricing and trust retries", async (t) => {
       budgetMin: 400,
       budgetMax: 800,
       urgency: "medium",
+      latitude: 10.261, longitude: 123.951, locationLabel: 'Cordova, Cebu',
     },
   });
   await assert.rejects(createDirectRequest({ seekerId: seeker.id, providerId: provider.id, serviceId: reused.id }));
-  await assert.rejects(updateService(reused.id, provider.id, { priceType: "FIXED" }), /enter a final price/);
+  await assert.rejects(updateService(reused.id, provider.id, { priceType: "FIXED" }),
+    (error: any) => error?.status === 400 && /supported pricing type.*update the price/i.test(error.message));
   await assert.rejects(getServiceById(reused.id), /Service not found/);
   const exactOffer = await submitOffer(provider.id, {
     requestId: request.id,
@@ -147,10 +150,14 @@ test("listing concurrency, exact pricing and trust retries", async (t) => {
     assert.equal(profile.averageRating, 5);
     assert.equal(profile.reviews.some((review) => review.reviewContext === 'SEEKER'), true);
     let status = 200;
+    let publicEvents: Array<Record<string, unknown>> = [];
     await getUserTrustHistoryHandler({ params: { id: provider.id }, user: { id: seeker.id, role: 'user' } } as any,
-      { status(code: number) { status = code; return this; }, json() {} } as any,
+      { status(code: number) { status = code; return this; }, json(payload: { data:Array<Record<string, unknown>> }) { publicEvents = payload.data; } } as any,
       (error) => { if (error) throw error; });
-    assert.equal(status, 403);
+    assert.equal(status, 200);
+    assert.ok(publicEvents.length > 0);
+    assert.ok(publicEvents.every(event => !('eventKey' in event) && !('actorAdminId' in event)));
+    assert.ok(!JSON.stringify(publicEvents).includes('Duplicate business event test'));
     invalidateProviderSummary(provider.id);
     assert.equal((await summarizeProviderReviews(provider.id)).cached, true);
     assert.equal(geminiCalls, 1);
