@@ -24,10 +24,10 @@ export async function createListingInquiry(seekerId: string, input: unknown) {
     await tx.$queryRaw`SELECT id FROM services WHERE id = ${params.serviceId} FOR SHARE`;
     const service = await tx.service.findUnique({ where: { id: params.serviceId }, include: { category: true } });
     if (!service || service.providerId !== source.providerId || service.status !== 'ACTIVE' || !service.isAvailable || !service.category.isActive) throw fail('This listing is no longer available.', 404);
-    if (service.priceType !== 'BY_AGREEMENT' || service.price !== null) throw fail('Use the normal booking request for a listing with a set price.', 400);
     const methods = service.paymentMethods as { cash?: boolean; gcash?: boolean } | null;
     if (!methods?.cash && !methods?.gcash) throw fail('This listing has no available payment method.');
     const arrangement = resolveDirectArrangement(service, params.serviceLocationMode, params.jobLocation);
+    if (service.priceType !== 'BY_AGREEMENT' && arrangement.serviceLocationMode !== 'PROVIDER_VISITS') throw fail('Use the normal booking request for this listing and arrangement.', 400);
     const activeBooking = await tx.booking.findFirst({ where: { seekerId, serviceId: service.id, status: { in: ['PENDING_APPROVAL', 'WAITING', 'ACCEPTED', 'ONGOING', 'AWAITING_CONFIRMATION', 'UNDER_REVIEW', 'DISPUTED'] } }, select: { id: true } });
     if (activeBooking) throw fail('You already have an active booking for this service. Check Activity.', 409, 'ACTIVE_BOOKING_EXISTS');
     const existing = await tx.serviceRequest.findMany({ where: { seekerId, targetServiceId: service.id, status: { in: ['OPEN', 'PAYMENT_PENDING', 'IN_PROGRESS'] } }, select: { offers: { select: { status: true, booking: { select: { status: true } } } } } });
@@ -44,7 +44,7 @@ export async function createListingInquiry(seekerId: string, input: unknown) {
       ...(point && { ...locationData(point), privateAddress: point.address || null }),
     } });
     await setListingPhotos(tx, seekerId, params.photoIds ?? [], { requestId: inquiry.id });
-    await tx.notification.create({ data: { userId: service.providerId, title: 'New service request', body: `A seeker requested ${service.title}. Review the work and accept with your price, or decline.`, link: `/provider/incoming-requests?request=${inquiry.id}` } });
+    await tx.notification.create({ data: { userId: service.providerId, title: 'New service request', body: `A seeker requested ${service.title}. Review the work and location, then send your final price or decline.`, link: `/provider/incoming-requests?request=${inquiry.id}` } });
     return withListingPhotos(await tx.serviceRequest.findUniqueOrThrow({ where: { id: inquiry.id }, include: { ...listingPhotosInclude, category: true, seeker: { select: { id: true, name: true, avatarUrl: true } } } }));
   });
   for (const userId of [seekerId, source.providerId]) safeEmit(`user:${userId}`, 'SERVICE_REQUESTS_CHANGED', { id: result.id });

@@ -12,7 +12,7 @@ test('public trust and completed request visibility preserve account and booking
   assert.match(new URL(env.DATABASE_URL).searchParams.get('schema') ?? '', /^servicehub_migration_test_[a-f0-9]{32}$/, 'Use the disposable migration runner, never application data.');
   assert.equal(process.env.SERVICEHUB_TRUST_REQUEST_ONLY, '1');
   const suffix = randomUUID();
-  const users = await Promise.all(['seeker', 'provider', 'outsider', 'admin'].map(name => prisma.user.create({ data: {
+  const users = await Promise.all(['seeker', 'provider', 'outsider', 'admin'].map(name => prisma.user.create({ data: { gcashNumber: '09123456789',
     name, email: `${name}-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only', location: 'Cordova',
     emailVerified: true, verificationStatus: 'APPROVED', role: name === 'admin' ? 'admin' : 'user',
   } })));

@@ -25,7 +25,7 @@ test('expanded Admin catalog preserves data and supports both marketplace flows'
   await prisma.category.create({ data: { name: 'Painting', isActive: false } });
   await prisma.category.create({ data: { name: '  haircuts & beauty  ' } });
   const before = await prisma.category.findMany({ orderBy: { id: 'asc' } });
-  const makeUser = (name: string, role: 'admin' | 'user' = 'user', approved = true) => prisma.user.create({ data: {
+  const makeUser = (name: string, role: 'admin' | 'user' = 'user', approved = true) => prisma.user.create({ data: { gcashNumber: '09123456789',
     name, email: `${name}-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only',
     role, emailVerified: true, verificationStatus: approved ? 'APPROVED' : 'UNVERIFIED', location: 'Cebu',
   } });

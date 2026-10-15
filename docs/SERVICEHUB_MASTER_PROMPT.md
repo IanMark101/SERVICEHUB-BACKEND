@@ -47,7 +47,7 @@ The project manager reports a Hostinger KVM 2 VPS running Ubuntu, purchased Octo
 | Profile locality | General area on the member profile | Free-text city/municipality and barangay; no fixed-city suffix or restricted barangay list |
 | Seeker search location/radius | Discover provider services | Saved separately per member/workspace in this browser; changing it does not update the profile |
 | Provider search location/radius | Discover open work requests | Independent of the seeker's saved search preferences |
-| Service operating base/coverage | Where a listing operates and accepts jobs | Validated base pin/area label; optional 1–30 km coverage limit and transportation fee |
+| Provider base or venue | Where a provider is based or receives visitors | One base area or shop pin; no fixed provider travel limit |
 | Request job location | Where the requested work happens | Validated pin/area label, optional private directions and additional travel budget |
 | Booking job location | Agreed work location | Snapshotted with amount, transportation and estimated duration for the transaction |
 
@@ -56,7 +56,7 @@ The project manager reports a Hostinger KVM 2 VPS running Ubuntu, purchased Octo
 - Seek Services uses `GET /api/services/nearby`, a public endpoint with optional authentication and redacted listing data. Browse Service Requests uses `GET /api/requests/nearby`, which requires an authenticated marketplace member with verified email; identity/residency approval is not required merely to browse. Both validate latitude, longitude and radius. The workspace UI has its own authentication/email gates. Other public listing/explainer routes retain their own access policy. Backend router-relative paths elsewhere in this document are mounted under `/api` in `src/app.ts`.
 - The UI offers radii of 0.5, 1, 2, 5, 10, 15, 20 and 30 km, plus a custom radius. The UI and API validate 0.5–30 km in 0.1 km increments. Lists paginate results (default 6; maximum 30 per page).
 - A geographical bounding box reduces candidates, followed by exact Haversine distance filtering. Municipal/city labels do not define eligibility. Distances are straight-line estimates, not road routing, travel times or guaranteed arrival times.
-- Keep the discovery flow simple: a Seeker request has one actual job pin without its own radius; a Provider listing has a base pin and optional service coverage; each browsing workspace has an independent search center/radius. Do not add a second request-radius restriction to Provider discovery.
+- Keep one location selection per form: provider base area/shop, or seeker job point/desired provider-search area. No provider travel limit is configured. Browsing retains an independent search center/radius.
 - Seek Services compares the chosen search center with service operating bases; Browse Service Requests compares it with request job pins. Default ordering is nearest first, with trust score breaking service-distance ties and newer requests breaking request-distance ties. Budget/offer quick filters retain their existing ordering.
 - Search matches service/request title, description and category rather than merely the account name. Search, category and radius remain combined filters. Seeker quick filters cover availability, rating and waiting workload; provider quick filters cover urgency, budget and offer count.
 - Opening the location dialog edits a draft. Apply commits it; Cancel/Escape discards it. Optional device geolocation is requested only through an explicit user action.
@@ -69,10 +69,10 @@ The project manager reports a Hostinger KVM 2 VPS running Ubuntu, purchased Octo
 
 ### Coverage, price and privacy
 
-- Search center, profile area and actual job point are independent. A listing appearing in search does not establish that the final job pin is within coverage. Validate listing coverage against the actual job location when preparing a direct booking or a linked offer.
-- Provider create/edit forms put Service coverage radius above the operating-base map and pass the saved radius to its circle. The circle follows the base pin and updates in embedded/full-screen views. No distance limit shows the base pin without a circle. Seeker job-location forms show one job pin; both browsing location dialogs show their search-radius circles.
-- Location and radius do not choose who travels. Participants arrange provider visits or visits to the provider through chat; do not add a required travel-mode selector to the current flow.
-- A listing transportation fee is added once to a direct booking, including multi-hour/day quantities. A request's additional travel budget is context for the quote; it is not automatically added again to the accepted offer's final total. Current transportation/travel allowance validation supports 0–₱5,000 with at most two decimal places.
+- Search center, profile area and actual job point are independent. There is no fixed provider travel coverage check. A travelling provider reviews the actual job area and proposes a final total before GCash payment.
+- Provider create/edit forms use one base city/barangay or venue selection. No provider radius field/circle is shown. Search and map select the same location; successful lookup fills its label automatically.
+- The delivery selector establishes Provider visits, Seeker visits, Either or Online. A concrete arrangement is agreed for each booking. Either supports the two physical choices.
+- Travelling-provider service requests use the private inquiry and offer flow for fixed/rate as well as agreement listings. The final offer includes agreed travel; no fee is added twice. Shop/online set-price bookings retain their existing direct payment paths. Historical confirmed amounts stay unchanged.
 - Public discovery responses/broadcasts omit raw private coordinates and private directions. Only nearby service mapPins may expose an exact point when the provider explicitly sets publicMapPin; request/job pins remain approximate. They show the general area and approximate distance rounded to 0.1 km. Authorized booking participants can see the transaction's job point/directions; current search preferences must not store private job directions.
 - GCash preparation snapshots the job and payment terms before checkout. Finalization uses that snapshot. Profile/listing/search edits do not silently rewrite an existing booking or successful payment.
 - Editing a request's job/travel terms while active offers exist is restricted to protect existing quotes. Follow the current API validation; a new request is the recovery when terms cannot be changed safely.
@@ -83,7 +83,7 @@ Every interactive location map has an optional in-map expand control for a full-
 
 Selected locations use a recognizable teardrop map pin with a white center/outline and workspace color, consistently in embedded and full-screen maps. The pin tip anchors the exact selected coordinate and coverage-circle center; dragging retains the existing selection behavior.
 
-Search radius supports presets and custom values from 0.5 to 30 km, in 0.1 km increments. The form, stored preferences and nearby API all validate these bounds; invalid drafts cannot be applied. Search radius remains independent of service coverage.
+Search radius supports presets and custom values from 0.5 to 30 km, in 0.1 km increments. The form, stored preferences and nearby API all validate these bounds; invalid drafts cannot be applied. Search radius remains for discovery only; providers decide whether to accept each actual job.
 
 Leaflet uses a MapLibre vector layer with the public OpenFreeMap Liberty style and visible attribution. Map labels prefer English names, then Latin transliterations, instead of bilingual native-script labels. Native-only labels without a readable alias are omitted. `GET /locations/search` performs explicit city/barangay searches through the backend. The current default is Nominatim with Philippine locality filtering, caching, query validation, a per-user rate limit and a single-process upstream request limiter. The map pin remains a recovery path when search fails. There is no background reverse-geocoding or per-keystroke autocomplete.
 
@@ -416,7 +416,7 @@ The provider-wide FCFS queue is reserved for successfully paid online bookings. 
 8. If payment fails or is abandoned, no Booking or Queue row is created. The durable PaymentAttempt records the failure without exposing sensitive provider data.
 9. Provider waiting capacity is checked before payment and rechecked under the provider queue lock during success handling. If a captured payment cannot safely become a booking, persist it as `REFUND_REQUIRED` and start an idempotent refund/reconciliation path; never lose the payment or silently exceed the configured capacity.
 10. A provider's profile phone number is contact information, not a PayMongo payout destination. Tier 0 creates an internal provider earning after completion and does not transfer money to a personal GCash number, bank account, or wallet.
-11. Listing forms may save one optional private GCash number per account, separate from `User.phone`, using the in-form modal and authenticated `GET/PUT /api/auth/gcash-number`. `User.gcashNumber` is normalized to `09` plus nine digits; null removes it. Never backfill it from contact phone, put it in public profiles/listings, or send it in a listing/booking/payment payload. This is an unverified preference, not a payout destination. Saving it leaves PayMongo Test Mode, held funds, completion and internal earnings unchanged. Missing it must not block listing publication or redirect a draft to Account Settings. See `SERVICEHUB-BACKEND/docs/GCASH_NUMBER_PREFERENCE.md`.
+11. Listing forms require one valid private saved GCash number whenever GCash is selected; Cash only needs none. Use GET/PUT /api/auth/gcash-number. The server repeats create/update checks under the account lifecycle lock and blocks removal while retained GCash listings or active public requests depend on it. It stays separate from User.phone and is not a verified wallet or payout configuration.
 
 ### Cash invariants
 
@@ -705,7 +705,7 @@ Apply this check to: direct bookings (Flow A), sending an offer (Flow B, provide
 ## PART 17 — SERVICE LISTINGS (PROVIDER SIDE) — CREATION, VALIDATION, MODERATION
 
 ### Fields
-Category (admin-managed list), title, description, definite price/rate or Price by agreement, supported price type, normal estimated duration, operating base/area label, optional coverage radius/transportation fee, and accepted methods (GCash and On-site Cash — at least one). Provider paid waiting capacity (1–10) is configured once in Provider Work Queue across listings/offers; the legacy `Service.queueLimit` is not operational. GCash is the only online Test Mode method.
+Category (admin-managed list), title, description, definite price/rate or Price by agreement, supported price type, normal estimated duration, operating base/area label, optional transportation fee with no provider travel-radius restriction, and accepted methods (GCash and On-site Cash — at least one). Provider paid waiting capacity (1–10) is configured once in Provider Work Queue across listings/offers; the legacy `Service.queueLimit` is not operational. GCash is the only online Test Mode method.
 
 ### Reusable one-time booking model (Version 2.3)
 
@@ -1561,3 +1561,7 @@ The revised capstone sources, editable Word book and matching PDF record this re
 ## First-party session transport after the frontend domain change
 
 Browser cookie-lifecycle requests use exact same-origin `/api` rewrites to the existing API, including login, Google login, registration, session, refresh, logout, password reset/change and account deletion. NEXT_PUBLIC_API_URL remains the absolute upstream API base. Raw HTTP renewal follows the same routing. HttpOnly/Secure cookies, in-memory access tokens, trusted-origin checks, rotation and explicit revocation remain. Uploads, marketplace reads and Socket.IO continue directly to the API. Verification decisions affect the applicant and must not revoke the reviewing administrator. Existing users may need one new sign-in to establish the website cookie. See docs/FIRST_PARTY_SESSION_RECOVERY.md for scope, isolated blocked-cookie browser verification and deployment requirements. The preceding 115-page publication remains an identified release snapshot.
+
+## October 16 simplified locations and required GCash numbers
+
+No provider travel-radius restriction is applied. The legacy column is retained and ignored, and new/edited listings clear it. Public request pins remain approximate for both physical arrangements. Direct GCash initiation/reuse for Provider visits requires an offer; pending payments created by earlier releases retain their existing settlement handling. GCash-selected provider services and public seeker requests require a valid private saved GCash number at create/update. Cash-only posting needs none. Number removal is blocked while retained GCash listings or active public requests depend on it. A saved number does not verify wallet ownership or enable real Test Mode payouts. This revision is local until the compatible API and frontend are released.

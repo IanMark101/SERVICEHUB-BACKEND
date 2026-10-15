@@ -50,7 +50,7 @@ test("self-service hard deletion: obligations, credentials, dependent data, isol
     await prisma.$disconnect();
   });
   const user = async (name: string, role = "user") => {
-    const created = await prisma.user.create({ data: { name, email: `${tag}-${ids.length}@example.test`, passwordHash: hash, phone: "", location: "Cordova", role, emailVerified: true, verificationStatus: "APPROVED" } });
+    const created = await prisma.user.create({ data: { gcashNumber: '09123456789', name, email: `${tag}-${ids.length}@example.test`, passwordHash: hash, phone: "", location: "Cordova", role, emailVerified: true, verificationStatus: "APPROVED" } });
     ids.push(created.id); return created;
   };
   const owner = await user("Deletion QA owner");

@@ -102,7 +102,7 @@ export async function matchProvidersToRequest(requestId:string,seekerId:string) 
   const stats=await ratings([...new Set(candidates.map(item=>item.providerId))],'provider');
   const matches=candidates.flatMap(service=>{
     const km=distance(request,service);
-    if((km!==null&&km>30)||!compatible(request,service))return [];
+    if(!compatible(request,service))return [];
     const review=stats.get(service.providerId);
     return [{id:service.id,title:service.title,description:service.description,category:request.category.name,name:service.provider.name,userId:service.providerId,trustScore:service.provider.trustScore,rating:review?.rating??null,reviewCount:review?.reviewCount??0,distanceKm:km===null?null:Math.round(km*10)/10,locationLabel:service.locationLabel,amount:service.price===null?null:Number(service.price),priceType:service.priceType,rationale:''}];
   });
@@ -121,7 +121,7 @@ export async function matchRequestsToService(serviceId:string,providerId:string)
   const requests=await prisma.serviceRequest.findMany({where:{...publicRequestWhere(providerId),categoryId:service.categoryId,targetServiceId:null,seekerId:{not:providerId},AND:[{seeker:{role:'user',deactivatedAt:null}}]},include:{seeker:{select:{id:true,name:true,trustScore:true}}},orderBy:[{createdAt:'desc'},{id:'asc'}],take:200});
   const stats=await ratings([...new Set(requests.map(item=>item.seekerId))],'seeker');
   const matches=requests.flatMap(request=>{
-    const km=distance(service,request);if((km!==null&&km>30)||!compatible(request,service))return [];
+    const km=distance(service,request);if(!compatible(request,service))return [];
     const review=stats.get(request.seekerId);
     return [{id:request.id,title:request.title,description:request.description,category:service.category.name,name:request.seeker.name,userId:request.seekerId,trustScore:request.seeker.trustScore,rating:review?.rating??null,reviewCount:review?.reviewCount??0,distanceKm:km===null?null:Math.round(km*10)/10,locationLabel:request.locationLabel,amount:Number(request.budgetMax??request.budgetMin),priceType:'BUDGET',rationale:''}];
   });

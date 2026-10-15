@@ -14,7 +14,7 @@ test('public map consent persists without disclosing private pins or directions,
   assert.match(new URL(env.DATABASE_URL).searchParams.get('schema') || '', /^servicehub_migration_test_[a-f0-9]{32}$/);
   const tag=randomUUID(), ids:string[]=[];
   const createUser=async (name:string) => {
-    const user=await prisma.user.create({ data:{ name, email:`${name}-${tag}@example.test`, phone:`fixture-${name}-${tag}`, location:'Cordova', passwordHash:'fixture', emailVerified:true, verificationStatus:'APPROVED' } });
+    const user=await prisma.user.create({ data:{ gcashNumber: '09123456789', name, email:`${name}-${tag}@example.test`, phone:`fixture-${name}-${tag}`, location:'Cordova', passwordHash:'fixture', emailVerified:true, verificationStatus:'APPROVED' } });
     ids.push(user.id); return user;
   };
   const [owner, peer]=await Promise.all([createUser('Owner'),createUser('Peer')]);

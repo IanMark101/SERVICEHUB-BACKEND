@@ -15,16 +15,16 @@ import { updateManagedCategory } from "../services/admin-moderation.service";
 
 test("listing concurrency, exact pricing and trust retries", async (t) => {
   const suffix = randomUUID();
-  const provider = await prisma.user.create({ data: {
+  const provider = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: `Listing Test ${suffix}`, email: `${suffix}@example.test`, passwordHash: "test-only-unusable-hash",
     phone: "test-only", location: "Cordova", emailVerified: true, verificationStatus: "APPROVED",
   } });
-  const admin = await prisma.user.create({ data: {
+  const admin = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: `Listing Admin ${suffix}`, email: `admin-${suffix}@example.test`, passwordHash: "test-only-unusable-hash",
     phone: "test-only", location: "Cordova", role: "admin", emailVerified: true,
   } });
   const category = await prisma.category.create({ data: { name: `Listing Test ${suffix}` } });
-  const seeker = await prisma.user.create({ data: { name: `Seeker Test ${suffix}`, email: `seeker-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only', location: 'Cordova', emailVerified: true, verificationStatus: 'APPROVED' } });
+  const seeker = await prisma.user.create({ data: { gcashNumber: '09123456789', name: `Seeker Test ${suffix}`, email: `seeker-${suffix}@example.test`, passwordHash: 'test-only', phone: 'test-only', location: 'Cordova', emailVerified: true, verificationStatus: 'APPROVED' } });
   t.after(async () => {
     await prisma.aiReviewSummary.deleteMany({ where: { providerId: provider.id } });
     await prisma.review.deleteMany({ where: { targetId: provider.id } });

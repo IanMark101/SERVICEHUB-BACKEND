@@ -14,7 +14,7 @@ test('public job visibility and database repair apply to every account', async t
   assert.match(schema, /^audit_20260924_[a-f0-9]{32}$/, 'Use the isolated audit runner; never insert fixtures in the application schema.');
   t.after(() => prisma.$disconnect());
   const suffix = randomUUID();
-  const users = await Promise.all(['seeker-one', 'seeker-two', 'provider-one', 'provider-two', 'provider-three'].map(label => prisma.user.create({ data: {
+  const users = await Promise.all(['seeker-one', 'seeker-two', 'provider-one', 'provider-two', 'provider-three'].map(label => prisma.user.create({ data: { gcashNumber: '09123456789',
     name: label, email: `${label}-${suffix}@example.test`, passwordHash: 'test-only-unusable-hash',
     phone: 'test-only', location: 'Cordova', emailVerified: true, verificationStatus: 'APPROVED',
   } })));

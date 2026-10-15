@@ -8,6 +8,7 @@ import { canonicalCategoryName } from '../lib/category-catalog';
 import { Prisma, ServiceStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
+import { assertListingGCashNumber } from './gcash-listing-policy';
 import { safeBroadcast, safeEmit } from "../lib/socket";
 import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.schema";
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
@@ -246,6 +247,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
     created = await prisma.$transaction(async (tx) => {
       await lockAccountLifecycle(tx, providerId);
       await assertActiveMarketplaceAccount(tx, providerId);
+      await assertListingGCashNumber(tx, providerId, input.paymentMethods);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-listings:${providerId}`}))`;
       const activeCount = await tx.service.count({
         where: { providerId, status: "ACTIVE" },
@@ -282,7 +284,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
           description: input.description,
           ...locationData(input.serviceLocation),
           publicMapPin: input.publicMapPin,
-          coverageRadiusKm: input.coverageRadiusKm,
+          coverageRadiusKm: null,
           transportationFee: input.priceType === 'BY_AGREEMENT' ? null : input.transportationFee,
           serviceLocationMode: input.serviceLocationMode,
           venueAddress: input.venueAddress,
@@ -345,6 +347,7 @@ export async function updateService(serviceId: string, providerId: string, input
       }
 
       let categoryId = service.categoryId;
+      await assertListingGCashNumber(tx, providerId, input.paymentMethods ?? service.paymentMethods);
       if (service.status === 'SUSPENDED') {
         throw Object.assign(new Error('An administrator must restore this suspended listing before it can be edited'), { status: 409 });
       }
@@ -399,11 +402,11 @@ export async function updateService(serviceId: string, providerId: string, input
       if (['SEEKER_VISITS', 'BOTH'].includes(input.serviceLocationMode ?? service.serviceLocationMode) && !serviceLocation && (service.latitude == null || service.longitude == null || !service.locationLabel)) {
         throw Object.assign(new Error('Choose your service venue before accepting seeker visits.'), { status: 400 });
       }
-      if (input.coverageRadiusKm != null && !serviceLocation && service.latitude == null) throw Object.assign(new Error("Choose a service area center or venue before adding travel coverage."), { status: 400 });
       const updated = await tx.service.update({
         where: { id: serviceId },
         data: {
           ...updatedInput,
+          coverageRadiusKm: null,
           ...(serviceLocation && locationData(serviceLocation)),
           ...(serviceLocation && input.publicMapPin === undefined &&
             (serviceLocation.latitude !== service.latitude || serviceLocation.longitude !== service.longitude)

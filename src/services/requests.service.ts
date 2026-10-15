@@ -8,6 +8,7 @@ import { publicOffer, assertLocationForArrangementChange } from '../lib/service-
 import { prisma } from "../lib/prisma";
 import { publishNotifications } from './notifications.service';
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
+import { assertListingGCashNumber } from './gcash-listing-policy';
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
 import { RequestPaymentMethodsSchema, RequestUrgencySchema } from "../schema/marketplace.schema";
 import { getSeekerReviewStats } from "../lib/seeker-review-stats";
@@ -58,6 +59,7 @@ export async function createRequest(seekerId: string, params: {
   return prisma.$transaction(async (tx) => {
     await lockAccountLifecycle(tx, seekerId);
     await assertActiveMarketplaceAccount(tx, seekerId);
+    await assertListingGCashNumber(tx, seekerId, paymentMethods);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seeker-requests:${seekerId}`}))`;
     const activeRequests = await tx.serviceRequest.findMany({
       where: { seekerId, categoryId, archivedAt: null, status: { in: ["OPEN", "PAYMENT_PENDING", "IN_PROGRESS"] } },
@@ -293,6 +295,9 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   }
 
   const { jobLocation, photoIds, ...changes } = params;
+  // A legacy request can still be paused before its owner adds a wallet number.
+  const closingOnly = params.status === 'CLOSED' && Object.keys(params).length === 1;
+  if (!closingOnly) await assertListingGCashNumber(tx, seekerId, params.paymentMethods ?? request.paymentMethods);
   if (photoIds !== undefined) await setListingPhotos(tx, seekerId, photoIds, { requestId });
   assertLocationForArrangementChange(request.serviceLocationMode, params.serviceLocationMode, jobLocation, 'SEEKER_VISITS');
   if (jobLocation || params.transportationFee !== undefined || params.serviceLocationMode !== undefined) {

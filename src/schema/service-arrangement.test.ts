@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Prisma } from '@prisma/client';
-import { resolveDirectArrangement, resolveOfferArrangement, offerJobLocation, publicOffer, assertLocationForArrangementChange } from '../lib/service-arrangement';
+import { assertDirectPaymentArrangement, resolveDirectArrangement, resolveOfferArrangement, offerJobLocation, publicOffer, assertLocationForArrangementChange } from '../lib/service-arrangement';
 import { CreateServiceSchema } from './services.schema';
 import { publicLocation } from '../lib/proximity';
 import { calculateDirectListingTerms } from '../services/bookings/direct-listing-pricing';
@@ -63,14 +63,14 @@ test('general discovery areas cannot silently become exact locations when arrang
   assert.doesNotThrow(() => assertLocationForArrangementChange('PROVIDER_VISITS',undefined,undefined,'PROVIDER_VISITS'));
 });
 
-test('legacy listings keep provider visits, chosen job pin, coverage and one travel fee', () => {
+test('legacy listings keep provider visits, chosen job pin and one travel fee without a distance restriction', () => {
   const result = resolveDirectArrangement(base, undefined, job);
   assert.equal(result.serviceLocationMode, 'PROVIDER_VISITS');
   assert.deepEqual(result.jobLocation, job);
   assert.equal(Number(result.transportationFee), 75);
   assert.equal(Number(calculateDirectListingTerms('PER_HOUR', new Prisma.Decimal(500), 3, 60, result.transportationFee).amount), 1575);
   assert.throws(() => resolveDirectArrangement(base), { code: 'JOB_LOCATION_REQUIRED' });
-  assert.throws(() => resolveDirectArrangement(base, 'PROVIDER_VISITS', { ...job, latitude: 11 }), { code: 'OUTSIDE_SERVICE_COVERAGE' });
+  assert.doesNotThrow(() => resolveDirectArrangement(base, 'PROVIDER_VISITS', { ...job, latitude: 11 }));
 });
 
 test('seeker visits use the authoritative venue without provider travel fees or home coverage', () => {
@@ -113,4 +113,9 @@ test('booking and offer contracts reject BOTH as an agreed arrangement', () => {
   assert.equal(DirectBookingSchema.safeParse({ serviceId: id, serviceLocationMode: 'BOTH' }).success, false);
   assert.equal(DirectBookingSchema.safeParse({ serviceId: id, serviceLocationMode: 'SEEKER_VISITS' }).success, true);
   assert.equal(OfferSchema.safeParse({ requestId: id, offeredPrice: 500, estimatedDuration: 60, serviceLocationMode: 'BOTH' }).success, false);
+});
+
+test('a travelling provider must agree before direct GCash, while shop visits and online work retain checkout', () => {
+  assert.throws(() => assertDirectPaymentArrangement('PROVIDER_VISITS'), { code: 'PROVIDER_CONFIRMATION_REQUIRED' });
+  for (const mode of ['SEEKER_VISITS', 'REMOTE'] as const) assert.doesNotThrow(() => assertDirectPaymentArrangement(mode));
 });

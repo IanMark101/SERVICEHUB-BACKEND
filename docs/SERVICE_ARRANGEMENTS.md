@@ -1,37 +1,17 @@
 # Service arrangements
 
-Provider listings and seeker requests support `PROVIDER_VISITS`, `SEEKER_VISITS`, or `BOTH`. Existing records default to provider visits. An offer or booking agrees to one concrete arrangement; it never stores `BOTH` as the choice.
+Provider listings and seeker requests support PROVIDER_VISITS, SEEKER_VISITS, BOTH and REMOTE. A booking or offer chooses one concrete arrangement. BOTH means either physical visit direction.
 
-For `PROVIDER_VISITS`, a listing's `serviceLocation` is a general service-area center selected by city/barangay search, not a required shop, home address or exact operating base. The publish form requires an explicit travel-coverage choice: a 1–30 km radius measured from that center, or no travel distance limit (`coverageRadiusKm: null`). A named city is a discovery anchor, not a municipal boundary restriction. `SEEKER_VISITS` requires the actual provider venue and no travel radius; anyone may request a visit. `BOTH` requires that venue and lets the provider define travel coverage for home service. Existing records with null coverage retain unlimited travel.
+Providers select one base city/barangay when travelling, or their actual shop/workplace when receiving visitors. There is no provider travel-radius setting or coverage rejection. Legacy coverageRadiusKm is retained for record compatibility, ignored by eligibility checks and cleared on new/edited listings.
 
-A seeker request for provider visits (or either arrangement) collects the actual job pin and optional private directions. A seeker-visit request collects only a general search area; the provider's offer supplies the work venue. Changing between general-area and actual-location roles requires a newly selected location in create/edit UI and on the update API. No general area is silently converted into a precise venue or job address.
+Seeker public requests select one job point for Provider visits or Both, and a desired provider-search area for Seeker visits. Both physical request types appear as approximate points in Browse Service Requests. Remote uses a general discovery area and no booking meetup point. Search distance filters nearby results and is not a provider travel limit. AI matching uses distance for ranking without a fixed 30 km travel rejection.
 
-For a direct listing booking, provider visits use the seeker’s submitted job pin, enforce the listing’s travel coverage and add the listing’s transportation fee once. Seeker visits use the provider’s saved venue pin and private directions, ignore a submitted seeker pin, and charge no provider transportation fee. Cash bookings and GCash attempts store the chosen arrangement, location and fee; payment finalization copies the stored attempt, so later listing changes do not move a paid booking.
+Search results and map pins are alternative ways to select the same location. A successful reverse lookup supplies its city/barangay name. The listing control closes to one selected-place summary. Manual label recovery appears only if lookup fails.
 
-For an offer on a seeker request, the provider chooses an arrangement allowed by both the request and any linked listing. A custom seeker-visit offer must supply a venue. A linked seeker-visit offer snapshots the listing venue. The offer’s quoted price is the final total, including any provider travel; listing fees and seeker travel allowances are never added again. Changing a request’s arrangement, job location or travel allowance is blocked while it has active offers.
+A Provider-visits listing request creates a private inquiry, including for fixed/rate listings. The provider reviews work and job area, then declines or sends a final offer including agreed travel. The seeker approves terms before booking/payment. Direct GCash initiation and pending-attempt reuse cannot bypass this agreement. Shop/online set-price bookings retain direct Cash approval and verified GCash checkout. Historical accepted bookings and already-created payment attempts keep their existing settlement snapshots.
 
-Public discovery and unpaid offer previews show only general areas. Exact provider venue pins and directions remain private; participants receive the agreed job location through their booking. Incoming Requests displays `booking.jobLocation`, not the seeker’s profile location.
+Exact private coordinates/directions remain outside public maps and unpaid previews. Shop pin publication still requires explicit provider consent. New public requests always require coordinates; historical unlocated cash listings retain their compatibility path.
 
-## Deploy
+No schema migration is required for this simplification. The existing REMOTE enum migration must already be present. Deploy the compatible API before the frontend.
 
-Apply the additive migration `20261012000000_service_arrangements` to the intended database before starting the updated backend:
-
-```sh
-npx prisma migrate deploy
-npm run db:generate
-npm run build
-```
-
-Restart/deploy the backend, then deploy the matching frontend. The migration keeps historical listing/request behavior and does not infer venues from user profile addresses. Providers must choose their venue before enabling seeker visits.
-
-## Verify
-
-`npm test` covers arrangement validation, location resolution, fee calculation, coverage and preview privacy. The integration suite exercises both cash booking directions, quote privacy, request edit locks and venue snapshots. Run it against an explicitly selected test database through the disposable schema runner:
-
-```powershell
-$env:SERVICEHUB_ARRANGEMENTS_ONLY = '1'
-npm run test:fresh-migrations
-Remove-Item Env:SERVICEHUB_ARRANGEMENTS_ONLY
-```
-
-Backend CI runs this suite against its temporary PostgreSQL service. Local implementation validation did not apply migrations or run integration tests against the configured remote database.
+Scoped automated checks and disposable-database integration results are recorded in the revised capstone technical evidence. Manual community acceptance remains separate.

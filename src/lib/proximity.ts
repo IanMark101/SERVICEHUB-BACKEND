@@ -50,13 +50,9 @@ export function inRadius(record: { latitude?: number | null; longitude?: number 
   const distance = distanceKm(query, { latitude: record.latitude, longitude: record.longitude });
   return distance <= query.radiusKm + 0.000001 ? distance : null;
 }
-export function assertServiceCoverage(service: { latitude?: number | null; longitude?: number | null; coverageRadiusKm?: number | null }, job: JobLocation | undefined) {
-  if (service.latitude == null || service.longitude == null) return; // Historical listings remain usable.
+export function assertJobLocation(job: JobLocation | undefined) {
   if (!job) throw Object.assign(new Error('Choose the actual job location before booking this service.'), { status: 400, code: 'JOB_LOCATION_REQUIRED' });
   JobLocationSchema.parse(job);
-  if (service.coverageRadiusKm != null && distanceKm({ latitude: service.latitude, longitude: service.longitude }, job) > service.coverageRadiusKm + 0.000001) {
-    throw Object.assign(new Error('The job location is outside this listing’s service coverage. Choose another provider or job location.'), { status: 409, code: 'OUTSIDE_SERVICE_COVERAGE' });
-  }
 }
 
 export function nearbyPage<T>(items: T[], query: NearbyQuery) {

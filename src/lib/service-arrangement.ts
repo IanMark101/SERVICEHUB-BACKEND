@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { JobLocationSchema, BookingLocationModeSchema, type BookingLocationMode, type ServiceLocationMode, type JobLocation } from '../schema/location.schema';
-import { assertServiceCoverage, locationFromRecord } from './proximity';
+import { assertJobLocation, locationFromRecord } from './proximity';
 
 type ServiceVenue = {
   serviceLocationMode?: ServiceLocationMode;
@@ -41,7 +41,8 @@ export function resolveDirectArrangement(service: ServiceVenue, selected?: Booki
   if (serviceLocationMode === 'SEEKER_VISITS') {
     return { serviceLocationMode, jobLocation: providerVenue(service), transportationFee: new Prisma.Decimal(0) };
   }
-  assertServiceCoverage(service, jobLocation);
+  // Historical unlocated listings retain their existing cash booking behavior.
+  if (jobLocation || (service.latitude != null && service.longitude != null)) assertJobLocation(jobLocation);
   return { serviceLocationMode, jobLocation, transportationFee: service.transportationFee ?? null };
 }
 
@@ -53,8 +54,13 @@ export function resolveOfferArrangement(request: RequestLocation, service: Servi
     if (!service && !customVenue) throw failure('Choose your service venue so the seeker knows where the work will happen.');
     return { serviceLocationMode, providerVenue: service ? providerVenue(service) : JobLocationSchema.parse(customVenue) };
   }
-  if (service) assertServiceCoverage(service, locationFromRecord(request));
   return { serviceLocationMode, providerVenue: undefined };
+}
+
+/** A travelling provider must review the job and send an offer before GCash. */
+export function assertDirectPaymentArrangement(mode: ServiceLocationMode | undefined) {
+  if (mode === 'BOTH') throw failure('Choose one agreed arrangement before payment.');
+  if (mode === 'PROVIDER_VISITS') throw Object.assign(new Error('Send a service request first. The provider must agree to your job location and final price before GCash payment.'), { status: 409, code: 'PROVIDER_CONFIRMATION_REQUIRED' });
 }
 
 export function offerJobLocation(offer: { serviceLocationMode?: ServiceLocationMode | null; providerVenue?: unknown; request: RequestLocation }) {

@@ -20,7 +20,7 @@ after(() => prisma.$disconnect());
 
 test('private service requests reuse offers and create a booking only after price approval', async t => {
   const tag = randomUUID();
-  const user = (name: string) => prisma.user.create({ data: { name, email: `${name}-${tag}@example.test`, passwordHash: 'unused', phone: '', location: 'Cordova', emailVerified: true, verificationStatus: 'APPROVED' } });
+  const user = (name: string) => prisma.user.create({ data: { gcashNumber: '09123456789', name, email: `${name}-${tag}@example.test`, passwordHash: 'unused', phone: '', location: 'Cordova', emailVerified: true, verificationStatus: 'APPROVED' } });
   const [provider, cashSeeker, onlineSeeker, otherProvider, declinedSeeker, publicSeeker, wrongPhotoSeeker] = await Promise.all(['provider','cash','online','other','declined','public','photo'].map(user));
   const category = await prisma.category.create({ data: { name: `Computer repairs ${tag}` } });
   const service = await createService(provider.id, CreateServiceSchema.parse({ categoryId: category.id, title: 'LAPTOP REPAIR SERVICE', description: 'I diagnose and repair laptop hardware problems. I propose a final price after reviewing the requested work.', priceType: 'BY_AGREEMENT', estimatedDurationMins: 60, serviceLocationMode: 'BOTH', serviceLocation: { latitude: 10.26, longitude: 123.95, label: 'Cordova' }, venueAddress: 'PRIVATE WORKSHOP', coverageRadiusKm: 5, paymentMethods: { cash: true, gcash: true } }));

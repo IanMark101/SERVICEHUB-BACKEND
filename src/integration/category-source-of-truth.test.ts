@@ -29,16 +29,16 @@ async function recentCategories() {
 
 test('Admin category creation, rename and retirement use one ID for seeker and provider records', async () => {
   const suffix = randomUUID();
-  const admin = await prisma.user.create({ data: {
+  const admin = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: `Category Admin ${suffix}`, email: `category-admin-${suffix}@example.test`,
     passwordHash: 'test-only', phone: 'test-only', location: 'Cordova', role: 'admin', emailVerified: true,
   } });
-  const seeker = await prisma.user.create({ data: {
+  const seeker = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: `Category Seeker ${suffix}`, email: `category-seeker-${suffix}@example.test`,
     passwordHash: 'test-only', phone: 'test-only', location: 'Cordova',
     emailVerified: true, verificationStatus: 'APPROVED',
   } });
-  const provider = await prisma.user.create({ data: {
+  const provider = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: `Category Provider ${suffix}`, email: `category-provider-${suffix}@example.test`,
     passwordHash: 'test-only', phone: 'test-only', location: 'Cordova',
     emailVerified: true, verificationStatus: 'APPROVED',

@@ -10,6 +10,7 @@ import { assertProximityDatabase } from '../../scripts/proximity-db-target';
 import { providerStartJob } from '../services/bookings/provider-operations.service';
 import { markJobComplete, confirmCompletionService } from '../services/bookings/completion.service';
 import { respondToDirectBookingService, createDirectFromOfferService } from '../services/bookings/direct-bookings.service';
+import { createListingInquiry } from '../services/listing-inquiries.service';
 import { initiateOnlinePayment, finalizeSuccessfulPayment, markPaymentAttemptFailed } from '../services/payment-attempt.service';
 import { submitOffer } from '../services/offers.service';
 
@@ -18,7 +19,7 @@ test('nearby discovery enters the existing cash, custom offer and verified GCash
   assert.match(new URL(env.DATABASE_URL).searchParams.get('schema') || '', /^servicehub_migration_test_[a-f0-9]{32}$/, 'This test requires a disposable schema');
   const suffix = randomUUID();
   const category = await prisma.category.create({ data: { name: 'Plumbing' } });
-  const makeUser = (name: string, approved = true) => prisma.user.create({ data: { name, email: `${name}-${suffix}@example.test`, phone: 'test-only', passwordHash: 'test-only', emailVerified: true, verificationStatus: approved ? 'APPROVED' : 'UNVERIFIED', location: 'Lapu-Lapu City, Cebu' } });
+  const makeUser = (name: string, approved = true) => prisma.user.create({ data: { gcashNumber: '09123456789', name, email: `${name}-${suffix}@example.test`, phone: 'test-only', passwordHash: 'test-only', emailVerified: true, verificationStatus: approved ? 'APPROVED' : 'UNVERIFIED', location: 'Lapu-Lapu City, Cebu' } });
   const seeker = await makeUser('ProximitySeeker'), provider = await makeUser('ProximityProvider'), sibling = await makeUser('OtherProvider'), ineligible = await makeUser('UnverifiedProvider', false);
   const tokens = new Map<string, string>();
   for (const user of [seeker, provider, sibling, ineligible]) {
@@ -126,9 +127,12 @@ test('nearby discovery enters the existing cash, custom offer and verified GCash
     assert.deepEqual(ids(available), fixtures.slice(0, 2).map(item => item.listing.id));
   });
 
-  await t.test('cash coverage and one-time travel total lead into normal completion', async () => {
+  await t.test('a distant cash request is subject to provider acceptance and retains its immutable price', async () => {
     const outside = await call('/bookings/direct', seeker.id, { serviceId: service.id, jobLocation: { ...job, latitude: 10.32 }, quantity: 3 });
-    assert.equal(outside.status, 409);
+    assert.equal(outside.status, 201);
+    const distantBooking = await prisma.booking.findFirstOrThrow({ where: { directRequestId: outside.data.id } });
+    assert.equal(distantBooking.status, 'PENDING_APPROVAL');
+    await respondToDirectBookingService(outside.data.id, provider.id, false);
     const result = await call('/bookings/direct', seeker.id, { serviceId: service.id, jobLocation: job, quantity: 3 });
     assert.equal(result.status, 201, result.error);
     const booking = await prisma.booking.findFirstOrThrow({ where: { directRequestId: result.data.id } });
@@ -166,14 +170,16 @@ test('nearby discovery enters the existing cash, custom offer and verified GCash
       throw new Error('Unexpected mocked payment request');
     };
     try {
-      const first = await initiateOnlinePayment({ seekerId: seeker.id, serviceId: service.id, quantity: 2, jobLocation: job, paymentMethod: 'gcash' });
+      const inquiry = await createListingInquiry(seeker.id, { serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', jobLocation: job, message: 'Repair the kitchen pipe at this job location.' });
+      const offer = await submitOffer(provider.id, { requestId: inquiry.id, serviceId: service.id, offeredPrice: 500, estimatedDuration: 120, serviceLocationMode: 'PROVIDER_VISITS', message: 'Pipe repair and agreed travel, estimated two hours.' });
+      const first = await initiateOnlinePayment({ seekerId: seeker.id, offerId: offer.id, paymentMethod: 'gcash' });
       assert.equal(await prisma.booking.count({ where: { paymentAttemptId: first.id } }), 0, 'initiation is not a booking');
       await markPaymentAttemptFailed(first.providerIntentId!, 'Test payment failed');
-      await assert.rejects(initiateOnlinePayment({ seekerId: sibling.id, serviceId: service.id, retryPaymentIntentId: first.providerIntentId!, quantity: 2, paymentMethod: 'gcash' }), /not found/);
-      const retry = await initiateOnlinePayment({ seekerId: seeker.id, serviceId: service.id, retryPaymentIntentId: first.providerIntentId!, quantity: 2, paymentMethod: 'gcash' });
+      await assert.rejects(initiateOnlinePayment({ seekerId: sibling.id, offerId: offer.id, retryPaymentIntentId: first.providerIntentId!, paymentMethod: 'gcash' }), /not found/);
+      const retry = await initiateOnlinePayment({ seekerId: seeker.id, offerId: offer.id, retryPaymentIntentId: first.providerIntentId!, paymentMethod: 'gcash' });
       assert.deepEqual(retry.jobLocation, job); assert.equal(Number(retry.amount), 500);
       await prisma.service.update({ where: { id: service.id }, data: { latitude: 11, transportationFee: 300, estimatedDurationMins: 90 } });
-      const payment = { paymentIntentId: retry.providerIntentId!, paymentId: `pay_${suffix}`, amount: 500, currency: 'PHP', metadata: { servicehub_attempt_id: retry.id, servicehub_seeker_id: seeker.id, servicehub_service_id: service.id, servicehub_offer_id: '', servicehub_expected_amount: '500.00', servicehub_payment_method: 'gcash' } };
+      const payment = { paymentIntentId: retry.providerIntentId!, paymentId: `pay_${suffix}`, amount: 500, currency: 'PHP', metadata: { servicehub_attempt_id: retry.id, servicehub_seeker_id: seeker.id, servicehub_service_id: service.id, servicehub_offer_id: offer.id, servicehub_expected_amount: '500.00', servicehub_payment_method: 'gcash' } };
       const paid = await finalizeSuccessfulPayment(payment);
       assert.ok(paid.booking); assert.deepEqual(paid.booking.jobLocation, job); assert.equal(Number(paid.booking.agreedAmount), 500); assert.equal(paid.booking.estimatedDurationMins, 120);
       await finalizeSuccessfulPayment(payment);

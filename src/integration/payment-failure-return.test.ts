@@ -19,7 +19,7 @@ test('a failed GCash source is retired, retry gets a fresh redirect, and only th
     providerId: provider.id, categoryId: category.id, title: `Retry service ${suffix}`,
     titleNormalized: `retry service ${suffix}`, description: 'GCash failure and retry regression service.',
     price: 70, estimatedDurationMins: 30, queueLimit: 3, paymentMethods: { gcash: true, cash: true },
-    status: 'ACTIVE', isAvailable: true,
+    status: 'ACTIVE', isAvailable: true, serviceLocationMode: 'REMOTE',
   } });
   const failedIntentId = `pi_failed_${suffix}`;
   const freshIntentId = `pi_fresh_${suffix}`;
@@ -27,7 +27,7 @@ test('a failed GCash source is retired, retry gets a fresh redirect, and only th
     idempotencyKey: `retry-old-${suffix}`, seekerId: seeker.id, providerId: provider.id,
     serviceId: service.id, providerIntentId: failedIntentId,
     redirectUrl: `https://test-sources.paymongo.com/sources/expired-${suffix}`,
-    amount: 70, paymentMethod: 'gcash', expiresAt: new Date(Date.now() + 120_000),
+    amount: 70, paymentMethod: 'gcash', serviceLocationMode: 'REMOTE', expiresAt: new Date(Date.now() + 120_000),
   } });
   const savedFetch = globalThis.fetch;
   let freshSucceeded = false;
@@ -85,6 +85,7 @@ test('a failed GCash source is retired, retry gets a fresh redirect, and only th
   const fresh = await initiateOnlinePayment({ seekerId: seeker.id, serviceId: service.id, paymentMethod: 'gcash' });
   assert.notEqual(fresh.id, failed.id);
   assert.equal(fresh.providerIntentId, freshIntentId);
+  assert.equal(fresh.serviceLocationMode, 'REMOTE');
   assert.notEqual(fresh.redirectUrl, failed.redirectUrl);
   const parsedReturnUrl = new URL(returnUrl);
   assert.equal(parsedReturnUrl.pathname, '/seeker/payment-return');
@@ -96,5 +97,6 @@ test('a failed GCash source is retired, retry gets a fresh redirect, and only th
   assert.equal((await reconcileOnlinePaymentReturn(seeker.id, freshIntentId)).status, 'SUCCEEDED');
   assert.equal((await reconcileOnlinePaymentReturn(seeker.id, freshIntentId)).status, 'SUCCEEDED');
   assert.equal(await prisma.booking.count({ where: { paymentAttemptId: fresh.id } }), 1);
+  assert.equal((await prisma.booking.findUniqueOrThrow({ where: { paymentAttemptId: fresh.id } })).serviceLocationMode, 'REMOTE');
   assert.equal(await prisma.queue.count({ where: { serviceId: service.id, status: 'WAITING' } }), 1);
 });

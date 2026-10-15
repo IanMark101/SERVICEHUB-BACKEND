@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Prisma } from '@prisma/client';
-import { distanceKm, inRadius, locationBounds, publicLocation, nearbyPage, assertServiceCoverage } from '../lib/proximity';
+import { distanceKm, inRadius, locationBounds, publicLocation, nearbyPage, assertJobLocation } from '../lib/proximity';
 import { LocationPointSchema, NearbyQuerySchema, TransportationFeeSchema } from './location.schema';
 import { calculateDirectListingTerms } from '../services/bookings/direct-listing-pricing';
 
@@ -69,11 +69,9 @@ test('public projection and paging preserve coarse facts without exact pins or d
   assert.deepEqual(nearbyPage([1, 2, 3], query), { items: [3], pagination: { page: 2, limit: 2, total: 3, totalPages: 2 } });
 });
 
-test('coverage checks actual new job locations and allows historical unlocated bookings', () => {
-  assert.doesNotThrow(() => assertServiceCoverage({ latitude: null }, undefined));
-  assert.throws(() => assertServiceCoverage({ ...center, coverageRadiusKm: 1 }, undefined), /job location/);
-  assert.doesNotThrow(() => assertServiceCoverage({ ...center, coverageRadiusKm: 2 }, { ...center, latitude: 10.31 }));
-  assert.throws(() => assertServiceCoverage({ ...center, coverageRadiusKm: 1 }, { ...center, latitude: 10.31 }), /outside/);
+test('physical jobs require a location and do not have a provider distance limit', () => {
+  assert.throws(() => assertJobLocation(undefined), /job location/);
+  assert.doesNotThrow(() => assertJobLocation({ ...center, latitude: 11 }));
 });
 
 test('transportation is added once, including hourly and daily quantity bookings', () => {

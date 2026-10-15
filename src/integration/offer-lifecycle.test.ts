@@ -17,7 +17,7 @@ test('offer submission, decisions, notification durability and payment lifecycle
   const schema = new URL(env.DATABASE_URL).searchParams.get('schema') || '';
   assert.match(schema, /^audit_20260924_[a-f0-9]{32}$/);
   const suffix = randomUUID();
-  const makeUser = (label: string, overrides = {}) => prisma.user.create({ data: {
+  const makeUser = (label: string, overrides = {}) => prisma.user.create({ data: { gcashNumber: '09123456789',
     name: label, email: `${label.replaceAll(' ', '-').toLowerCase()}-${suffix}@example.test`, passwordHash: 'test-only-unusable-hash',
     phone: 'test-only', location: 'Cordova', emailVerified: true, verificationStatus: 'APPROVED', ...overrides,
   } });

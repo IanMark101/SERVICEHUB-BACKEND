@@ -7,6 +7,7 @@ import { submitOffer, listReceivedOffers } from '../services/offers.service';
 import { updateRequest } from '../services/requests.service';
 import { createListingInquiry } from '../services/listing-inquiries.service';
 import { matchProvidersToRequest, matchRequestsToService } from '../services/ai-marketplace.service';
+import { initiateOnlinePayment } from '../services/payment-attempt.service';
 
 test('both marketplace directions persist the agreed arrangement, private pin and correct price', async t => {
   // This suite must never create bookings or remove data in a live schema.
@@ -18,11 +19,35 @@ test('both marketplace directions persist the agreed arrangement, private pin an
   const category = await prisma.category.create({ data: { name: `Arrangement ${suffix}` } });
   const users = [];
   for (const role of ['provider', 'seeker-a', 'seeker-b', 'seeker-c']) {
-    users.push(await prisma.user.create({ data: { name: role, email: `${role}-${suffix}@example.test`, passwordHash: 'test-only', phone: `09${suffix.slice(-8)}${users.length}`, location: '', emailVerified: true, verificationStatus: 'APPROVED' } }));
+    users.push(await prisma.user.create({ data: { name: role, email: `${role}-${suffix}@example.test`, passwordHash: 'test-only', phone: `09${suffix.slice(-8)}${users.length}`, gcashNumber: '09123456789', location: '', emailVerified: true, verificationStatus: 'APPROVED' } }));
   }
   const [provider, seekerA, seekerB, seekerC] = users;
   const service = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: 'LAPTOP REPAIR SERVICES', description: 'Repair a laptop at a workshop or job site.', titleNormalized: `arrangement-${suffix}`, price: 1500, priceType: 'FIXED', estimatedDurationMins: 60, paymentMethods: { cash: true, gcash: true }, status: 'ACTIVE', isAvailable: true, serviceLocationMode: 'BOTH', latitude: 10.3, longitude: 123.9, locationLabel: 'Cordova workshop', venueAddress: 'Private workshop entrance', coverageRadiusKm: 2, transportationFee: 75 } });
   const job = { latitude: 10.301, longitude: 123.901, label: 'Day-as job site', address: 'Private job entrance' };
+  await t.test('a distant physical job can be reviewed, and direct GCash cannot bypass provider agreement', async () => {
+    const farJob = { ...job, latitude: 11.3, label: 'Distant job area' };
+    const keys = [env.PAYMONGO_PUBLIC_KEY, env.PAYMONGO_SECRET_KEY, env.PAYMONGO_WEBHOOK_SECRET];
+    const originalFetch = globalThis.fetch;
+    let externalCalls = 0;
+    try {
+      env.PAYMONGO_PUBLIC_KEY = 'pk_test_synthetic'; env.PAYMONGO_SECRET_KEY = 'sk_test_synthetic'; env.PAYMONGO_WEBHOOK_SECRET = 'synthetic';
+      globalThis.fetch = async () => { externalCalls++; throw new Error('External payment calls are forbidden in this test.'); };
+      await assert.rejects(initiateOnlinePayment({ seekerId: seekerA.id, serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', jobLocation: farJob, paymentMethod: 'gcash' }), { code: 'PROVIDER_CONFIRMATION_REQUIRED' });
+      assert.equal(externalCalls, 0);
+      assert.equal(await prisma.paymentAttempt.count({ where: { serviceId: service.id } }), 0);
+      const inquiry = await createListingInquiry(seekerA.id, { serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', jobLocation: farJob, message: 'Please repair my laptop at this job location.' });
+      assert.equal(inquiry.privateAddress, undefined);
+      assert.equal(inquiry.latitude, undefined);
+      const quoted = await submitOffer(provider.id, { requestId: inquiry.id, serviceId: service.id, serviceLocationMode: 'PROVIDER_VISITS', offeredPrice: 1800, estimatedDuration: 60, message: 'Laptop diagnostics and repair, including agreed travel.' });
+      assert.equal(quoted.status, 'PENDING');
+      assert.equal(await prisma.booking.count({ where: { serviceId: service.id } }), 0);
+      await prisma.offer.update({ where: { id: quoted.id }, data: { status: 'REJECTED' } });
+      await prisma.serviceRequest.update({ where: { id: inquiry.id }, data: { status: 'CANCELED' } });
+    } finally {
+      [env.PAYMONGO_PUBLIC_KEY, env.PAYMONGO_SECRET_KEY, env.PAYMONGO_WEBHOOK_SECRET] = keys;
+      globalThis.fetch = originalFetch;
+    }
+  });
   const venueBooking = await createDirectRequest({ seekerId: seekerA.id, providerId: provider.id, serviceId: service.id, serviceLocationMode: 'SEEKER_VISITS', jobLocation: job });
   assert.equal(venueBooking.booking.serviceLocationMode, 'SEEKER_VISITS');
   assert.deepEqual(venueBooking.booking.jobLocation, { latitude: 10.3, longitude: 123.9, label: 'Cordova workshop', address: 'Private workshop entrance' });

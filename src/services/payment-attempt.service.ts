@@ -1,4 +1,4 @@
-import { resolveDirectArrangement, offerJobLocation } from '../lib/service-arrangement';
+import { resolveDirectArrangement, offerJobLocation, assertDirectPaymentArrangement } from '../lib/service-arrangement';
 import { JobLocationSchema, type JobLocation, type BookingLocationMode } from '../schema/location.schema';
 import crypto from "crypto";
 import { Prisma } from "@prisma/client";
@@ -123,6 +123,7 @@ export async function initiateOnlinePayment(params: {
       },
     });
     if (existing) {
+      if (!params.offerId) assertDirectPaymentArrangement(existing.serviceLocationMode ?? 'PROVIDER_VISITS');
       if (!params.offerId && params.serviceLocationMode && params.serviceLocationMode !== (existing.serviceLocationMode ?? 'PROVIDER_VISITS')) throw httpError('A payment is already pending for another service arrangement. Finish or cancel that payment first.', 409);
       if (!params.offerId && params.jobLocation && (!existing.jobLocation || JSON.stringify(JobLocationSchema.parse(existing.jobLocation)) !== JSON.stringify(JobLocationSchema.parse(params.jobLocation)))) throw httpError('A payment is already pending for another job location. Finish or cancel that payment first.', 409);
       if (existing.quantity !== quantity) throw httpError("A payment is already pending for a different quantity", 409);
@@ -158,6 +159,7 @@ export async function initiateOnlinePayment(params: {
     }
     if (providerId === params.seekerId) throw httpError("You cannot book your own offer or service", 403, "SELF_TRANSACTION_NOT_ALLOWED");
     const arrangement = service ? resolveDirectArrangement(service, params.serviceLocationMode, params.jobLocation) : null;
+    if (!params.offerId) assertDirectPaymentArrangement(arrangement?.serviceLocationMode);
     const directTerms = service ? calculateDirectListingTerms(service.priceType, service.price, quantity, service.estimatedDurationMins, arrangement!.transportationFee) : null;
     if (service && (service.status !== "ACTIVE" || !service.isAvailable)) throw httpError("This service is not available", 409);
     const provider = await tx.user.findUnique({ where: { id: providerId }, select: { isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true, onlineQueueLimit: true } });

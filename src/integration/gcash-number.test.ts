@@ -7,6 +7,9 @@ import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { updateOwnGCashNumber } from '../services/auth/gcash-number.service';
 import { toPublicUser } from '../services/auth/authentication.service';
+import { createService, updateService } from '../services/services.service';
+import { createRequest, updateRequest } from '../services/requests.service';
+import { CreateServiceSchema } from '../schema/services.schema';
 
 assert.match(new URL(env.DATABASE_URL).searchParams.get('schema') || '', /^servicehub_migration_test_[a-f0-9]{32}$/);
 after(() => prisma.$disconnect());
@@ -53,6 +56,33 @@ test('GCash number stays private, separate from contact, and persists across ses
       assert.deepEqual((await otherResponse.json() as any).data, { gcashNumber: null });
       assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).phone, owner.phone);
       await assert.rejects(prisma.user.update({ where: { id: owner.id }, data: { gcashNumber: 'invalid' } }));
+    });
+    await t.test('both listing owners need a wallet for GCash; Cash-only is allowed and linked wallets cannot be removed', async () => {
+      const category = await prisma.category.upsert({ where: { name: 'Computer & Laptop Repair' }, create: { name: 'Computer & Laptop Repair' }, update: {} });
+      const point = { latitude: 10.26, longitude: 123.95, label: 'Cordova, Cebu' };
+      const serviceInput = CreateServiceSchema.parse({ categoryId: category.id, title: 'LAPTOP REPAIR AND DIAGNOSTICS', description: 'I inspect and repair laptop hardware. Replacement parts are agreed separately.', price: 500, estimatedDurationMins: 60, serviceLocation: point, paymentMethods: { cash: true, gcash: true } });
+      const requestInput = { categoryId: category.id, title: 'LAPTOP FAN REPAIR', description: 'My laptop fan has stopped turning. Please inspect and repair the fan.', budgetMin: 500, budgetMax: 1000, urgency: 'This Week', jobLocation: point, paymentMethods: { cash: true, gcash: true } };
+      await prisma.user.update({ where: { id: owner.id }, data: { gcashNumber: null } });
+      await assert.rejects(createService(owner.id, serviceInput), { code: 'GCASH_NUMBER_REQUIRED' });
+      await assert.rejects(createRequest(owner.id, requestInput), { code: 'GCASH_NUMBER_REQUIRED' });
+      const cashOnly = { cash: true, gcash: false };
+      const service = await createService(owner.id, { ...serviceInput, paymentMethods: cashOnly });
+      const request = await createRequest(owner.id, { ...requestInput, paymentMethods: cashOnly });
+      await prisma.serviceRequest.update({ where: { id: request.id }, data: { paymentMethods: { cash: true, gcash: true } } });
+      assert.equal((await updateRequest(request.id, owner.id, { status: 'CLOSED' })).status, 'CLOSED');
+      await assert.rejects(updateRequest(request.id, owner.id, { status: 'OPEN' }), { code: 'GCASH_NUMBER_REQUIRED' });
+      await prisma.serviceRequest.update({ where: { id: request.id }, data: { paymentMethods: cashOnly } });
+      await updateRequest(request.id, owner.id, { status: 'OPEN' });
+      await assert.rejects(updateService(service.id, owner.id, { paymentMethods: { cash: true, gcash: true } }), { code: 'GCASH_NUMBER_REQUIRED' });
+      await assert.rejects(updateRequest(request.id, owner.id, { paymentMethods: { cash: true, gcash: true } }), { code: 'GCASH_NUMBER_REQUIRED' });
+      await updateOwnGCashNumber(owner.id, session.id, { gcashNumber: '09123456789' });
+      await updateService(service.id, owner.id, { paymentMethods: { cash: true, gcash: true } });
+      await updateRequest(request.id, owner.id, { paymentMethods: { cash: true, gcash: true } });
+      await assert.rejects(updateOwnGCashNumber(owner.id, session.id, { gcashNumber: null }), { code: 'GCASH_NUMBER_IN_USE' });
+      await updateService(service.id, owner.id, { paymentMethods: cashOnly });
+      await updateRequest(request.id, owner.id, { paymentMethods: cashOnly });
+      await updateOwnGCashNumber(owner.id, session.id, { gcashNumber: null });
+      await updateOwnGCashNumber(owner.id, session.id, { gcashNumber: '09123456789' });
     });
     await t.test('fresh sessions retain the number; revoked sessions cannot read or change it', async () => {
       const previous = session;

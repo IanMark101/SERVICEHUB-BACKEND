@@ -25,6 +25,12 @@ export async function updateOwnGCashNumber(userId: string, sessionId: string | u
     await assertActiveMarketplaceAccount(tx, userId);
     const session = await tx.refreshToken.findUnique({ where: { id: sessionId }, select: { userId: true, expiresAt: true } });
     if (!session || session.userId !== userId || session.expiresAt <= new Date()) throw sessionExpired();
+    if (gcashNumber === null) {
+      const methods = { path: ['gcash'], equals: true };
+      const listings = await tx.service.count({ where: { providerId: userId, status: { not: 'DELETED' }, paymentMethods: methods } });
+      const requests = await tx.serviceRequest.count({ where: { seekerId: userId, targetServiceId: null, archivedAt: null, status: { in: ['OPEN', 'CLOSED', 'PAYMENT_PENDING', 'IN_PROGRESS'] }, paymentMethods: methods } });
+      if (listings || requests) throw Object.assign(new Error('Switch your listings and requests to Cash only before removing your GCash number.'), { status: 409, code: 'GCASH_NUMBER_IN_USE' });
+    }
     // This is a private preference, not a verified wallet or payout destination.
     return tx.user.update({ where: { id: userId }, data: { gcashNumber }, select: { gcashNumber: true } });
   });

@@ -31,7 +31,7 @@ test('independent H6-H12 regressions in an isolated schema', async (t) => {
   assert.match(new URL(process.env.DATABASE_URL!).searchParams.get('schema') || '', /^audit_20260924_[a-f0-9]{32}$/);
   t.after(() => prisma.$disconnect());
   let serial = 0;
-  const user = (role = 'user') => prisma.user.create({ data: { name: `Audit ${++serial}`, email: `h6h12-${serial}@example.test`, phone: `audit-${serial}`, location: 'Cordova', passwordHash: 'test-only', role, emailVerified: true, verificationStatus: 'APPROVED' } });
+  const user = (role = 'user') => prisma.user.create({ data: { gcashNumber: '09123456789', name: `Audit ${++serial}`, email: `h6h12-${serial}@example.test`, phone: `audit-${serial}`, location: 'Cordova', passwordHash: 'test-only', role, emailVerified: true, verificationStatus: 'APPROVED' } });
   const admin = await user('admin');
   const seeker = await user();
   const provider = await user();

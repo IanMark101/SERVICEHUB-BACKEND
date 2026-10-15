@@ -11,15 +11,15 @@ import { listAdminContentCases, resolveContentCase, submitContentCase } from "..
 
 test("direct publication, revision-only failures, legacy recovery and post-publication moderation", async (t) => {
   const suffix = randomUUID();
-  const provider = await prisma.user.create({ data: {
+  const provider = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: "Moderation Provider", email: `moderation-provider-${suffix}@example.test`, passwordHash: "test-only",
     phone: `p-${suffix}`, location: "Cordova", emailVerified: true, verificationStatus: "APPROVED",
   } });
-  const seeker = await prisma.user.create({ data: {
+  const seeker = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: "Moderation Seeker", email: `moderation-seeker-${suffix}@example.test`, passwordHash: "test-only",
     phone: `s-${suffix}`, location: "Cordova", emailVerified: true, verificationStatus: "APPROVED",
   } });
-  const admin = await prisma.user.create({ data: {
+  const admin = await prisma.user.create({ data: { gcashNumber: '09123456789',
     name: "Moderation Admin", email: `moderation-admin-${suffix}@example.test`, passwordHash: "test-only",
     phone: `a-${suffix}`, location: "Cordova", role: "admin", emailVerified: true,
   } });

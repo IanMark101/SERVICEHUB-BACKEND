@@ -14,8 +14,8 @@ after(() => prisma.$disconnect());
 
 test('listing photos persist in cover order for both roles, enforce ownership and support editing', async t => {
   const suffix = randomUUID();
-  const owner = await prisma.user.create({ data: { name: 'Photo listing sample', email: `photos-${suffix}@example.test`, passwordHash: 'unused-test-hash', phone: '', location: 'Cordova', verificationStatus: 'APPROVED', emailVerified: true } });
-  const other = await prisma.user.create({ data: { name: 'Other photo sample', email: `other-photos-${suffix}@example.test`, passwordHash: 'unused-test-hash', phone: '', location: 'Cordova', verificationStatus: 'APPROVED', emailVerified: true } });
+  const owner = await prisma.user.create({ data: { gcashNumber: '09123456789', name: 'Photo listing sample', email: `photos-${suffix}@example.test`, passwordHash: 'unused-test-hash', phone: '', location: 'Cordova', verificationStatus: 'APPROVED', emailVerified: true } });
+  const other = await prisma.user.create({ data: { gcashNumber: '09123456789', name: 'Other photo sample', email: `other-photos-${suffix}@example.test`, passwordHash: 'unused-test-hash', phone: '', location: 'Cordova', verificationStatus: 'APPROVED', emailVerified: true } });
   const category = await prisma.category.create({ data: { name: `Electrical Repair ${suffix}` } });
   const photos = await Promise.all(Array.from({ length: 4 }, (_, index) => prisma.listingPhoto.create({ data: { ownerId: owner.id, publicId: `fixture/${suffix}/${index}`, url: `https://res.cloudinary.com/fixture/image/upload/${suffix}-${index}.jpg`, width: 1200, height: 800 } })));
   const location = { latitude: 10.26, longitude: 123.95, label: 'Cordova' };
