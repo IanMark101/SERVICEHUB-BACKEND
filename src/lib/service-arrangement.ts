@@ -14,7 +14,7 @@ const failure = (message: string) => Object.assign(new Error(message), { status:
 /** A discovery area must never silently become an exact job pin or visit venue. */
 export function assertLocationForArrangementChange(previous: ServiceLocationMode, next: ServiceLocationMode | undefined, location: unknown, areaMode: 'PROVIDER_VISITS' | 'SEEKER_VISITS') {
   const isArea = (mode: ServiceLocationMode) => mode === areaMode || mode === 'REMOTE';
-  if (next && isArea(previous) !== isArea(next) && !location) {
+  if (next && next !== 'REMOTE' && (previous === 'REMOTE' || isArea(previous) !== isArea(next)) && !location) {
     throw failure('Choose a new location for this arrangement. General search areas cannot be reused as exact job locations or provider venues.');
   }
 }

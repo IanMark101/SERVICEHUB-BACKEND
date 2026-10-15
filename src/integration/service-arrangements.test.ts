@@ -4,7 +4,11 @@ import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { createDirectRequest, createDirectFromOfferService } from '../services/bookings/direct-bookings.service';
 import { submitOffer, listReceivedOffers } from '../services/offers.service';
-import { updateRequest, getMyRequests, listRequests } from '../services/requests.service';
+import { createRequest, updateRequest, getMyRequests, listRequests } from '../services/requests.service';
+import { createService, updateService } from '../services/services.service';
+import { CreateServiceSchema } from '../schema/services.schema';
+import { nearbyServices, nearbyRequests } from '../services/nearby.service';
+import { NearbyQuerySchema } from '../schema/location.schema';
 import { createListingInquiry } from '../services/listing-inquiries.service';
 import { matchProvidersToRequest, matchRequestsToService } from '../services/ai-marketplace.service';
 import { initiateOnlinePayment } from '../services/payment-attempt.service';
@@ -107,5 +111,29 @@ test('both marketplace directions persist the agreed arrangement, private pin an
       assert.equal(remoteOfferBooking.jobLocation,null);
       assert.equal(Number(remoteOfferBooking.agreedAmount),1400);
     } finally { env.GEMINI_API_KEY = previousKey; }
+  });
+  await t.test('remote creation and physical-to-remote edits save without coordinates and stay discoverable',async()=>{
+    const remoteCategory=await prisma.category.findUniqueOrThrow({where:{name:'Tutoring & Lessons'}});
+    const created=await createService(provider.id,CreateServiceSchema.parse({categoryId:remoteCategory.id,title:'ONLINE TUTORING LESSONS',description:'I teach mathematics in online video lessons for students.',price:300,estimatedDurationMins:60,paymentMethods:{cash:true,gcash:false},serviceLocationMode:'REMOTE'}));
+    assert.equal(created.latitude,null);assert.equal(created.longitude,null);assert.equal(created.publicMapPin,false);
+    for(const mode of ['PROVIDER_VISITS','SEEKER_VISITS','BOTH'] as const) {
+      await assert.rejects(updateService(created.id,provider.id,{serviceLocationMode:mode}),/Choose a new location/);
+      await updateService(created.id,provider.id,{serviceLocationMode:mode,serviceLocation:job,venueAddress:job.address,publicMapPin:true});
+      const converted=await updateService(created.id,provider.id,{serviceLocationMode:'REMOTE',serviceLocation:null});
+      assert.equal(converted.latitude,null);assert.equal(converted.longitude,null);assert.equal(converted.locationLabel,null);
+      assert.equal(converted.venueAddress,null);assert.equal(converted.publicMapPin,false);assert.equal(converted.transportationFee,null);
+    }
+    const posted=await createRequest(seekerC.id,{categoryId:remoteCategory.id,title:'ONLINE MATH TUTORING HELP',description:'I need mathematics tutoring using online video lessons.',budgetMin:300,budgetMax:300,urgency:'This Week',paymentMethods:{cash:true,gcash:false},serviceLocationMode:'REMOTE'});
+    assert.equal(posted.latitude,null);
+    await updateRequest(posted.id,seekerC.id,{serviceLocationMode:'PROVIDER_VISITS',jobLocation:job});
+    const converted=await updateRequest(posted.id,seekerC.id,{serviceLocationMode:'REMOTE',jobLocation:null});
+    assert.equal(converted.latitude,null);assert.equal(converted.privateAddress,null);
+    const query=NearbyQuerySchema.parse({latitude:50,longitude:50,radiusKm:.5,category:'Tutoring & Lessons'});
+    const services=await nearbyServices(query),requests=await nearbyRequests(query,provider.id);
+    assert.ok(services.items.some(item=>item.id===created.id&&item.distanceKm===null));
+    assert.ok(requests.items.some(item=>item.id===posted.id&&item.distanceKm===null));
+    assert.deepEqual(services.mapPins,[]);assert.deepEqual(requests.mapPins,[]);
+    await assert.rejects(updateService(created.id,provider.id,{serviceLocationMode:'SEEKER_VISITS',serviceLocation:null}),/Choose a new location/);
+    await assert.rejects(updateRequest(posted.id,seekerC.id,{serviceLocationMode:'PROVIDER_VISITS',jobLocation:null}),/Choose a new location/);
   });
 });

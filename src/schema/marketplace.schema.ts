@@ -65,7 +65,7 @@ export const RequestUrgencySchema = z.enum([
 export const ServiceRequestSchema = z.object({
   photoIds: ListingPhotoIdsSchema.optional(),
   serviceLocationMode: ServiceLocationModeSchema.default('PROVIDER_VISITS'),
-  jobLocation: JobLocationSchema,
+  jobLocation: JobLocationSchema.nullable().optional(),
   transportationFee: TransportationFeeSchema.nullable().optional(),
   categoryId: Cuid,
   title: RequestTitle,
@@ -74,7 +74,9 @@ export const ServiceRequestSchema = z.object({
   budgetMax: Money,
   urgency: RequestUrgencySchema,
   paymentMethods: RequestPaymentMethodsSchema,
-}).strict().refine((value) => value.budgetMax >= value.budgetMin, {
+}).strict().superRefine((value,context) => {
+  if (value.serviceLocationMode !== 'REMOTE' && !value.jobLocation) context.addIssue({code:'custom',path:['jobLocation'],message:'Choose the job location or provider-search area for an in-person request.'});
+}).refine((value) => value.budgetMax >= value.budgetMin, {
   message: "budgetMax must be greater than or equal to budgetMin",
   path: ["budgetMax"],
 });
@@ -82,7 +84,7 @@ export const ServiceRequestSchema = z.object({
 export const ServiceRequestUpdateSchema = z.object({
   photoIds: ListingPhotoIdsSchema.optional(),
   serviceLocationMode: ServiceLocationModeSchema.optional(),
-  jobLocation: JobLocationSchema.optional(),
+  jobLocation: JobLocationSchema.nullable().optional(),
   transportationFee: TransportationFeeSchema.nullable().optional(),
   title: RequestTitle.optional(),
   description: Text(2_000).min(10).optional(),

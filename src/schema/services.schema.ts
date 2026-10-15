@@ -41,7 +41,7 @@ export const CreateServiceSchema = z.object({
   title,
   description,
   price: price.nullable().optional(),
-  serviceLocation: LocationPointSchema,
+  serviceLocation: LocationPointSchema.nullable().optional(),
   publicMapPin: z.boolean().default(false),
   serviceLocationMode: ServiceLocationModeSchema.default('PROVIDER_VISITS'),
   venueAddress: z.string().trim().max(500).nullable().optional(),
@@ -54,6 +54,7 @@ export const CreateServiceSchema = z.object({
   queueLimit: z.number().int().min(1).max(10).default(3),
   paymentMethods,
 }).superRefine((value, context) => {
+  if (value.serviceLocationMode !== 'REMOTE' && !value.serviceLocation) context.addIssue({ code:'custom',path:['serviceLocation'],message:'Choose your base area or shop location for an in-person service.' });
   if (value.priceType === 'BY_AGREEMENT' ? value.price != null : value.price == null) {
     context.addIssue({ code: 'custom', path: ['price'], message: value.priceType === 'BY_AGREEMENT' ? 'Leave the price blank for Price by agreement.' : 'Enter the service price or choose Price by agreement.' });
   }
@@ -66,7 +67,7 @@ export const UpdateServiceSchema = z.object({
   title: title.optional(),
   description: description.optional(),
   price: price.nullable().optional(),
-  serviceLocation: LocationPointSchema.optional(),
+  serviceLocation: LocationPointSchema.nullable().optional(),
   publicMapPin: z.boolean().optional(),
   serviceLocationMode: ServiceLocationModeSchema.optional(),
   venueAddress: z.string().trim().max(500).nullable().optional(),

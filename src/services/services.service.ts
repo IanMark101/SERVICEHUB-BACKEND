@@ -160,7 +160,7 @@ export async function browseServices(params: {
       ...PUBLIC_SERVICE_WHERE,
       ...(params.ids && { id: { in: params.ids } }),
       ...(categoryId && { categoryId }),
-      ...(params.nearby && { AND: [locationBounds(params.nearby), ...marketplaceSearchConditions(search)] }),
+      ...(params.nearby && { AND: [{OR:[{serviceLocationMode:'REMOTE'},locationBounds(params.nearby)]}, ...marketplaceSearchConditions(search)] }),
       ...(params.categoryName && params.categoryName !== "All Categories" && { category: { name: { equals: canonicalCategoryName(params.categoryName), mode: "insensitive" as const } } }),
       ...(availableOnly && { isAvailable: true }),
       ...(excludeProviderId && { providerId: { not: excludeProviderId } }),
@@ -282,8 +282,8 @@ export async function createService(providerId: string, input: CreateServiceInpu
           title: input.title,
           titleNormalized: normalizeServiceTitle(input.title),
           description: input.description,
-          ...locationData(input.serviceLocation),
-          publicMapPin: input.publicMapPin,
+          ...(input.serviceLocation && locationData(input.serviceLocation)),
+          publicMapPin: ['SEEKER_VISITS','BOTH'].includes(input.serviceLocationMode) && input.publicMapPin,
           coverageRadiusKm: null,
           transportationFee: input.priceType === 'BY_AGREEMENT' ? null : input.transportationFee,
           serviceLocationMode: input.serviceLocationMode,
@@ -399,6 +399,7 @@ export async function updateService(serviceId: string, providerId: string, input
       const { serviceLocation, photoIds, ...updatedInput } = input;
       if (photoIds !== undefined) await setListingPhotos(tx, providerId, photoIds, { serviceId });
       assertLocationForArrangementChange(service.serviceLocationMode, input.serviceLocationMode, serviceLocation, 'PROVIDER_VISITS');
+      if (serviceLocation === null && (input.serviceLocationMode ?? service.serviceLocationMode) !== 'REMOTE') throw Object.assign(new Error('In-person services need a base area or shop location.'), {status:400});
       if (['SEEKER_VISITS', 'BOTH'].includes(input.serviceLocationMode ?? service.serviceLocationMode) && !serviceLocation && (service.latitude == null || service.longitude == null || !service.locationLabel)) {
         throw Object.assign(new Error('Choose your service venue before accepting seeker visits.'), { status: 400 });
       }
@@ -408,6 +409,8 @@ export async function updateService(serviceId: string, providerId: string, input
           ...updatedInput,
           coverageRadiusKm: null,
           ...(serviceLocation && locationData(serviceLocation)),
+          ...((serviceLocation === null || (input.serviceLocationMode === 'REMOTE' && service.serviceLocationMode !== 'REMOTE' && !serviceLocation)) && {latitude:null,longitude:null,locationLabel:null}),
+          ...((input.serviceLocationMode ?? service.serviceLocationMode) === 'PROVIDER_VISITS' && {publicMapPin:false}),
           ...(serviceLocation && input.publicMapPin === undefined &&
             (serviceLocation.latitude !== service.latitude || serviceLocation.longitude !== service.longitude)
             ? { publicMapPin: false } : {}),

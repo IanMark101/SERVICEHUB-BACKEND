@@ -2,15 +2,30 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Prisma } from '@prisma/client';
 import { resolveDirectArrangement, resolveOfferArrangement, offerJobLocation, publicOffer, assertLocationForArrangementChange } from '../lib/service-arrangement';
-import { CreateServiceSchema } from './services.schema';
+import { CreateServiceSchema, UpdateServiceSchema } from './services.schema';
 import { publicLocation } from '../lib/proximity';
 import { calculateDirectListingTerms } from '../services/bookings/direct-listing-pricing';
-import { DirectBookingSchema, OfferSchema } from './marketplace.schema';
+import { DirectBookingSchema, OfferSchema, ServiceRequestSchema, ServiceRequestUpdateSchema } from './marketplace.schema';
 
 const venue = { latitude: 10.3, longitude: 123.9, label: 'Cordova, Cebu', address: 'Private workshop directions' };
 const job = { latitude: 10.301, longitude: 123.901, label: 'Day-as, Cordova', address: 'Private job directions' };
 const base = { latitude: venue.latitude, longitude: venue.longitude, locationLabel: venue.label, venueAddress: venue.address, coverageRadiusKm: 2, transportationFee: new Prisma.Decimal(75) };
 const request = { latitude: job.latitude, longitude: job.longitude, locationLabel: job.label, privateAddress: job.address };
+
+test('remote publication accepts no area while physical listings and requests retain their location requirement',()=>{
+  const listing={categoryId:'clxxxxxxxxxxxxxxxxxxxxxxx',title:'ONLINE TUTORING LESSONS',description:'An online tutoring lesson delivered using a video call.',price:300,estimatedDurationMins:60,paymentMethods:{cash:true,gcash:false}};
+  const posting={categoryId:listing.categoryId,title:'ONLINE TUTORING HELP',description:listing.description,budgetMin:300,budgetMax:300,urgency:'This Week',paymentMethods:listing.paymentMethods};
+  for(const location of [undefined,null]) {
+    assert.equal(CreateServiceSchema.safeParse({...listing,serviceLocationMode:'REMOTE',serviceLocation:location}).success,true);
+    assert.equal(ServiceRequestSchema.safeParse({...posting,serviceLocationMode:'REMOTE',jobLocation:location}).success,true);
+    for(const mode of ['PROVIDER_VISITS','SEEKER_VISITS','BOTH']) {
+      assert.equal(CreateServiceSchema.safeParse({...listing,serviceLocationMode:mode,serviceLocation:location}).success,false);
+      assert.equal(ServiceRequestSchema.safeParse({...posting,serviceLocationMode:mode,jobLocation:location}).success,false);
+    }
+  }
+  assert.equal(UpdateServiceSchema.safeParse({serviceLocationMode:'REMOTE',serviceLocation:null}).success,true);
+  assert.equal(ServiceRequestUpdateSchema.safeParse({serviceLocationMode:'REMOTE',jobLocation:null}).success,true);
+});
 
 test('remote bookings ignore supplied pins and stale travel fees while retaining exact pricing', () => {
   const online = { ...base, serviceLocationMode: 'REMOTE' as const };
@@ -41,7 +56,8 @@ test('remote booking contracts accept online work without a meetup location', ()
   const serviceId = 'clxxxxxxxxxxxxxxxxxxxxxxx';
   assert.equal(DirectBookingSchema.safeParse({ serviceId, serviceLocationMode: 'REMOTE' }).success, true);
   assert.equal(OfferSchema.safeParse({ requestId: serviceId, offeredPrice: 500, estimatedDuration: 60, serviceLocationMode: 'REMOTE' }).success, true);
-  assert.doesNotThrow(() => assertLocationForArrangementChange('REMOTE', 'PROVIDER_VISITS', undefined, 'PROVIDER_VISITS'));
+  assert.throws(() => assertLocationForArrangementChange('REMOTE', 'PROVIDER_VISITS', undefined, 'PROVIDER_VISITS'), {code:'SERVICE_ARRANGEMENT_INVALID'});
+  assert.doesNotThrow(() => assertLocationForArrangementChange('SEEKER_VISITS','REMOTE',undefined,'PROVIDER_VISITS'));
   assert.throws(() => assertLocationForArrangementChange('REMOTE', 'SEEKER_VISITS', undefined, 'PROVIDER_VISITS'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
   assert.throws(() => assertLocationForArrangementChange('REMOTE', 'PROVIDER_VISITS', undefined, 'SEEKER_VISITS'), { code: 'SERVICE_ARRANGEMENT_INVALID' });
 });

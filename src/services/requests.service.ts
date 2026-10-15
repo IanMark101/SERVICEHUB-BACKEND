@@ -26,7 +26,7 @@ export async function createRequest(seekerId: string, params: {
   budgetMax: number;
   urgency: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
-  jobLocation?: JobLocation;
+  jobLocation?: JobLocation | null;
   serviceLocationMode?: ServiceLocationMode;
   transportationFee?: number | null;
 }) {
@@ -122,7 +122,7 @@ export async function listRequests(categoryId?: string, providerId?: string, nea
       ...publicRequestWhere(providerId),
       ...(ids && { id: { in: ids } }),
       ...(categoryId && { categoryId }),
-      ...(nearby && { AND: [locationBounds(nearby), ...marketplaceSearchConditions(nearby.search)] }),
+      ...(nearby && { AND: [{OR:[{serviceLocationMode:'REMOTE'},locationBounds(nearby)]}, ...marketplaceSearchConditions(nearby.search)] }),
       ...(nearby?.category && nearby.category !== "All Categories" && { category: { name: { equals: canonicalCategoryName(nearby.category), mode: "insensitive" as const } } }),
     },
     include: {
@@ -222,7 +222,7 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   status?: "OPEN" | "IN_PROGRESS" | "CLOSED" | "CANCELED";
   urgency?: string;
   paymentMethods?: { cash: boolean; gcash: boolean };
-  jobLocation?: JobLocation;
+  jobLocation?: JobLocation | null;
   serviceLocationMode?: ServiceLocationMode;
   transportationFee?: number | null;
 }) {
@@ -311,12 +311,14 @@ export async function updateRequest(requestId: string, seekerId: string, params:
   if (!closingOnly) await assertListingGCashNumber(tx, seekerId, params.paymentMethods ?? request.paymentMethods);
   if (photoIds !== undefined) await setListingPhotos(tx, seekerId, photoIds, { requestId });
   assertLocationForArrangementChange(request.serviceLocationMode, params.serviceLocationMode, jobLocation, 'SEEKER_VISITS');
-  if (jobLocation || params.transportationFee !== undefined || params.serviceLocationMode !== undefined) {
+  if (jobLocation === null && (params.serviceLocationMode ?? request.serviceLocationMode) !== 'REMOTE') throw Object.assign(new Error('In-person requests need a job location or provider-search area.'), {status:400});
+  if (jobLocation !== undefined || params.transportationFee !== undefined || params.serviceLocationMode !== undefined) {
     const quoted = await tx.offer.findFirst({ where: { requestId, status: { in: ['PENDING', 'PENDING_PAYMENT', 'ACCEPTED'] } }, select: { id: true } });
     if (quoted) throw Object.assign(new Error('This request already has offers. Keep the agreed arrangement, location and travel budget, or post a new request.'), { status: 409 });
   }
   const changed = await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: request.status }, data: {
     ...changes, ...(jobLocation && { ...locationData(jobLocation), privateAddress: jobLocation.address || null }),
+    ...((jobLocation === null || (params.serviceLocationMode === 'REMOTE' && request.serviceLocationMode !== 'REMOTE' && !jobLocation)) && {latitude:null,longitude:null,locationLabel:null}),
     ...(['SEEKER_VISITS', 'REMOTE'].includes(params.serviceLocationMode ?? request.serviceLocationMode) && { privateAddress: null, transportationFee: null }),
   } });
   if (changed.count !== 1) {

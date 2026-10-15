@@ -21,7 +21,7 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
-if (process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1' || process.env.SERVICEHUB_LISTING_CORRECTNESS_ONLY === '1') {
+if (process.env.SERVICEHUB_GCASH_OFFER_ONLY === '1' || process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1' || process.env.SERVICEHUB_LISTING_CORRECTNESS_ONLY === '1') {
   isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
   isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
 }
@@ -217,6 +217,12 @@ async function main() {
         if (result.status !== 0) failures.push(file);
       }
       assert.deepEqual(failures, [], `fresh-schema suites failed: ${failures.join(', ')}`);
+      return;
+    }
+
+    if (process.env.SERVICEHUB_GCASH_OFFER_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/request-payment-selection.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'GCash custom-offer HTTP regression failed');
       return;
     }
 

@@ -52,4 +52,12 @@ test('both nearby maps share exact radius, filters and eligibility queries with 
     assert.ok(args.where.category,'Category stays on the database query');
     assert.ok(args.where.provider || args.where.seeker,'Account eligibility stays on the database query');
   }
+  records.push(make('remote-without-location',NaN,{latitude:null,longitude:null,locationLabel:null,serviceLocationMode:'REMOTE'}));
+  records.push(make('remote-outside-radius',50,{serviceLocationMode:'REMOTE'}));
+  for(const load of [nearbyServices,(query:Parameters<typeof nearbyRequests>[0])=>nearbyRequests(query,'provider')]) {
+    const remote=await load({...query,latitude:11,limit:100});
+    assert.deepEqual(remote.items.map(item=>item.id).sort(),['remote-outside-radius','remote-without-location']);
+    assert.ok(remote.items.every(item=>item.distanceKm===null));
+    assert.deepEqual(remote.mapPins,[],'Online work never creates a meetup marker, even with an old saved coordinate');
+  }
 });
