@@ -288,7 +288,10 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
     resolveAdminReport(suspensionReport.id, admin.id, "resolve_safety", "Temporary suspension requested by integration test.", "suspend"),
     (error: any) => error?.code === 'SUSPENSION_BOOKINGS_BLOCKED' && error?.status === 409,
   );
-  assert.equal((await prisma.report.findUniqueOrThrow({ where: { id: suspensionReport.id } })).status, "UNDER_REVIEW");
+  // A blocked penalty must roll back the decision claim, preserving the case
+  // for an administrator to resolve after the provider's bookings are handled.
+  assert.equal((await prisma.report.findUniqueOrThrow({ where: { id: suspensionReport.id } })).status, suspensionReport.status);
+  assert.equal(await prisma.adminResolutionOperation.count({ where: { caseType: 'REPORT', caseId: suspensionReport.id } }), 0);
   assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: provider.id } })).moderationStatus, "ACTIVE");
 
   // Administrator dispute release is a real database transition, is audited,
