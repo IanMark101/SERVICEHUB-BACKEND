@@ -4,15 +4,11 @@ import { PUBLIC_SERVICE_WHERE } from "./services.service";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { readPublicContent, contentSnapshot, decideWorkspaceCase } from "./content-workspace.service";
 import { lockListingPhotos } from './listing-photos.service';
-
-export type ContentCaseInput = {
-  caseType: "REPORT" | "APPEAL";
-  contentType: "SERVICE_LISTING" | "SERVICE_REQUEST";
-  resourceId?: string;
-  reason: string;
-};
+import { ContentCaseSubmissionSchema, type ContentCaseInput } from '../schema/content-case-submission.schema';
+export type { ContentCaseInput } from '../schema/content-case-submission.schema';
 
 export async function submitContentCase(submitterId: string, input: ContentCaseInput) {
+  input = ContentCaseSubmissionSchema.parse(input);
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`content-case:${submitterId}`}))`;
     if (input.caseType === "REPORT") {
@@ -68,6 +64,7 @@ export async function submitContentCase(submitterId: string, input: ContentCaseI
     const submitted = await tx.contentModerationCase.create({ data: {
       submitterId, caseType: input.caseType, contentType: input.contentType,
       resourceId: input.resourceId ?? null, reason: input.reason.trim(),
+      reportReason: input.caseType === "REPORT" ? input.reportReason ?? null : null,
       contentOwnerId: content?.owner.id ?? (input.caseType === "APPEAL" ? submitterId : null),
       ...(content && { contentSnapshot: contentSnapshot(content) }),
     } });

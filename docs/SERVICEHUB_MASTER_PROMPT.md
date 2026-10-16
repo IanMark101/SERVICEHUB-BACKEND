@@ -844,7 +844,8 @@ Deliberately scoped out: no user photo posts, no public scrollable social feed, 
 
 The Admin sidebar has one **Content Reports & Appeals** entry for provider service listings, seeker public requests, content reports, and publication appeals. The former Service Listings and Public Requests pages redirect here, preserving exact content links. Booking **Disputes & Reports** remains separate.
 
-- **Needs review:** incoming reports and owner appeals, filterable by content type and case type. A report alone never removes content or bans the owner.
+- **Needs review:** incoming reports and owner appeals. The interface labels its filters **Listing type** (provider services or seeker requests) and **Show** (all reports and appeals, reports from users, or appeals from listing owners). A report alone never removes content or bans the owner.
+- Listing reports collect a selected reason (misleading information, scam, inappropriate content, unsafe service, spam or other concern) plus a 10–1,000-character explanation. The red flag opens this form for another member's listing. The API stores reportReason separately and returns it in admin list/detail views; older clients and records may omit it. Appeals have no report reason. Migration 20261017010000_content_report_reason must precede the updated API/frontend.
 - **All content:** searchable service listings and public requests, including content with no report. Show current visibility and allow reasoned removal or restoration when eligible. Private booking inquiries and engaged requests are handled through their booking/payment workflow.
 - **History:** completed cases with the actual content outcome, owner consequence, and explanation. Historical explanation-only resolutions must not be interpreted as applied actions.
 

@@ -18,7 +18,7 @@ test('unified public content lifecycle, owner consequences, recovery, and author
   const category = await prisma.category.create({ data: { name: `Content fixture ${tag}` } });
   const listing = await prisma.service.create({ data: { providerId: owner.id, categoryId: category.id, title: 'Local faucet repair', titleNormalized: 'local faucet repair', description: 'Repair leaking faucets with clear agreed pricing and scheduling.', price: 500, estimatedDurationMins: 60, paymentMethods: { cash: true, gcash: false }, status: 'ACTIVE', isAvailable: true, publishedAt: new Date() } });
   const request = await prisma.serviceRequest.create({ data: { seekerId: reporter.id, categoryId: category.id, title: 'Repair kitchen faucet', description: 'The kitchen faucet needs careful repair this week.', budgetMin: 500, budgetMax: 500, urgency: 'Flexible' } });
-  const reportListing = () => submitContentCase(reporter.id, { caseType: 'REPORT', contentType: 'SERVICE_LISTING', resourceId: listing.id, reason: 'Please review whether this description is misleading.' });
+  const reportListing = () => submitContentCase(reporter.id, { caseType: 'REPORT', contentType: 'SERVICE_LISTING', resourceId: listing.id, reason: 'Please review whether this description is misleading.', reportReason: 'MISLEADING' });
   const version = async (type: 'SERVICE_LISTING' | 'SERVICE_REQUEST', id: string) => {
     const item = await readPublicContent(prisma, type, id); assert.ok(item);
     return { expectedUpdatedAt: item.updatedAt.toISOString(), expectedOwnerStatus: item.owner.moderationStatus };
@@ -29,6 +29,12 @@ test('unified public content lifecycle, owner consequences, recovery, and author
   t.after(async () => { await new Promise<void>(r => server.close(() => r())); await prisma.$disconnect(); });
 
   const first = await reportListing();
+  await t.test('the selected reason is stored and returned in admin list and detail', async () => {
+    assert.equal(first.reportReason, 'MISLEADING');
+    assert.equal((await getWorkspaceCase(first.id)).reportReason, 'MISLEADING');
+    const list = await listWorkspaceCases({ page: 1, limit: 50 });
+    assert.equal(list.items.find(item => item.id === first.id)?.reportReason, 'MISLEADING');
+  });
   await t.test('reports save original content and target its owner without automatically removing or banning', async () => {
     assert.equal(first.contentOwnerId, owner.id);
     assert.equal((first.contentSnapshot as any).title, listing.title);

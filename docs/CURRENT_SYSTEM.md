@@ -41,6 +41,8 @@ Trust History shows recorded events and has no Appeal trust penalty button or ne
 
 ## Maintained code and evidence
 
+Content report submissions may include reportReason: MISLEADING, SCAM, INAPPROPRIATE, UNSAFE, SPAM or OTHER. New frontend forms require this choice alongside the existing 10–1,000-character explanation; older clients may omit it. The API validates supplied values and rejects a report reason on an owner appeal. A nullable reportReason column stores the choice separately from the explanation, and the admin list/detail APIs return it. Older reports remain null. Migration 20261017010000_content_report_reason adds the column and validates its values; apply it before deploying the changed API/frontend. No report automatically removes content or changes bookings, payments or trust. This feature remains local on feature/content-report-reasons.
+
 Cleanup removed historical execution logs, browser captures, a disposable fixture proxy, two unreferenced landing components, unused public assets and redundant dependencies. Maintained regression tests, migrations, operational scripts, design guidance and private database backups remain. Historical removed evidence is recoverable before cleanup at frontend 3411838 and API c9a9a38.
 
 Local cleanup verification passed 1,441 frontend tests, 258 backend schema/contract tests, 16 development-runtime checks and four production-build map scenarios. Both builds and frontend lint passed. These results do not establish new live-wallet, database-integration or community acceptance. Earlier dated verification totals retain their original scope.

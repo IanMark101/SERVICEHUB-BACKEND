@@ -39,6 +39,7 @@ test("direct publication, revision-only failures, legacy recovery and post-publi
 
   const listingInput = (title: string, description = "Careful local repair work with clear scheduling and pricing.") =>
     CreateServiceSchema.parse({ categoryId: category.id, title, description, price: 500,
+      serviceLocation: { latitude: 10.25, longitude: 123.95, label: 'Cordova, Cebu' },
       estimatedDurationMins: 60, queueLimit: 3, paymentMethods: { cash: true, gcash: false } });
   const clean = await createService(provider.id, listingInput(`Careful local repair ${suffix}`));
   assert.equal(clean.status, "ACTIVE");
@@ -79,6 +80,7 @@ test("direct publication, revision-only failures, legacy recovery and post-publi
 
   const requestInput = (title: string, description = "The kitchen faucet needs careful repair this week.") => ({
     categoryId: category.id, title, description, budgetMin: 500, budgetMax: 500, urgency: "Flexible Schedule",
+    jobLocation: { latitude: 10.25, longitude: 123.95, label: 'Cordova, Cebu' },
   });
   const request = await createRequest(seeker.id, requestInput(`Repair kitchen faucet ${suffix}`));
   assert.equal(request.status, "OPEN");

@@ -596,6 +596,7 @@ model ContentModerationCase {
   contentType  String
   resourceId   String?
   reason       String   @db.VarChar(1000)
+  reportReason String?  @db.VarChar(32)
   status       String   @default("OPEN")
   adminId      String?
   resolution   String?  @db.VarChar(1000)

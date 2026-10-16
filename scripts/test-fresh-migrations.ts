@@ -21,6 +21,10 @@ isolatedUrl.hostname = isolatedUrl.hostname.replace('-pooler.', '.');
 const isolatedDirectUrl = new URL(process.env.DIRECT_URL || databaseUrl);
 isolatedDirectUrl.searchParams.set('schema', schemaName);
 isolatedDirectUrl.hostname = isolatedDirectUrl.hostname.replace('-pooler.', '.');
+if (process.env.SERVICEHUB_CONTENT_ONLY === '1') {
+  isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+  isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+}
 if (process.env.SERVICEHUB_GCASH_OFFER_ONLY === '1' || process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1' || process.env.SERVICEHUB_LISTING_CORRECTNESS_ONLY === '1') {
   isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
   isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
@@ -55,6 +59,7 @@ function runNpm(args: string[], env: NodeJS.ProcessEnv) {
 }
 
 async function main() {
+  if (process.env.SERVICEHUB_CONTENT_ONLY === '1') assertCategoryDevelopmentTarget();
   if (process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1' || process.env.SERVICEHUB_LISTING_CORRECTNESS_ONLY === '1') assertCategoryDevelopmentTarget();
   if (process.env.SERVICEHUB_PROXIMITY_ONLY === '1') assertProximityDatabase();
   if (process.env.SERVICEHUB_AI_ASSIST_ONLY === '1' || process.env.SERVICEHUB_MESSAGE_RECEIPTS_ONLY === '1' || process.env.SERVICEHUB_LISTING_MAP_ONLY === '1' || process.env.SERVICEHUB_MEMBER_DIRECTORY_ONLY === '1' || process.env.SERVICEHUB_CATEGORY_ONLY === '1' || process.env.SERVICEHUB_SECURITY_HISTORY_ONLY === '1' || process.env.SERVICEHUB_SAVED_ONLY === '1' || process.env.SERVICEHUB_GCASH_NUMBER_ONLY === '1' || process.env.SERVICEHUB_PRICE_AGREEMENT_ONLY === '1') assertCategoryDevelopmentTarget();
