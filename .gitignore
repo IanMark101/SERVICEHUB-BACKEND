@@ -1,5 +1,12 @@
 node_modules
 /dist
+/coverage/
+
+# Generated local logs and verification output
+*.log
+/artifacts/
+/test-results/
+/playwright-report/
 # Keep environment variables out of version control
 .env
 
