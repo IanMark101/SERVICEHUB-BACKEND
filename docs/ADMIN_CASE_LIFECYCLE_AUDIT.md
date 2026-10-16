@@ -1,5 +1,6 @@
 # Admin dispute and content review audit
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 Scope: booking disputes, safety reports, cancellation/completion escalations, public listing/request reports and appeals, and booking conversation review. Audited against the current backend and frontend implementation. Unrelated landing-page and document changes are outside this work.
 
 ## Decision boundaries

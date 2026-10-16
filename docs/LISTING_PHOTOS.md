@@ -1,5 +1,6 @@
 # Listing photos
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 Services and seeker requests accept zero to three photos. The first photo is the cover. Public cards download only the cover thumbnail; Details renders the photo carousel and thumbnails. Existing listings need no photos.
 
 The frontend adapts the user's supplied [21st.dev Trail Card](https://21st.dev/community/components/ravikatiyar162/trail-card) source with existing dependencies. The requested registry CLI was attempted, but its Windows launcher failed and direct registry installation required authentication. No registry installation is claimed.

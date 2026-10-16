@@ -1,5 +1,6 @@
 # Verification upload proxy repair
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 Observed October 15, 2026 (Asia/Taipei), against the deployed API.
 
 The phone screenshot's connection message is not enough to identify the friend's exact failed request. Live checks nevertheless reproduced a real upload contract failure:

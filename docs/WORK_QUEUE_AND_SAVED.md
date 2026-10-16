@@ -1,5 +1,6 @@
 # Work Queue, Saved and listing report update
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 Implementation and verification: October 14, 2026.
 
 Provider Work Queue is `/provider/work-queue`. It reuses `ProviderWorkloadPanel`, the existing workload GET/PATCH API and the existing Start Job action. Activity retains booking status filters, history, progress and lifecycle actions; it no longer mounts the workload panel. Provider Payment Records keeps its existing `/provider/transaction-history` route. There is no seeker workload-management route.

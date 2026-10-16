@@ -1,5 +1,6 @@
 # Private GCash number in listing forms
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 Offer Services, Edit Service Listing and Post Request expose **Add GCash number** when GCash is selected. A small modal saves one account-wide number without navigating away, publishing a listing, changing the contact phone, or clearing a draft. Existing numbers are masked outside the modal and can be edited; removal is blocked while retained GCash listings or active public requests depend on them. The same account preference is available in either workspace and persists across sessions.
 
 This field is **required when GCash is selected on a listing or public request**. Cash-only posting needs no number. It is not verified wallet ownership, a payout configuration, a public payment instruction, or a booking-specific snapshot. Hosted checkout still authenticates the paying wallet itself. Saving it does not send money or change current payment, booking, queue, refund or earnings behavior. Real provider payouts require a separate gateway integration; a mobile number alone cannot configure them.

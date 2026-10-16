@@ -1,5 +1,6 @@
 # Price by agreement
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 Providers can publish or edit a service with `priceType: BY_AGREEMENT` and `price: null`. Existing fixed/hourly/daily/project modes keep their normal booking paths; retired `CUSTOM`/`STARTS_AT` remain unsupported choices.
 
 Seeker request from the listing â†’ selected provider declines or sends a final Offer with included work â†’ seeker approves through Offers Received â†’ existing offer-origin cash booking or verified GCash payment admission. No second provider acceptance, public request listing, separate quote tab or booking before price approval.

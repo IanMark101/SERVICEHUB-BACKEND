@@ -1,5 +1,6 @@
 # First-party session recovery — October 15, 2026
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 ## Problem and correction
 
 After the frontend moved to `www.servicehub.bond`, the existing API cookie on `api.servicehubcordova.tech` became a third-party cookie. Browsers that block it can accept a login response's short-lived in-memory access token but fail to recover the session after a reload or renew the token during a later action. An administrator may therefore appear to be signed out when reviewing a verification, even though that decision does not revoke the administrator's session.

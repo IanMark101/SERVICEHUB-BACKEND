@@ -1,5 +1,6 @@
 # Admin sign-in and security history
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 Open **Admin → Audit Log → Sign-in history**. The existing administrator action history stays in its own view on this page.
 
 The backend records password/Google sign-ins, initial registration sign-in, rejected authentication, and explicit sign-out. Refresh and initial cookie/session recovery are not new sign-ins. Closing a browser is not an explicit sign-out. The history starts when the feature is enabled; historical refresh tokens cannot reconstruct past sign-ins.

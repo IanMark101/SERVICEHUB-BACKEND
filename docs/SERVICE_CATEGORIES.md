@@ -1,5 +1,6 @@
 # Service categories
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 The official catalog is shared by provider service listings and seeker requests. Category IDs come from the backend; the frontend never invents IDs. New listings should use the most specific category available. Other Services remains the fallback. Previous official category-name filters and bookmarks resolve to the renamed family; aliases never become additional public choices.
 
 The October 2026 cleanup replaces overlapping choices with 35 plain-language service families. Selected-category help explains the boundary between similar services. Adding a category does not establish a provider's qualifications or change verification and content rules.

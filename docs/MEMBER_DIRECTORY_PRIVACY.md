@@ -1,5 +1,6 @@
 # Member directory and administrator privacy
 
+Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
 The Seeker and Provider people search is for marketplace members. Administrators remain separate operational accounts. This avoids exposing their marketplace-style profiles and reduces targeted contact; knowing an account's name or ID never grants administrator privileges.
 
 `GET /api/users` requires authentication and verified email. Its database filter fixes `role: user`, requires an active, non-deactivated account with ACTIVE moderation status, and applies the same filter to both results and pagination counts. Searches match public name, general location and biography only. Private email, contact phone, credentials and security records are neither search keys nor response fields. A requested admin role is rejected rather than overriding the directory filter. Administrator User Management retains its protected search tools.

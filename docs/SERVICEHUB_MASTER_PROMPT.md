@@ -1,18 +1,18 @@
 # SERVICEHUB MASTER PROMPT
 
-**Specification version:** 3.4
-**Effective date:** October 14, 2026
-**Status:** Aligned with the verified October 15 production release; full operational and community acceptance remain evidence-dependent
+**Specification version:** 3.5
+**Effective date:** October 16, 2026
+**Status:** Aligned to the recorded October 16 release and subsequent local cleanup; operational and community acceptance remain evidence-dependent
 
 This is the authoritative specification for **ServiceHub**, a location-based two-sided service marketplace and queue-management system. Seekers and providers discover nearby services and requests across communities and cities, then use the two established transaction flows. Read this document before changing application behavior or generating the SRS, SDD, SPMP, or STD. The repository-root and backend documentation copies must carry the same current system policies.
 
 ### How to interpret this document
 
-The current academic package is the revised October 15 edition in `DOCUMENTATION_REVISED_2026-10-15/ServiceHub_Capstone_Documentation_Revised.docx` and its matching printing PDF. It contains the instructor's eleven required sections in 115 pages, including 16 screenshots (four in the SRS and twelve in the User Manual), the clarified Cordova community context and an uncompleted community testing record. Revised chapter sources and full digital references accompany it in that folder's `SOURCES/` and `TECHNICAL_REFERENCE/` directories; the previous exported book remains a historical snapshot. The project manager confirmed that Ian Mark J. Buenaflor is project manager/backend developer, while John Vincent Sefuesca and Klexa Rovelette D. Gaviola are frontend developers. Testing/documentation are shared. The methodology is Agile iterative development with feature-by-feature implementation, repeated testing and feedback; do not invent formal Scrum roles or ceremonies. Instructor/adviser/panel names remain editable placeholders until supplied by the team. Academic approval and signatures are distinct from implementation/test evidence.
+The current academic package is DOCUMENTATION_REVISED_2026-10-15/ServiceHub_Capstone_Documentation_Revised.docx and its matching PDF, revised October 16, 2026. It preserves eleven academic sections, five document-specific covers, 95 functional requirements, 109 manual cases, 57 figures and 41-model ERD coverage. Confirm pagination in that folder’s README and current delivery evidence. Academic Year 2026-2027 and June–October 2026 development are team-confirmed. Ian Mark J. Buenaflor is project manager/backend developer; Klexa Rovelette D. Gaviola and John Vincent Sefuesca are frontend developers. Testing/documentation are shared. Development is Agile iterative; no formal Scrum roles or completed community acceptance are assumed. Unconfirmed academic names, dates and signatures remain editable.
 
 The project manager reports a Hostinger KVM 2 VPS running Ubuntu, purchased October 5, 2026 for PHP 995 at a monthly rate, and PHP 74 for the servicehub.bond domain. The reported purchase subtotal is PHP 1,069. The VPS is a recurring operating expense; twelve months at the same rate is PHP 11,940, not the full project budget. Domain purchase date, covered term and renewal price were not supplied. Docker is the backend deployment technology; no separate Docker charge was reported. The VPS purchase date does not establish the project start or production go-live date.
 
-- **Baseline:** The October 10, 2026 source review is extended by the October 12 trust-policy implementation in Part 15. Part 30 records implementation status and source evidence. Local verification does not certify production deployment or external integrations. The trust policy requires its database migration and coordinated backend/frontend release.
+- **Baseline:** Recorded deployed frontend 3411838 and API c9a9a38. Local cleanup commits f0398bd and 821282e preserve runtime behavior; they are not a new deployment. The shared CURRENT_SYSTEM.md in each stack’s docs directory and the book’s TECHNICAL_REFERENCE/Current_Codebase_Alignment_2026-10-16.json record this review boundary. Earlier dated amendments remain historical.
 - **Implemented** means corresponding code exists, not that every scenario has passed acceptance testing. **Configuration-dependent** requires external credentials/services. **Backend-only** is not a completed user-facing feature. **Future/excluded** must not be presented as current functionality.
 - **MUST / MUST NOT** means a required security, data-integrity, or capstone behavior.
 - **SHOULD / SHOULD NOT** means the default design unless there is a documented technical reason to differ.
@@ -28,7 +28,7 @@ The project manager reports a Hostinger KVM 2 VPS running Ubuntu, purchased Octo
 ## PART 1 — SYSTEM IDENTITY
 
 - **Name:** ServiceHub. Use this exact name in UI, browser metadata, accessibility labels, notifications, emails and current documentation. Existing technical hostnames and historical migration identifiers may remain without defining geographic scope.
-- **Implemented geographic scope:** Nearby discovery across communities, cities and municipalities. No single municipality or fixed barangay list defines membership or transaction eligibility. The backend combines coordinates/distance with existing account, availability and service-coverage rules.
+- **Implemented geographic scope:** Nearby discovery across communities, cities and municipalities. No single municipality or fixed barangay list defines membership or transaction eligibility. The backend combines coordinates/distance with existing account, availability and delivery-compatibility rules.
 - **Marketplace concept:** Location/radius browsing and listing comparison similar to a nearby marketplace. ServiceHub specializes in services and work requests, with verified participation, two distinct hiring flows, booking records, a paid work queue, completion confirmation and reviews. The analogy does not introduce goods sales, unrestricted messaging, auctions or a social feed.
 - **Current deployment context:** Registration validates Philippine mobile numbers, amounts use PHP, and explicit place search is configured for Philippine localities. Cross-city discovery is implemented; worldwide onboarding/payments and regional administration are not established capabilities.
 - **Core purpose:** Help members find nearby providers or work opportunities and complete accountable service transactions with fair provider-wide paid queues, PayMongo Test Mode records and trust history.
@@ -47,8 +47,8 @@ The project manager reports a Hostinger KVM 2 VPS running Ubuntu, purchased Octo
 | Profile locality | General area on the member profile | Free-text city/municipality and barangay; no fixed-city suffix or restricted barangay list |
 | Seeker search location/radius | Discover provider services | Saved separately per member/workspace in this browser; changing it does not update the profile |
 | Provider search location/radius | Discover open work requests | Independent of the seeker's saved search preferences |
-| Provider base or venue | Where a provider is based or receives visitors | One base area or shop pin; no fixed provider travel limit |
-| Request job location | Where the requested work happens | Validated pin/area label, optional private directions and additional travel budget |
+| Provider discovery and workplace | Physical service discovery, plus private venue when receiving visitors | One discovery point; receiving visitors additionally requires private workplace directions, not a second pin |
+| Public request discovery | Nearby providers find the request | One discovery point for every physical direction; no private job address at posting |
 | Booking job location | Agreed work location | Snapshotted with amount, transportation and estimated duration for the transaction |
 
 ### Discovery and filtering
@@ -56,23 +56,23 @@ The project manager reports a Hostinger KVM 2 VPS running Ubuntu, purchased Octo
 - Seek Services uses `GET /api/services/nearby`, a public endpoint with optional authentication and redacted listing data. Browse Service Requests uses `GET /api/requests/nearby`, which requires an authenticated marketplace member with verified email; identity/residency approval is not required merely to browse. Both validate latitude, longitude and radius. The workspace UI has its own authentication/email gates. Other public listing/explainer routes retain their own access policy. Backend router-relative paths elsewhere in this document are mounted under `/api` in `src/app.ts`.
 - The UI offers radii of 0.5, 1, 2, 5, 10, 15, 20 and 30 km, plus a custom radius. The UI and API validate 0.5–30 km in 0.1 km increments. Lists paginate results (default 6; maximum 30 per page).
 - A geographical bounding box reduces candidates, followed by exact Haversine distance filtering. Municipal/city labels do not define eligibility. Distances are straight-line estimates, not road routing, travel times or guaranteed arrival times.
-- Keep one location selection per form: provider base area/shop, or seeker job point/desired provider-search area. No provider travel limit is configured. Browsing retains an independent search center/radius.
-- Seek Services compares the chosen search center with service operating bases; Browse Service Requests compares it with request job pins. Default ordering is nearest first, with trust score breaking service-distance ties and newer requests breaking request-distance ties. Budget/offer quick filters retain their existing ordering.
+- Every physical listing/request selects one Discovery location, retained between physical arrangements. Providers receiving visitors also save private workplace directions. Public requests collect the actual job address only during the applicable booking. Remote forms expose no location field. No provider travel limit is configured.
+- Physical discovery compares the viewer’s search center with service/request discovery points. Ordering is nearest first, with service-trust or newer-request tie-breaking as applicable. Eligible remote results follow without distance or markers and bypass radius. Budget/offer quick filters retain their existing ordering.
 - Search matches service/request title, description and category rather than merely the account name. Search, category and radius remain combined filters. Seeker quick filters cover availability, rating and waiting workload; provider quick filters cover urgency, budget and offer count.
 - Opening the location dialog edits a draft. Apply commits it; Cancel/Escape discards it. Optional device geolocation is requested only through an explicit user action.
 - Map clicks, dragged pins, place-search results and device locations preview a candidate. Use this location / Switch location confirms it; keeping the current location discards it. Panning and zooming never change the selected location. Ctrl/Command + wheel zooms around the pointer; ordinary scrolling remains available, alongside zoom buttons, touch pinch, recenter and fullscreen controls.
-- Seeker provider listings share the existing Change search location modal map; there is no separate Seeker nearby-provider map. Its selected pin and search circle stay orange, while provider markers are green at fixed 0.01-degree public area centers by default, including outside the selected radius. A provider may explicitly enable publicMapPin for a listing to publish its exact selected pin; never opt existing private pins in automatically. Viewport queries reuse `/services/nearby` with the current search/category/quick filters and independent 30 km discovery windows; the marketplace list still uses the selected radius. Previously discovered pins stay visible during zoom/pan requests and temporary failures. Group listings in the same public area; View listing opens the existing details without applying the location draft.
-- Provider Browse Service Requests retains Show nearby map, using minimal mapPins for all eligible matches before pagination and the same distance/category/search/quick filters as its list. Its approximate anchors remain inside the search circle, with Show in list opening the result's list page. Both maps show published service/job areas. Only owner-consented public provider pins are exact; seeker job pins and unconsented provider pins stay approximate, with no private directions or live user tracking.
+- Seek Services shares Change search location with its provider discovery map. Search pin/circle is orange; provider markers are green and approximate by default. Current creation/editing exposes no exact-pin consent checkbox and saves publicMapPin false. Only legacy explicitly consented records retain exact-pin API compatibility. Viewport queries reuse /services/nearby with existing filters; listing Details does not apply the location draft. Known markers survive loading/failure and are revalidated authoritatively.
+- Provider Browse Service Requests retains Show nearby map with approximate public-request discovery pins and the same list filters. Both maps show listing areas, without private job/workplace directions or live user tracking. Legacy provider consent is a compatibility exception, not a current form option.
 - Existing socket listing/request events refresh both browsing maps and feeds without a page reload. Successful authoritative refreshes remove paused/deleted services and canceled/deleted or otherwise ineligible requests. Seeker modal refreshes also recheck previously discovered areas outside the current viewport, so retained pins cannot linger after a listing disappears. Abort stale loads; reconnect/focus/online recovery revalidates current data. A failed refresh retains confirmed pins and offers recovery rather than making them blink out.
 - Loading skeletons represent initial/query loading. Focus/reconnect refresh keeps confirmed cards or an empty result visible; a failed background refresh preserves that result with a recovery action.
-- Records without coordinates remain in owner management and transaction history but do not appear in nearby discovery until the owner adds a location. Do not guess coordinates from profile text or migrate every legacy record to one default city.
+- Physical records without coordinates remain in owner/history views but are omitted from nearby discovery; eligible remote work remains discoverable without coordinates. Never infer discovery from profile text.
 
 ### Coverage, price and privacy
 
-- Search center, profile area and actual job point are independent. There is no fixed provider travel coverage check. A travelling provider reviews the actual job area and proposes a final total before GCash payment.
-- Provider create/edit forms use one base city/barangay or venue selection. No provider radius field/circle is shown. Search and map select the same location; successful lookup fills its label automatically.
+- Search center, profile area and actual job point are independent. There is no fixed provider travel coverage check. A travelling provider receives the actual job point; posted-price bookings retain their price, and only BY_AGREEMENT requires a final offer.
+- Provider create/edit uses one discovery pin for physical work. Search and map choose that same point. SEEKER_VISITS/BOTH additionally require private workplace directions of 5–500 characters, without a second venue pin. PROVIDER_VISITS needs no workplace address; REMOTE exposes no location field.
 - The delivery selector establishes Provider visits, Seeker visits, Either or Online. A concrete arrangement is agreed for each booking. Either supports the two physical choices.
-- Travelling-provider service requests use the private inquiry and offer flow for fixed/rate as well as agreement listings. The final offer includes agreed travel; no fee is added twice. Shop/online set-price bookings retain their existing direct payment paths. Historical confirmed amounts stay unchanged.
+- Fixed/rate listings in every arrangement use their posted price and any one-time displayed travel fee. Only BY_AGREEMENT uses private inquiry and offer negotiation. Delivery mode must never override pricing type. Historical confirmed amounts stay unchanged.
 - Public discovery responses/broadcasts omit raw private coordinates and private directions. Only nearby service mapPins may expose an exact point when the provider explicitly sets publicMapPin; request/job pins remain approximate. They show the general area and approximate distance rounded to 0.1 km. Authorized booking participants can see the transaction's job point/directions; current search preferences must not store private job directions.
 - GCash preparation snapshots the job and payment terms before checkout. Finalization uses that snapshot. Profile/listing/search edits do not silently rewrite an existing booking or successful payment.
 - Editing a request's job/travel terms while active offers exist is restricted to protect existing quotes. Follow the current API validation; a new request is the recovery when terms cannot be changed safely.
@@ -103,7 +103,7 @@ Cross-city discovery is current functionality. Region-specific administrator par
 - **Payments:** PayMongo, **Test Mode only** for the entire build and defense period. No real money is needed. The application simulates a payment hold in its own ledger; it is not PayMongo escrow.
 - **AI:** Gemini API
 - **Supporting integrations:** Socket.IO for realtime delivery, Nodemailer/SMTP for email, Cloudinary for media/private evidence, Leaflet for maps, backend-mediated Nominatim place search by default, optional Google sign-in and optional Google reCAPTCHA v2.
-- **Installed package baseline:** frontend Next.js 16.3.3, React 19.2.4, Tailwind CSS 4, Leaflet 1.9.4; backend Express 5.2.1, Prisma 7.10, TypeScript 6.0.3. Recheck package manifests/lockfiles when producing version-specific diagrams or deployment instructions; these are not guarantees about the deployed environment.
+- **Installed package baseline:** frontend Next.js 16.3.8, React 19.2.4, Tailwind CSS 4, Leaflet 1.9.4; backend Express 5.2.1, Prisma 7.10, TypeScript 6.0.3. Recheck package manifests/lockfiles when producing version-specific diagrams or deployment instructions; these are not guarantees about the deployed environment.
 - **Backend path aliases:** if the backend emits unresolved TypeScript `paths` aliases, run `tsc-alias` after `tsc`. This requirement does not apply when emitted imports are already directly resolvable.
 - **Frontend launchers:** preserve the npm dev/build/start launchers. They resolve the native project-directory and Next CLI spelling before loading Next, avoiding duplicate framework module paths on Windows when the terminal uses a differently cased directory name. `npm run build` still executes the PWA prebuild step and uses the existing default Turbopack production build.
 
@@ -672,12 +672,12 @@ CompletedService = represents a GENUINELY FINISHED job. It is the anchor
 - Starting work, accepting, paying, and marking work finished have no separate bonus. Refunds and cancellations earn no completion reward.
 - Penalties require a booking participant, a documented violated rule and supporting evidence explanation of at least 20 characters, and an administrator who did not participate in the booking. Elapsed time, subjective ratings, and an unresolved report are insufficient findings.
 - A unique booking-penalty:<bookingId>:<userId> key permits one trust penalty per incident/participant; report and cancellation deductions cannot stack. Suspension/ban remains a separate reasoned moderation decision.
-- Trust History shows immutable events. Public history sanitizes private notes. Own history offers appeals for uncorrected report/cancellation penalties; one case per original penalty. Pending cases do not restore points automatically.
+- Trust History shows immutable events with sanitized public notes. The current member UI has no Appeal trust penalty action or new-appeal form. Existing cases and authorized Admin decisions remain; pending cases do not restore points.
 - Public reply forms, the public reply API, and creation of new review disputes have been removed. Existing review disputes retain a private author response opportunity of 48 hours before an upheld decision, unless the author responds earlier. Urgent policy moderation remains separately audited. Genuine negative feedback stays visible; disagreement with a rating is not grounds for removal. Admin hiding requires a specific policy category and evidence-based explanation.
-- New TrustCase submissions require a trustEventId; historical reviewId cases remain available. TrustCase stores owner/respondent explanations, PENDING/UPHELD/REJECTED status, deciding administrator, reason, and timestamps. Admin reviews these under Reviews. A reviewer cannot decide their own case; another active admin must decide an appeal against the original admin when available. If none is available, same-admin review is explicitly audited.
+- Retained backend TrustCase submissions require trustEventId; historical reviewId cases remain available. This compatibility is not exposed as a new member form. Existing cases retain explanations, status, deciding administrator, reasons and timestamps, with conflict checks and audit records.
 - Manual adjustment is replaced by correction of a selected eligible original event, with a 20-character documented reason, administrator password confirmation and stable operation UUID. Arbitrary point deltas, baseline changes, review-event corrections and repeated reversals are rejected.
 - Migration 20261011120000_evidence_based_trust retains historical events and replays their non-review contributions with boundary clamping, dropping duplicate booking penalties. A POLICY_TRANSITION event records any adjustment; no old snapshot is rewritten. Existing completion rewards remain recognized; mutual rewards and the rolling pair limit apply prospectively.
-- Publish the policy point values and eligibility conditions in Account Settings and Help Center. These weights and the 30-day limit are initial policy choices to evaluate in pilot testing, not scientifically validated probabilities.
+- End-user Help and settings explain the policy principles without publishing the exact point formula. Internal policy weights and the rolling 30-day pair limit are initial settings, not validated probabilities.
 
 ---
 ## PART 16 — SELF-TRANSACTION PREVENTION (ANTI-ABUSE — MUST BE ENFORCED SERVER-SIDE)
@@ -705,7 +705,7 @@ Apply this check to: direct bookings (Flow A), sending an offer (Flow B, provide
 ## PART 17 — SERVICE LISTINGS (PROVIDER SIDE) — CREATION, VALIDATION, MODERATION
 
 ### Fields
-Category (admin-managed list), title, description, definite price/rate or Price by agreement, supported price type, normal estimated duration, operating base/area label, optional transportation fee with no provider travel-radius restriction, and accepted methods (GCash and On-site Cash — at least one). Provider paid waiting capacity (1–10) is configured once in Provider Work Queue across listings/offers; the legacy `Service.queueLimit` is not operational. GCash is the only online Test Mode method.
+Category (admin-managed list), title, description, definite price/rate or Price by agreement, supported price type, normal estimated duration, physical discovery point, private workplace directions when receiving visitors, optional applicable transportation fee, or remote delivery with no location, and accepted methods (GCash and On-site Cash — at least one). Provider paid waiting capacity (1–10) is configured once in Provider Work Queue across listings/offers; the legacy `Service.queueLimit` is not operational. GCash is the only online Test Mode method.
 
 ### Reusable one-time booking model (Version 2.3)
 
@@ -834,7 +834,7 @@ Deliberately scoped out: no user photo posts, no public scrollable social feed, 
 ## PART 20 — ADMIN PANEL
 
 - **Overview** — platform-wide stats dashboard.
-- **Users & Trust** — verification queue (Part 5), documented trust-event corrections and penalty appeals, suspensions/bans.
+- **Users & Trust** — verification queue, documented trust-event corrections and existing penalty cases, suspensions/bans. Ban appeals retain their separate workflow.
 - **Marketplace** — Admin-managed category catalog (Part 18), published service-listing oversight, public-content reports, appeals, and sampled quality review (Part 17). Admin does not approve service listings before publication.
 - **Moderation** — reports queue and dispute resolution (Part 12), escalated cancellation requests (Part 9), and CompletionEscalations (Part 10).
 - **Marketplace content** — review contested local-check failures and reports about public listings or requests, including requests with no Booking. Content review is distinct from booking-payment disputes; removal and any account-level consequence require an authorized, reasoned, audited Admin decision.
@@ -952,10 +952,13 @@ This snapshot lists every current Prisma model, its mapped SQL table, and scalar
 
 ```text
 User -> users
-  id, name, email, passwordHash, passwordState, googleSubject?, googleConnectedAt?, phone, location, avatarUrl?, bio?, facebookUrl?, instagramUrl?, websiteUrl?, role, trustScore, verificationStatus, isActive, moderationStatus, suspendedUntil?, moderationReason?, postingSuspended, postingSuspendedAt?, postingSuspendReason?, onlineQueueLimit, emailVerified, onboardingStatus, deactivatedAt?, createdAt, updatedAt
+  id, name, email, passwordHash, passwordState, googleSubject?, googleConnectedAt?, phone, gcashNumber?, location, avatarUrl?, bio?, facebookUrl?, instagramUrl?, websiteUrl?, role, trustScore, verificationStatus, isActive, moderationStatus, suspendedUntil?, moderationReason?, postingSuspended, postingSuspendedAt?, postingSuspendReason?, onlineQueueLimit, emailVerified, onboardingStatus, deactivatedAt?, createdAt, updatedAt
 
 RefreshToken -> refresh_tokens
   id, token, userId, expiresAt, createdAt
+
+SecurityEvent -> security_events
+  id, userId?, action, method?, reason, ipAddress?, locationStatus, city?, region?, country?, browser, device, userAgent?, sessionReference?, requestId?, createdAt
 
 EmailVerificationToken -> email_verification_tokens
   id, token, userId, expiresAt, used, createdAt
@@ -973,10 +976,22 @@ Category -> categories
   id, name, isActive
 
 Service -> services
-  id, providerId, categoryId, title, titleNormalized, description, price?, priceType, latitude?, longitude?, locationLabel?, coverageRadiusKm?, transportationFee?, serviceType, estimatedDurationMins, queueLimit, paymentMethods, status, isAvailable, rejectionCount, adminNotes?, reviewedById?, reviewedAt?, publishedAt?, moderationPolicyVersion?, moderationReasonCode?, createdAt, updatedAt
+  id, providerId, categoryId, title, titleNormalized, description, price?, priceType, latitude?, longitude?, locationLabel?, publicMapPin, coverageRadiusKm?, transportationFee?, serviceLocationMode, venueAddress?, serviceType, estimatedDurationMins, queueLimit, paymentMethods, status, isAvailable, rejectionCount, adminNotes?, reviewedById?, reviewedAt?, publishedAt?, moderationPolicyVersion?, moderationReasonCode?, createdAt, updatedAt
 
 ServiceRequest -> service_requests
-  id, seekerId, targetProviderId?, targetServiceId?, preferredPaymentMethod?, paymentMethods?, categoryId, title, description, budgetMin, budgetMax, latitude?, longitude?, locationLabel?, privateAddress?, transportationFee?, urgency, status, moderationPolicyVersion?, moderationReasonCode?, adminNotes?, reviewedAt?, reviewedById?, createdAt, updatedAt, archivedAt?
+  id, seekerId, targetProviderId?, targetServiceId?, preferredPaymentMethod?, paymentMethods?, categoryId, title, description, budgetMin, budgetMax, latitude?, longitude?, locationLabel?, privateAddress?, transportationFee?, serviceLocationMode, urgency, status, moderationPolicyVersion?, moderationReasonCode?, adminNotes?, reviewedAt?, reviewedById?, createdAt, updatedAt, archivedAt?
+
+SavedListing -> saved_listings
+  id, userId, serviceId?, requestId?, createdAt
+
+ListingPhoto -> listing_photos
+  id, ownerId?, publicId, url, width, height, createdAt
+
+ServiceListingPhoto -> service_listing_photos
+  serviceId, photoId, position
+
+RequestListingPhoto -> request_listing_photos
+  requestId, photoId, position
 
 ContentModerationEvent -> content_moderation_events
   id, actorId, contentType, resourceId?, outcome, reasonCode, policyVersion, createdAt
@@ -985,7 +1000,7 @@ ContentModerationCase -> content_moderation_cases
   id, submitterId, caseType, contentType, resourceId?, reason, status, adminId?, resolution?, contentOwnerId?, contentSnapshot?, decision?, penalty?, decisionResult?, decidedAt?, createdAt, updatedAt
 
 Offer -> offers
-  id, requestId, providerId, serviceId?, offeredPrice, estimatedDuration, availability?, message?, status, paymentHoldExpiresAt?, createdAt
+  id, requestId, providerId, serviceId?, offeredPrice, estimatedDuration, availability?, message?, serviceLocationMode?, providerVenue?, status, paymentHoldExpiresAt?, createdAt
 
 DirectRequest -> direct_requests
   id, seekerId, providerId, serviceId, quantity, selectedPaymentMethod, agreedPrice, schedule?, message?, status, createdAt, updatedAt
@@ -997,7 +1012,7 @@ QueueNotify -> queue_notify
   id, serviceId, seekerId, requestedAt
 
 Booking -> bookings
-  id, seekerId, providerId, serviceId?, offerId?, directRequestId?, originType?, paymentAttemptId?, paymentMethod, agreedAmount?, jobLocation?, transportationFee?, estimatedDurationMins?, paymentStatus, status, statusBeforeDispute?, queuePosition?, started, scheduledDate?, scheduledTime?, hiddenBySeeker, hiddenByProvider, createdAt, updatedAt
+  id, seekerId, providerId, serviceId?, offerId?, directRequestId?, originType?, paymentAttemptId?, paymentMethod, agreedAmount?, jobLocation?, transportationFee?, serviceLocationMode?, estimatedDurationMins?, paymentStatus, status, statusBeforeDispute?, queuePosition?, started, scheduledDate?, scheduledTime?, hiddenBySeeker, hiddenByProvider, createdAt, updatedAt
 
 BookingProgressEvent -> booking_progress_events
   id, bookingId, kind, actorRole, eventKey, occurredAt
@@ -1006,7 +1021,7 @@ CompletedService -> completed_services
   id, queueId?, directRequestId?, offerId?, bookingId?, seekerId, providerId, finalPrice, paymentStatus, completedAt
 
 Review -> reviews
-  id, completedServiceId, authorId, targetId, rating, text?, tags?, aiSummaryUsed, visibility, moderationReason?, moderatedById?, moderatedAt?, response?, respondedAt?, contentVersion, createdAt, editableUntil
+  id, completedServiceId, authorId, targetId, rating, text?, response?, respondedAt?, tags?, aiSummaryUsed, visibility, moderationReason?, moderatedById?, moderatedAt?, contentVersion, createdAt, editableUntil
 
 Report -> reports
   id, bookingId, reporterId, reportedUserId, reason, description, evidenceUrl?, evidenceStorageKey?, reportType, dedupeKey?, status, adminId?, adminNotes?, resolvedAt?, createdAt
@@ -1024,11 +1039,10 @@ Announcement -> announcements
   id, title, body, authorId, isPublished, publishedAt?, createdAt, updatedAt
 
 TrustScoreEvent -> trust_score_events
-  id, userId, bookingId?, category, delta, requestedDelta?, reason, scoreBefore, scoreAfter, actorAdminId?, eventKey?, penaltyKey?, reversesEventId?, createdAt
+  id, userId, delta, requestedDelta?, reason, scoreBefore, scoreAfter, actorAdminId?, eventKey?, createdAt, bookingId?, category, penaltyKey?, reversesEventId?
 
 TrustCase -> trust_cases
-  id, userId, respondentId?, reviewId?, trustEventId?, description, response?, status: PENDING/UPHELD/REJECTED, adminId?, decisionReason?, createdAt, decidedAt?
-  Exactly one source (reviewId or trustEventId); one case per source.
+  id, userId, respondentId?, reviewId?, trustEventId?, description, response?, status, adminId?, decisionReason?, createdAt, decidedAt?
 
 AiReviewSummary -> ai_review_summaries
   id, providerId, summary, reviewCount, contentVersion, source, generatedAt
@@ -1049,7 +1063,7 @@ PaymentRefund -> payment_refunds
   id, bookingId?, paymentAttemptId?, paymentId, paymongoRefundId?, amount, status, reason, requestedById, failureReason?, createdAt, updatedAt
 
 PaymentAttempt -> payment_attempts
-  id, idempotencyKey, seekerId, providerId, serviceId?, quantity, offerId?, providerIntentId?, providerPaymentId?, providerClientKey?, redirectUrl?, amount, jobLocation?, transportationFee?, estimatedDurationMins?, currency, paymentMethod, status, failureReason?, expiresAt, createdAt, updatedAt
+  id, idempotencyKey, seekerId, providerId, serviceId?, quantity, offerId?, providerIntentId?, providerPaymentId?, providerClientKey?, redirectUrl?, amount, jobLocation?, transportationFee?, serviceLocationMode?, estimatedDurationMins?, currency, paymentMethod, status, failureReason?, expiresAt, createdAt, updatedAt
 
 ProcessedWebhookEvent -> processed_webhook_events
   id, provider, eventId, eventType, status, failureReason?, processedAt?, createdAt, updatedAt
@@ -1059,7 +1073,6 @@ CompletionEscalation -> completion_escalations
 
 AdminResolutionOperation -> admin_resolution_operations
   id, operationKey, caseType, caseId, bookingId, requestedByAdminId, requestedOutcome, requestedPenalty?, notes, status, stage, lastError?, result?, startedAt, updatedAt, completedAt?
-
 ```
 
 Physical-model clarifications:
@@ -1262,13 +1275,13 @@ Use **ServiceHub — Location-Based Service Marketplace and Queue Management Sys
 
 - Describe scope, deliverables, work breakdown, roles/responsibilities, schedule/dependencies, resources/budget, risks, quality/configuration management, change control, deployment/migration planning and acceptance.
 - Obtain actual team members, dates, costs and commitments from the project owner. Use explicitly marked TBD fields when absent; do not turn estimates into established project history.
-- Separate implemented work from remaining validation/deployment and future features. Include cross-city/coverage tests, geocoder/map availability and quotas, private documents/job locations, payment webhooks, concurrent queue actions, and database migration/rollback risks.
+- Separate implemented work from remaining validation/deployment and future features. Include cross-city discovery and delivery-compatibility tests, geocoder/map availability and quotas, private documents/job locations, payment webhooks, concurrent queue actions, and database migration/rollback risks.
 - Retain versioned migrations and isolated test/development database practices. A source-code feature or successful build does not establish production deployment.
 
 ### STD — Software Test Document
 
 - Include test objectives/scope, environments/accounts/data, entry/exit criteria, test IDs/preconditions/steps/expected results, negative/security/concurrency/recovery cases, traceability, defect reporting and evidence.
-- Cover the four transaction variants, outside-city members, nearby radius/category/search combinations, out-of-coverage job pins, transportation calculations, draft Apply/Cancel, tab-focus refresh, public location redaction, old records without coordinates, and immutable booked terms.
+- Cover the four transaction variants, outside-city members, nearby radius/category/search combinations, distant job locations without a provider travel cutoff, transportation calculations, draft Apply/Cancel, tab-focus refresh, public location redaction, old records without coordinates, and immutable booked terms.
 - Retain payment failure/expiry/replay, competing offer outcomes, provider-wide queue/start guards, cancellation by either participant, disputes/admin settlement, reviews, notification/chat reconnect and access-denial cases.
 - Use Not Run, Passed, Failed or Blocked according to recorded execution. Do not prefill every test as Passed, recycle historical totals as current results, or describe mocked gateway/socket tests as live browser/payment verification.
 
@@ -1280,7 +1293,7 @@ Cross-link the same requirement IDs across the SRS, design sections, SPMP delive
 
 ### Review boundary and evidence rules
 
-The original source review was performed on October 10, 2026. The October 12 revision implements the evidence-based trust policy, review responses/disputes, penalty appeals, original-event corrections and aligned Help Center content. The complete database schema now has 36 Prisma models, represented in Part 26. Trust migrations were rehearsed in disposable schemas; the application database was not migrated by this work. Production deployment and unrelated acceptance scenarios remain separately verifiable.
+The original source review began October 10, 2026. This active status table is aligned to the recorded October 16 application release and later local cleanup. The schema contains 41 Prisma models. Reviews do not change trust; profile reply/review-report and new member penalty-appeal controls are absent. Dated historical migrations and tests below do not establish current production acceptance.
 
 Status meanings: **I** = implemented source/UI path; **C** = implemented but external configuration/service is required; **B** = backend support without a completed frontend flow; **G** = known implementation/operational gap; **X** = excluded or future. These are implementation statuses, not test outcomes. A row marked I/C may still have bugs or unverified edge cases. File references are repository-relative: **B:** = SERVICEHUB-BACKEND, **F:** = SERVICEHUB-FRONTEND.
 
@@ -1298,10 +1311,10 @@ Use these stable subsystem IDs across the four documents; subdivide them into at
 | SH-08 | Self-service account deletion with obligations/identity checks and database purge | I | `B:src/services/account-deletion.service.ts`; `F:src/components/profile/AccountSettingsView.tsx` | `B:src/integration/self-service-deletion.test.ts` |
 | SH-09 | External proof-file cleanup, scheduled retention purge, deep file inspection/scanning | G | `B:src/config/cloudinary.ts`; `B:src/services/data-retention.service.ts`; `B:src/controllers/upload.controller.ts` | Part 5 documents the gap; metadata/helper existence does not prove automatic file erasure or scanning |
 | SH-10 | Admin-managed category catalog, protected Other Services fallback last in dropdowns/badges | I | `B:src/routes/categories.routes.ts`; `F:src/lib/category-catalog.ts`; `B:prisma/seed.ts` | `B:src/integration/category-source-of-truth.test.ts`; `B:src/integration/category-expansion.test.ts`; `F:src/components/ServiceCategoryDropdowns.test.tsx` |
-| SH-11 | Reusable provider listings, four supported price types, duration/payment/base/coverage terms, pause/edit/management | I | `B:src/services/services.service.ts`; `B:src/schema/services.schema.ts`; `F:src/components/provider/OfferServices.tsx`; `F:src/components/provider/ServiceManager.tsx` | `B:src/integration/listing-correctness.test.ts`; `F:src/components/provider/OfferServices.test.tsx` |
+| SH-11 | Reusable provider listings, five supported price types, duration/payments, physical discovery/private workplace or remote delivery, pause/edit/management | I | `B:src/services/services.service.ts`; `B:src/schema/services.schema.ts`; `F:src/components/provider/OfferServices.tsx`; `F:src/components/provider/ServiceManager.tsx` | `B:src/integration/listing-correctness.test.ts`; `F:src/components/provider/OfferServices.test.tsx` |
 | SH-12 | Shared deterministic publication policy, revisions, public-content reports/appeals | I | `B:src/services/content-moderation.service.ts`; `B:src/services/content-moderation-cases.service.ts` | `B:src/services/content-moderation.service.test.ts`; `B:src/integration/automated-content-moderation.test.ts` |
 | SH-13 | Nearby service/request search, independent radius/preferences, category/quick filters, redacted location/distance | I | `B:src/services/nearby.service.ts`; `B:src/routes/services.routes.ts`; `B:src/routes/requests.routes.ts`; `F:src/hooks/useNearbyMarketplace.ts` | `B:src/integration/proximity-marketplace.test.ts`; `F:src/hooks/useNearbyMarketplace.test.tsx`; `F:src/components/location/MarketplaceDiscovery.flow.test.tsx` |
-| SH-14 | Pin selection, coverage/search circles, optional full-screen map, explicit device location and place search | C | `F:src/components/location/LocationMap.tsx`; `F:src/components/location/LocationEditor.tsx`; `B:src/routes/locations.routes.ts` | `F:src/components/location/LocationMap.test.tsx`; `F:src/components/location/LocationEditor.test.tsx` |
+| SH-14 | Discovery pin selection, browsing search circles, optional full-screen map, explicit device location and place search | C | `F:src/components/location/LocationMap.tsx`; `F:src/components/location/LocationEditor.tsx`; `B:src/routes/locations.routes.ts` | `F:src/components/location/LocationMap.test.tsx`; `F:src/components/location/LocationEditor.test.tsx` |
 | SH-15 | Flow A cash provider approval and direct online booking; quantity/transport/job snapshots | I/C | `B:src/services/bookings/direct-bookings.service.ts`; `B:src/services/bookings/direct-listing-pricing.ts`; `F:src/components/seeker/RequestServiceModal.tsx` | `B:src/integration/booking-flows.test.ts`; `B:src/services/bookings/direct-listing-pricing.test.ts`; `F:src/components/seeker/RequestServiceModal.test.tsx` |
 | SH-16 | Flow B public requests, budget/urgency/payment choices, optional listing-linked offers and selection | I/C | `B:src/schema/marketplace.schema.ts`; `B:src/routes/requests.routes.ts`; `B:src/routes/offers.routes.ts`; `F:src/components/seeker/IncomingOffers.tsx` | `B:src/integration/post-request-flow.test.ts`; `B:src/integration/offer-lifecycle.test.ts`; `B:src/integration/request-payment-selection.test.ts` |
 | SH-17 | Request management, archive/delete eligibility and repost template; no offer resurrection | I | `B:src/routes/requests.routes.ts`; `F:src/components/seeker/RequestManager.tsx`; `F:src/components/seeker/RepostRequestForm.tsx` | `B:src/integration/request-deletion.test.ts`; `B:src/integration/public-trust-request-archive.test.ts`; `F:src/components/seeker/RepostRequestForm.test.tsx` |
@@ -1313,14 +1326,14 @@ Use these stable subsystem IDs across the four documents; subdivide them into at
 | SH-23 | Seeker completion confirmation, separate CompletedService, online test release/cash confirmation and earnings history | I | `B:src/services/bookings/completion.service.ts`; `B:src/routes/transactions.routes.ts`; `B:src/services/provider-payment-records.service.ts`; `F:src/components/provider/TransactionHistory.tsx` | `B:src/integration/booking-flows.test.ts`; `B:src/schema/provider-payment-records.test.ts`; `B:src/integration/provider-payment-records.readonly.test.ts`; `F:src/components/provider/TransactionHistory.test.tsx` |
 | SH-24 | Pre-start cancellation, started mutual requests/declines/escalation, refund and explicit fault outcome | I | `B:src/services/cancellation.service.ts`; `B:src/services/cancellation-report-finalization.service.ts`; `B:src/services/payment-refund.service.ts` | `B:src/integration/cancellation-report-finalization.test.ts`; `B:src/integration/high-priority-case-workflows.test.ts` |
 | SH-25 | Booking safety/completion reports, optional private evidence, no-response escalation and Admin settlement/retries | I/C | `B:src/services/admin-report.service.ts`; `B:src/services/admin-case-workspace.service.ts`; `B:src/services/completion-escalation.service.ts`; `B:src/services/admin-resolution-operation.service.ts` | `B:src/integration/high-priority-case-workflows.test.ts`; `B:src/schema/admin-case-workspace.test.ts`; `B:src/schema/admin-booking-resolution.test.ts` |
-| SH-26 | Bilateral reviews with low-rating explanations/public replies, policy disputes, evidence-based trust, penalty appeals and original-event corrections | I | `B:src/controllers/reviews.controller.ts`; `B:src/services/trust-policy.service.ts`; `B:src/controllers/trust-cases.controller.ts`; `F:src/components/profile/TrustCaseControls.tsx` | `B:src/integration/evidence-based-trust.test.ts`; `B:src/integration/trust-policy-security.test.ts`; `B:src/schema/trust-operation.test.ts`; `F:src/components/profile/TrustCaseControls.test.tsx` |
+| SH-26 | Bilateral completed-work reviews, read-only profile cards, evidence-based trust, existing cases and original-event corrections; no new member reply/report/penalty-appeal controls | I | `B:src/controllers/reviews.controller.ts`; `B:src/services/trust-policy.service.ts`; `B:src/controllers/trust-cases.controller.ts`; `F:src/components/profile/TrustCaseControls.tsx` | `B:src/integration/evidence-based-trust.test.ts`; `B:src/integration/trust-policy-security.test.ts`; `B:src/schema/trust-operation.test.ts`; `F:src/components/profile/TrustCaseControls.test.tsx` |
 | SH-27 | Grounded provider/seeker review digests, deterministic fallback and optional Gemini excerpt selection | I/C | `B:src/services/ai.service.ts`; `B:src/lib/review-summary.ts`; `F:src/components/ui/ReviewSummaryPanel.tsx` | `B:src/integration/review-summaries.test.ts`; `B:src/schema/review-summary.test.ts`; `F:src/components/ui/ReviewSummaryPanel.test.tsx` |
 | SH-28 | Confirmed category suggestions and reciprocal manager match modals with real trust/ratings, listing links and computed fallback | I/C | `B:src/services/ai-marketplace.service.ts`; `B:src/routes/ai.routes.ts`; `F:src/components/marketplace/MarketplaceMatchesModal.tsx` | Isolated AI marketplace integration, category/modal/save component checks and local browser fixtures; production acceptance separate |
 | SH-29 | Community announcements, guides, real counters, current-week leaderboard and recent additions | I | `B:src/controllers/community.controller.ts`; `F:src/components/community/CommunityHub.tsx` | `F:src/components/community/CommunityHub.test.tsx` |
 | SH-30 | Admin overview/users/verification/categories/announcements/reviews/audit and unified content cases | I | `B:src/routes/admin.routes.ts`; `B:src/services/content-workspace.service.ts`; `F:src/app/admin` | `B:src/integration/content-workspace.test.ts`; `B:src/integration/admin-user-profile.test.ts`; `B:src/schema/admin-contracts.test.ts` |
 | SH-31 | Suspended restricted resolution, banning, appeals, restoration and Admin-owned outstanding obligations | I | `B:src/middlewares/auth.middleware.ts`; `B:src/services/admin-moderation.service.ts`; `B:src/services/admin-booking-resolution.service.ts` | `B:src/integration/authorization-lifecycle.test.ts`; `B:src/integration/safety-admin-guards.test.ts` |
 | SH-32 | Public landing/help/legal pages, workspace themes, responsive UI, listing detail dialogs and refresh recovery | I | `F:src/components/landing/LandingPage.tsx`; `F:src/features/help`; `F:src/app/brand.css`; `F:src/app/globals.css` | `F:src/app/help/search/page.test.tsx`; `F:src/context/AppContext.sessionRecovery.test.tsx`; `F:src/test/background-refresh.integration.test.tsx`; `F:src/components/seeker/seek-services/ServiceDetailsModal.test.tsx`; `F:src/components/provider/browse-jobs/JobRequestDetailsModal.test.tsx` |
-| SH-33 | Live money/payouts/withdrawal/commission, calendar reservations/recurrence, travel-mode selector, message attachments, AI moderation and member category suggestions | X | Parts 21, 23, 25 and 27 define exclusions/future ideas; retained enum/legacy fields do not implement them | Do not create passing current-feature tests for these capabilities |
+| SH-33 | Live money/payouts/withdrawal/commission, calendar reservations/recurrence, road travel-mode routing, message attachments, AI-driven moderation and member-proposed new categories | X | Parts 21, 23, 25 and 27 define exclusions/future ideas; retained enum/legacy fields do not implement them | Do not create passing current-feature tests for these capabilities |
 
 | SH-34 | Account-scoped Saved service/request listings and visible card report actions | I | `B:src/services/saved-listings.service.ts`; `B:src/routes/saved-listings.routes.ts`; `F:src/components/marketplace/SavedListings.tsx`; `F:src/components/marketplace/ListingCardTools.tsx` | `B:src/integration/saved-listings.test.ts`; `F:src/hooks/useSavedListings.test.tsx`; `F:src/components/marketplace/SavedListings.test.tsx`; `F:src/components/layout/SidebarView.workspace.test.tsx` |
 
@@ -1350,6 +1363,8 @@ The two master prompt copies must remain identical. Recheck this matrix whenever
 5. For new behavior, separate lifecycle stages, enforce authorization and invariants server-side, make external-event handling idempotent, and prefer the smallest approach that satisfies Tier 0.
 6. Do not claim “production ready” solely because builds pass. Use Part 27's defense release gate and report any unverified item honestly.
 7. This specification does not prove a target deployment has passed every workflow. Audit schema, authorization, lifecycle and test evidence before claiming alignment; preserve the DirectRequest flow unless an authorized migration replaces it safely. For document generation follow Part 29, including evidence-based test status and explicitly marked unknown project-management details.
+
+Historical amendment records follow. They describe earlier revisions; current controls and policies are defined above and in CURRENT_SYSTEM.md. Earlier optional GCash, provider coverage, remote-area and consent-control descriptions are superseded. Historical test totals retain their original dates and scope.
 
 ### Version 2.0 foundation decisions
 
@@ -1565,3 +1580,14 @@ Browser cookie-lifecycle requests use exact same-origin `/api` rewrites to the e
 ## October 16 simplified locations and required GCash numbers
 
 No provider travel-radius restriction is applied. The legacy column is retained and ignored, and new/edited listings clear it. Public request pins remain approximate for both physical arrangements. Direct GCash initiation/reuse for Provider visits requires an offer; pending payments created by earlier releases retain their existing settlement handling. GCash-selected provider services and public seeker requests require a valid private saved GCash number at create/update. Cash-only posting needs none. Number removal is blocked while retained GCash listings or active public requests depend on it. A saved number does not verify wallet ownership or enable real Test Mode payouts. This revision is local until the compatible API and frontend are released.
+
+### Remote location correction (October 16, 2026)
+
+REMOTE creation/editing must allow missing/null location. City/barangay is optional and uses search only, without map or device-location controls. Physical-to-remote clears stale coordinates/private venue/consent/travel fields; remote-to-physical requires a newly selected appropriate physical location. PROVIDER_VISITS listings require only a base city/barangay search selection. Exact-public-pin consent belongs only to SEEKER_VISITS/BOTH shop venues. Eligible remote discovery ignores radius, returns no distance and emits no map marker. Pricing, GCash number reuse and settlement snapshots remain independent of delivery.
+
+
+## October 16 current alignment after cleanup
+
+The active system uses one Discovery location for every physical service/request, private booking addresses separately, no provider travel limit, no location field for remote work and no exact-public-pin checkbox in current forms. Five pricing types are supported; only BY_AGREEMENT requires a quote. GCash-selected posts require a valid reusable private number. Reviews do not change trust and profile cards have no reply/report controls. Trust History has no new penalty-appeal form; existing cases, Admin corrections and separate ban/content appeals remain.
+
+The recorded release is frontend 3411838 and API c9a9a38. Cleanup f0398bd/821282e removed generated artifacts, orphaned files and unused dependencies, preserving runtime behavior and maintained tests. Local checks passed 1,441 frontend tests, 258 backend tests, 16 development-runtime checks and four map scenarios, both builds and frontend lint. These are local checks, not a new deployment or community acceptance. Both master copies are synchronized by this documentation revision.
