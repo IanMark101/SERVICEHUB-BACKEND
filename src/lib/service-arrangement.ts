@@ -63,7 +63,11 @@ export function resolveOfferArrangement(request: RequestLocation, service: Servi
 
 export function offerJobLocation(offer: { serviceLocationMode?: ServiceLocationMode | null; providerVenue?: unknown; request: RequestLocation & { targetServiceId?: string | null } }, selectedJobLocation?: JobLocation) {
   if (offer.serviceLocationMode === 'REMOTE') return undefined;
-  if (offer.serviceLocationMode === 'SEEKER_VISITS') return JobLocationSchema.parse(offer.providerVenue);
+  if (offer.serviceLocationMode === 'SEEKER_VISITS') {
+    const venue = JobLocationSchema.safeParse(offer.providerVenue);
+    if (!venue.success) throw Object.assign(new Error('The provider’s workplace address is missing from this offer. Ask the provider to withdraw it and send a new offer with their workplace location before booking.'), { status: 409, code: 'PROVIDER_VENUE_REQUIRED' });
+    return venue.data;
+  }
   if (selectedJobLocation) return JobLocationSchema.parse(selectedJobLocation);
   // Private listing inquiries already collected the job address. Public
   // discovery posts collect it at acceptance, independently of their map pin.

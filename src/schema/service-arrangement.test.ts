@@ -5,7 +5,7 @@ import { resolveDirectArrangement, resolveOfferArrangement, offerJobLocation, pu
 import { CreateServiceSchema, UpdateServiceSchema } from './services.schema';
 import { publicLocation } from '../lib/proximity';
 import { calculateDirectListingTerms } from '../services/bookings/direct-listing-pricing';
-import { DirectBookingSchema, OfferSchema, ServiceRequestSchema, ServiceRequestUpdateSchema } from './marketplace.schema';
+import { DirectBookingSchema, InitiatePaymentSchema, OfferSchema, ServiceRequestSchema, ServiceRequestUpdateSchema } from './marketplace.schema';
 import { JobLocationSchema } from './location.schema';
 
 const venue = { latitude: 10.3, longitude: 123.9, label: 'Cordova, Cebu', address: 'Private workshop directions' };
@@ -13,6 +13,22 @@ const job = { latitude: 10.301, longitude: 123.901, label: 'Day-as, Cordova', ad
 const base = { latitude: venue.latitude, longitude: venue.longitude, locationLabel: venue.label, venueAddress: venue.address, coverageRadiusKm: 2, transportationFee: new Prisma.Decimal(75) };
 const request = { latitude: job.latitude, longitude: job.longitude, locationLabel: job.label, privateAddress: job.address };
 const workplace = {label:venue.label,address:venue.address};
+
+test('GCash accepts an unused null target from older clients while validating the selected target', () => {
+  const id = 'clxxxxxxxxxxxxxxxxxxxxxxx';
+  assert.equal(InitiatePaymentSchema.parse({offerId:id,serviceId:null}).offerId,id);
+  assert.equal(InitiatePaymentSchema.parse({offerId:id,serviceId:null}).serviceId,undefined);
+  assert.equal(InitiatePaymentSchema.parse({serviceId:id,offerId:null}).offerId,undefined);
+  assert.equal(InitiatePaymentSchema.safeParse({offerId:'invalid',serviceId:null}).success,false);
+  assert.equal(InitiatePaymentSchema.safeParse({offerId:id,serviceId:'invalid'}).success,false);
+});
+
+test('a missing provider venue gives an actionable booking error before a payment can start', () => {
+  for (const providerVenue of [undefined,null,{}, {label:'Cordova'}]) {
+    assert.throws(() => offerJobLocation({serviceLocationMode:'SEEKER_VISITS',providerVenue,request}), {code:'PROVIDER_VENUE_REQUIRED',status:409});
+  }
+  assert.deepEqual(offerJobLocation({serviceLocationMode:'SEEKER_VISITS',providerVenue:venue,request}),venue);
+});
 
 test('remote publication accepts no area while physical listings and requests retain their location requirement',()=>{
   const listing={categoryId:'clxxxxxxxxxxxxxxxxxxxxxxx',title:'ONLINE TUTORING LESSONS',description:'An online tutoring lesson delivered using a video call.',price:300,estimatedDurationMins:60,paymentMethods:{cash:true,gcash:false}};

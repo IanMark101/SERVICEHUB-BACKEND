@@ -68,12 +68,13 @@ test('request selections persist and cash/GCash booking paths reject unchecked m
   });
 
   const offers = [];
+  const providerVenue = {latitude:10.3,longitude:123.9,label:'Cordova, Cebu',address:'Repair shop beside the barangay hall'};
   for (const paymentMethods of [{ cash: true, gcash: false }, { cash: false, gcash: true }, { cash: true, gcash: true }]) {
     const request = await prisma.serviceRequest.create({ data: {
       seekerId: seeker.id, categoryId: category.id, title: 'PIPE REPAIR', description: 'Repair the leaking pipe.',
-      budgetMin: 500, budgetMax: 500, urgency: 'Flexible', paymentMethods,
+      budgetMin: 500, budgetMax: 500, urgency: 'Flexible', paymentMethods, serviceLocationMode:'SEEKER_VISITS',
     } });
-    offers.push(await prisma.offer.create({ data: { requestId: request.id, providerId: provider.id, offeredPrice: 2500, estimatedDuration: 60 } }));
+    offers.push(await prisma.offer.create({ data: { requestId: request.id, providerId: provider.id, offeredPrice: 2500, estimatedDuration: 60, serviceLocationMode:'SEEKER_VISITS',providerVenue } }));
     assert.deepEqual((await prisma.serviceRequest.findUniqueOrThrow({ where: { id: request.id } })).paymentMethods, paymentMethods);
   }
   const [cashOnly, gcashOnly, both] = offers;
@@ -88,10 +89,10 @@ test('request selections persist and cash/GCash booking paths reject unchecked m
   const cashBooking = await createDirectFromOfferService(both.id, seeker.id);
   assert.equal(cashBooking.paymentMethod, 'On-site Cash');
   assert.equal(gcashOnly.serviceId, null, 'custom offers do not require a provider service listing');
-  const invalid = await postPayment({ offerId: gcashOnly.id, serviceId: null, paymentMethodType: 'gcash' });
-  assert.equal(invalid.status, 400, 'reproduce the old frontend payload at the real schema boundary');
+  const invalid = await postPayment({ offerId: 'invalid-offer-id', serviceId: null, paymentMethodType: 'gcash' });
+  assert.equal(invalid.status, 400, 'the actual payment target still requires a valid identifier');
   assert.equal(gatewayCalls, 0, 'invalid payload never starts a gateway charge');
-  const response = await postPayment({ offerId: gcashOnly.id, paymentMethodType: 'gcash' });
+  const response = await postPayment({ offerId: gcashOnly.id, serviceId: null, paymentMethodType: 'gcash' });
   const body = await response.json() as { success: boolean; data: { expectedAmount: number; paymentIntentId: string; redirectUrl: string } };
   assert.equal(response.status, 200, JSON.stringify(body));
   assert.equal(body.success, true);
@@ -103,6 +104,7 @@ test('request selections persist and cash/GCash booking paths reject unchecked m
   assert.equal(online.offerId, gcashOnly.id);
   assert.equal(online.serviceId, null);
   assert.equal(online.status, 'PENDING');
+  assert.deepEqual(online.jobLocation,providerVenue,'a seeker visit uses the saved provider venue without asking for the seeker’s address');
   assert.equal(await prisma.booking.count({ where: { offerId: gcashOnly.id } }), 0, 'initiation alone must not create a paid booking');
   assert.equal((await prisma.offer.findUniqueOrThrow({ where: { id: gcashOnly.id } })).status, 'PENDING_PAYMENT');
   assert.equal(gatewayCalls, 3);

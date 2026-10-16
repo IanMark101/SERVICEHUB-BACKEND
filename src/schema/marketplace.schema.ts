@@ -35,8 +35,10 @@ export const InitiatePaymentSchema = z.object({
   serviceLocationMode: BookingLocationModeSchema.optional(),
   retryPaymentIntentId: z.string().trim().min(3).max(255).optional(),
   jobLocation: JobLocationSchema.optional(),
-  serviceId: Cuid.optional(),
-  offerId: Cuid.optional(),
+  // Older clients serialize an unused target as null. The selected offer or
+  // service is still validated and resolved by the server before any charge.
+  serviceId: z.preprocess(value => value === null ? undefined : value, Cuid.optional()),
+  offerId: z.preprocess(value => value === null ? undefined : value, Cuid.optional()),
   quantity: z.number().int().min(1).max(40).default(1),
   paymentMethodType: z.literal("gcash").default("gcash"),
 }).strict();
