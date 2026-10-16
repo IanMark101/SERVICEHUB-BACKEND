@@ -139,7 +139,9 @@ test("direct publication, revision-only failures, legacy recovery and post-publi
   assert.equal(pausedEdit.isAvailable, false);
   assert.equal(pausedEdit.publishedAt?.getTime(), firstPublishedAt);
   await toggleServiceAvailability(clean.id, provider.id);
-  const legacy = await prisma.service.create({ data: { ...listingInput(`Older unpublished repair ${suffix}`), titleNormalized: `older unpublished repair ${suffix}`, providerId: provider.id, status: "PENDING_REVIEW", isAvailable: false } });
+  const { serviceLocation: legacyLocation, ...legacyInput } = listingInput(`Older unpublished repair ${suffix}`);
+  assert.ok(legacyLocation);
+  const legacy = await prisma.service.create({ data: { ...legacyInput, latitude: legacyLocation.latitude, longitude: legacyLocation.longitude, locationLabel: legacyLocation.label, titleNormalized: `older unpublished repair ${suffix}`, providerId: provider.id, status: "PENDING_REVIEW", isAvailable: false } });
   const republished = await updateService(legacy.id, provider.id, {});
   assert.equal(republished.status, "ACTIVE");
   assert.equal(republished.isAvailable, true);

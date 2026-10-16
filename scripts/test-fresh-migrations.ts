@@ -242,7 +242,10 @@ async function main() {
     }
 
     if (process.env.SERVICEHUB_CONTENT_ONLY === '1') {
-      for (const file of ['content-workspace.test.ts', 'automated-content-moderation.test.ts', 'self-service-deletion.test.ts']) {
+      const allowed = ['content-workspace.test.ts', 'automated-content-moderation.test.ts', 'self-service-deletion.test.ts'];
+      const files = process.env.SERVICEHUB_CONTENT_TEST_FILES?.split(',') || allowed;
+      assert.ok(files.length > 0 && files.every(file => allowed.includes(file)), 'Unknown content regression suite');
+      for (const file of files) {
         const result = runNpm(['exec', '--', 'tsx', '--test', `src/integration/${file}`], isolatedEnv);
         assert.equal(result.status, 0, `fresh-schema ${file} failed`);
       }
