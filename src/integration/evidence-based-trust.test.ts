@@ -51,7 +51,7 @@ test('evidence-based trust in an isolated migrated schema', async t => {
     const p = await account(); const s = await account(); const [a, b] = await Promise.all([booking(p.id, s.id), booking(s.id, p.id)]);
     await Promise.all([settleCompletedBooking(a.id, { type: 'SEEKER', userId: s.id }), settleCompletedBooking(b.id, { type: 'SEEKER', userId: p.id })]);
     assert.equal(await score(p.id), 53); assert.equal(await score(s.id), 53);
-    await prisma.trustScoreEvent.updateMany({ where: { userId: { in: [p.id, s.id] } }, data: { createdAt: new Date(Date.now() - 31 * 86400000) } });
+    await prisma.trustScoreEvent.updateMany({ where: { userId: { in: [p.id, s.id] } }, data: { createdAt: new Date(Date.now() - 8 * 86400000) } });
     const c = await booking(p.id, s.id); await settleCompletedBooking(c.id, { type: 'SEEKER', userId: s.id });
     assert.equal(await score(p.id), 56); assert.equal(await score(s.id), 56);
   });

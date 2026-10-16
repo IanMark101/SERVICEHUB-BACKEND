@@ -211,7 +211,7 @@ test("defense-critical cash, paid queue, and completion flows", async (t) => {
   assert.equal(repeatedSettlement.id, firstSettlement.id);
   assert.equal(firstSettlement.paymentStatus, "RELEASED");
   assert.equal(await prisma.transaction.count({ where: { idempotencyKey: `booking-completion:${onlineBookingId}` } }), 1);
-  // The earlier cash job already rewarded this pair within the rolling 30-day
+  // The earlier cash job already rewarded this pair within the rolling 7-day
   // window. Repeated settlement must not bypass the completion reward limit.
   assert.equal(await prisma.trustScoreEvent.count({ where: { eventKey: `booking-completion:${acceptedCash.id}:provider` } }), 1);
   assert.equal(await prisma.trustScoreEvent.count({ where: { eventKey: `booking-completion:${onlineBookingId}:provider` } }), 0);

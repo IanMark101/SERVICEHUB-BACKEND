@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { applyTrustEventInTransaction } from './trust.service';
 
-export const TRUST_PAIR_WINDOW_DAYS = 30;
+export const TRUST_PAIR_WINDOW_DAYS = 7;
 const failure = (message: string, status = 422) => Object.assign(new Error(message), { status });
 
 /** Caller holds the booking lifecycle lock. Pair locking prevents simultaneous

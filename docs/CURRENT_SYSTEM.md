@@ -35,7 +35,7 @@ For on-site Cash, Mark Work Finished leaves the booking awaiting seeker confirma
 
 ## Reviews trust and moderation
 
-Eligible completed-booking participants submit/edit reviews through Activity. Profile review cards are read-only, with no public reply or new review-report action. Recorded historical responses remain readable. Star ratings and review changes do not award or deduct trust points.
+Eligible completed-booking participants submit/edit reviews through Activity. Profile review cards are read-only, with no public reply or new review-report action. Recorded historical responses remain readable. Star ratings and review changes do not award or deduct trust points. Completion points are limited to one rewarded booking per account pair per rolling seven full days (168 hours), including switched roles. At the seven-day boundary a new eligible completion may earn points; repeat bookings/reviews remain available, and previous skipped bookings receive no automatic back-award.
 
 Trust History shows recorded events and has no Appeal trust penalty button or new-appeal form. Existing TrustCase records, private responses to existing disputes and authorized Admin decisions remain supported. The backend retains trust-event case compatibility; this is not a member submission control. Ban appeals and public-content removal appeals remain separate available workflows.
 

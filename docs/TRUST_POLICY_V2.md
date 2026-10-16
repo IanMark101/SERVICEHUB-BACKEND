@@ -1,7 +1,7 @@
 # Trust policy deployment
 
 Current behavior and release boundary: see CURRENT_SYSTEM.md. Dated implementation checks below retain their original scope. Generated review captures and logs removed during cleanup remain recoverable from the recorded pre-cleanup Git revisions.
-Policy v2 separates satisfaction ratings from trust points. Approved verification earns +5 once; eligible settled completions earn +3 per eligible participant, limited to one rewarded completion per account pair per rolling 30 days. Ratings earn zero. Documented at-fault cancellation after work starts deducts 5; documented serious misconduct deducts 10. A booking and participant can receive one trust penalty. Corrections reference an original event rather than an arbitrary delta.
+Policy v2 separates satisfaction ratings from trust points. Approved verification earns +5 once; eligible settled completions earn +3 per eligible participant, limited to one rewarded completion per account pair per rolling 7 days. Ratings earn zero. Documented at-fault cancellation after work starts deducts 5; documented serious misconduct deducts 10. A booking and participant can receive one trust penalty. Corrections reference an original event rather than an arbitrary delta.
 
 The point weights and pair limit are initial policy settings, not validated probabilities or a guarantee of workmanship. Profile reviews are read-only: public replies and new review reports have been removed from the UI and API. The current member Trust History has no Appeal trust penalty button or new-appeal form. Existing cases, backend trust-event case compatibility and reasoned Admin moderation remain available; ban and content-removal appeals are separate workflows. Authors in previously submitted review disputes retain their private response opportunity; direct content moderation remains separately audited.
 
@@ -35,3 +35,7 @@ For the additional legacy-replay and 48-hour response safeguards, set `$env:SERV
 The configured `proximity-development` database has now received both pending migrations (`20261010003000_remove_category_suggestions` and `20261011120000_evidence_based_trust`). Prisma reports all 40 migrations applied, and the client has been regenerated. The existing `getMyEngagements` controller was verified with existing bookings, completed services, and reviews; the missing `reviews.response` error is resolved.
 
 `npm run dev` starts the backend but does not apply database migrations. After pulling changes that include migrations, stop the backend, run `npx prisma migrate deploy` and `npm run db:generate` against the intended database, then start it again. This development database update did not deploy the production website or migrate a separate production database.
+
+## Weekly reward window October 17 2026
+
+The account-pair reward interval is now seven full days (168 hours) from the latest completion reward for that pair, including reversed roles. At the exact seven-day boundary, a new eligible completion may receive points. Bookings and reviews remain available within the window. Existing reward events remain intact and count toward the new lookback; earlier skipped completions are not automatically back-awarded. The interval is an initial policy choice rather than an empirically proven optimum. No schema migration or score reset is required.
