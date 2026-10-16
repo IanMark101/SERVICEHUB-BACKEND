@@ -15,6 +15,7 @@ test('booking lifecycle commits before realtime publication and does not wait fo
   let failNoticeFor: string | null = null;
   let admins: Row[] = [];
   let otherOngoing = false;
+  let otherBookings: Row[] = [];
   let refundProcessing = false;
   let slowQueueBroadcast = false;
   const broadcastFinishes: (() => void)[] = [];
@@ -26,10 +27,11 @@ test('booking lifecycle commits before realtime publication and does not wait fo
       state.queue = { id: 'queue', bookingId: 'booking', providerId: 'provider', seekerId: 'seeker', status: 'WAITING', paymentStatus: 'PAID_HELD', position: 1, estimatedWait: 0, paymentId: 'intent', paymongoPaymentId: 'payment' };
     }
     failNotice = otherOngoing = refundProcessing = slowQueueBroadcast = false;
+    otherBookings = [];
     failNoticeFor = null; admins = [{ id: 'admin', role: 'admin', isActive: true, moderationStatus: 'ACTIVE' }];
   };
   reset();
-  const fullBooking = () => ({ ...state.booking, provider: eligibility, seeker: eligibility, queue: state.queue, completedService: state.completed, offer: null,
+  const fullBooking = () => ({ ...state.booking, progressEvents: state.progress, provider: eligibility, seeker: eligibility, queue: state.queue, completedService: state.completed, offer: null,
     directRequest: state.directRequests.find(row => row.id === state.booking.directRequestId) || null });
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([key, value]) => {
     if (key === 'OR') return value.some((condition: Row) => matches(row, condition));
@@ -63,7 +65,7 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     booking: {
       findUnique: async ({ where }: Row) => matches(state.booking, where) ? fullBooking() : null,
       findFirst: async () => state.booking.paymentMethod === 'On-site Cash' && state.booking.status === 'ONGOING' ? state.booking : null,
-      count: async () => otherOngoing ? 1 : 0,
+      count: async ({ where }: Row) => (otherOngoing ? 1 : 0) + otherBookings.filter(row => matches(row, where)).length,
       update: async ({ data }: Row) => { state.booking = { ...state.booking, ...data, updatedAt: new Date() }; return { ...state.booking }; },
       create: async ({ data }: Row) => { state.booking = { ...initialBooking(), ...data }; return { ...state.booking }; },
       updateMany: async () => ({ count: 0 }),
@@ -378,7 +380,7 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     reset(); emitted.length = 0; state.booking.status = 'ONGOING'; state.booking.started = true;
     const report = await createSafetyReport({ bookingId: 'booking', reporterId: 'provider', reason: 'INAPPROPRIATE_BEHAVIOR', description: 'Unsafe behavior during the work.' });
     assert.equal(report.created, true); assertBothNotified('safety_report');
-    reset(); state.booking.status = 'AWAITING_CONFIRMATION';
+    reset(true); state.booking.status = 'AWAITING_CONFIRMATION';
     await assert.rejects(createCompletionEscalation('booking', 'provider', 'No response'), /72 hours/);
     state.booking.updatedAt = new Date(Date.now() - 73 * 60 * 60 * 1000);
     await createCompletionEscalation('booking', 'provider', 'No response');
@@ -391,6 +393,54 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     assert.equal(state.booking.hiddenBySeeker, undefined);
     assert.equal(emitted.filter(row => row.event === 'ENGAGEMENT_CHANGED').length, 1);
     assert.equal(emitted[0].room, 'user:provider');
+  });
+
+  await t.test('cash completion rejects routine escalation but retains confirmation and dispute paths', async () => {
+    reset(); state.booking.status = 'AWAITING_CONFIRMATION';
+    state.booking.updatedAt = new Date(Date.now() - 100 * 60 * 60 * 1000);
+    await assert.rejects(createCompletionEscalation('booking', 'outsider', 'No response'), /access denied/);
+    await assert.rejects(createCompletionEscalation('booking', 'provider', 'No response'),
+      (error: any) => error.code === 'CASH_COMPLETION_REVIEW_NOT_AVAILABLE');
+    assert.equal(state.escalations.length, 0);
+    assert.equal(state.booking.status, 'AWAITING_CONFIRMATION');
+    assert.equal(state.completed, null);
+    assert.equal(state.trust.length, 0, 'waiting alone never grants completion credit');
+    const confirmed = await confirmCompletionService('booking', 'seeker');
+    assert.equal(confirmed.booking.status, 'COMPLETED');
+    assert.equal(confirmed.booking.paymentStatus, 'CASH_CONFIRMED');
+    assert.equal(state.earnings.length, 0, 'cash never creates online wallet earnings');
+    reset(); state.booking.status = 'AWAITING_CONFIRMATION';
+    const dispute = await disputeJobService('booking', 'seeker', 'INCOMPLETE_SERVICE');
+    assert.equal(dispute.booking.status, 'DISPUTED');
+    assert.equal(state.reports.length, 1);
+  });
+
+  for (const paid of [false, true]) {
+    await t.test(`unconfirmed cash completion does not block the next ${paid ? 'paid' : 'cash'} job`, async () => {
+      reset(paid);
+      otherBookings = [{ id: 'older-cash', providerId: 'provider', status: 'AWAITING_CONFIRMATION',
+        started: true, paymentMethod: 'On-site Cash', queue: null }];
+      const started = await providerStartJob('booking', 'provider');
+      assert.equal(started.status, 'ONGOING');
+      assert.equal(otherBookings[0].status, 'AWAITING_CONFIRMATION');
+      assert.equal(state.completed, null);
+      assert.equal(state.trust.length, 0);
+    });
+  }
+
+  await t.test('completion review guard uses work completion time even after an unrelated booking update', async () => {
+    reset(true); state.booking.status = 'AWAITING_CONFIRMATION';
+    state.progress.push({ id: 'completion', kind: 'WORK_MARKED_COMPLETE', occurredAt: new Date(Date.now() - 73 * 60 * 60 * 1000) });
+    // updatedAt is fresh, but the seeker has had over 72 hours to respond.
+    await createCompletionEscalation('booking', 'provider', 'No response');
+    assert.equal(state.escalations.length, 1);
+    await createCompletionEscalation('booking', 'provider', 'No response');
+    assert.equal(state.escalations.length, 1);
+    reset(true); state.booking.status = 'AWAITING_CONFIRMATION';
+    state.booking.updatedAt = new Date(Date.now() - 100 * 60 * 60 * 1000);
+    state.progress.push({ id: 'completion', kind: 'WORK_MARKED_COMPLETE', occurredAt: new Date() });
+    await assert.rejects(createCompletionEscalation('booking', 'provider', 'No response'), /72 hours/);
+    assert.equal(state.escalations.length, 0);
   });
 
   await t.test('verified paid booking creation commits its notice and does not wait for queue recipients', async () => {

@@ -20,6 +20,7 @@ import {
   BooleanDecisionSchema,
 } from "../../schema/marketplace.schema";
 import { prisma } from "../../lib/prisma";
+import { completionReviewAvailability } from '../../services/bookings/completion-review';
 
 // ── POST /bookings/direct ─────────────────────────────────────────────────────
 // Cash / Direct Arrangement — NEVER touches the queue
@@ -73,6 +74,10 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
         cancellationRequests: {
           orderBy: { createdAt: "desc" },
         },
+        completionEscalations: {
+          select: { status: true, resolution: true, resolvedAt: true },
+          orderBy: { createdAt: 'desc' }, take: 1,
+        },
       },
       orderBy: { createdAt: "desc" },
       }),
@@ -125,7 +130,10 @@ export async function getMyEngagements(req: Request, res: Response, next: NextFu
     res.json({
       success: true,
       data: {
-        bookings,
+        bookings: bookings.map(({ completionEscalations, ...booking }) => ({
+          ...booking,
+          completionReview: completionReviewAvailability(booking, completionEscalations[0]),
+        })),
         completedServices,
       },
     });

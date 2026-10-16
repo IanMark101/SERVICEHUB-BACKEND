@@ -31,6 +31,8 @@ GCash uses PayMongo Test Mode. No real transfer or provider payout is establishe
 
 Eligible paid jobs share one provider-wide waiting queue, with capacity 1–10 and explicit Start Job. Cash bookings stay outside that paid waiting queue. Payment does not start work. Provider completion awaits seeker confirmation or an authorized Admin decision before final completion and the applicable internal settlement.
 
+For on-site Cash, Mark Work Finished leaves the booking awaiting seeker confirmation. It does not block the provider from starting other eligible jobs, create completion credit or enable reviews. Cash bookings have no routine Request Admin Review action; actual completion disputes and safety reports remain available. For GCash, no-response completion review becomes available 72 hours after the recorded work-finished event, with a conservative updatedAt fallback for older records. The API supplies the deadline and active-review state; the UI shows Philippine time and blocks premature or duplicate submissions. KEEP_AWAITING starts a new 72-hour cooldown from the administrator decision. Existing historical cash escalations remain resolvable.
+
 ## Reviews trust and moderation
 
 Eligible completed-booking participants submit/edit reviews through Activity. Profile review cards are read-only, with no public reply or new review-report action. Recorded historical responses remain readable. Star ratings and review changes do not award or deduct trust points.

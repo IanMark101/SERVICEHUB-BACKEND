@@ -264,12 +264,12 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   }), 1);
 
   escalationBookingId = first.booking!.id;
-  await prisma.booking.update({ where: { id: escalationBookingId }, data: { updatedAt: new Date(Date.now() - 71 * 60 * 60 * 1000) } });
+  await prisma.bookingProgressEvent.updateMany({ where: { bookingId: escalationBookingId, kind: "WORK_MARKED_COMPLETE" }, data: { occurredAt: new Date(Date.now() - 71 * 60 * 60 * 1000) } });
   await assert.rejects(
     createCompletionEscalation(escalationBookingId, provider.id, "The seeker has not yet confirmed completion."),
     (error: any) => error?.code === "ESCALATION_WAIT_PERIOD",
   );
-  await prisma.booking.update({ where: { id: escalationBookingId }, data: { updatedAt: new Date(Date.now() - 73 * 60 * 60 * 1000) } });
+  await prisma.bookingProgressEvent.updateMany({ where: { bookingId: escalationBookingId, kind: "WORK_MARKED_COMPLETE" }, data: { occurredAt: new Date(Date.now() - 73 * 60 * 60 * 1000) } });
   const duplicateEscalations = await Promise.all([
     createCompletionEscalation(escalationBookingId, provider.id, "The seeker has not confirmed the completed work."),
     createCompletionEscalation(escalationBookingId, provider.id, "Duplicate submission should return the active request."),

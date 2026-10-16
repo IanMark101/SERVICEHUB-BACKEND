@@ -15,9 +15,9 @@ import {
   reconcileReservedFinancialEffect,
 } from "./admin-resolution-operation.service";
 import { assertNoFinancialResolutionReserved, assertNoOtherBlockingCases } from "./case-resolution.service";
+import { completionReviewAvailability, COMPLETION_REVIEW_WAIT_MS } from './bookings/completion-review';
 
-const WAIT_MS = 72 * 60 * 60 * 1000;
-const RETRY_COOLDOWN_MS = WAIT_MS;
+const RETRY_COOLDOWN_MS = COMPLETION_REVIEW_WAIT_MS;
 
 export type CompletionEscalationAction =
   | "release_provider_and_complete"
@@ -40,8 +40,13 @@ function resolutionCode(action: CompletionEscalationAction) {
 export async function createCompletionEscalation(bookingId: string, providerId: string, reason: string) {
   const result = await prisma.$transaction(async (tx) => {
     await lockBookingLifecycle(tx, bookingId);
-    const booking = await tx.booking.findUnique({ where: { id: bookingId } });
+    const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: {
+      progressEvents: { where: { kind: 'WORK_MARKED_COMPLETE' }, orderBy: { occurredAt: 'desc' }, take: 1 },
+    } });
     if (!booking || booking.providerId !== providerId) throw httpError("Booking not found or access denied", 404);
+    if (booking.paymentMethod !== 'GCash') {
+      throw httpError('Cash bookings await seeker confirmation. Report an actual issue if help is needed.', 409, 'CASH_COMPLETION_REVIEW_NOT_AVAILABLE');
+    }
     await assertNoFinancialResolutionReserved(tx, bookingId);
     if (booking.status !== "AWAITING_CONFIRMATION") throw httpError("Only a booking awaiting seeker confirmation can be escalated", 409);
     const previous = await tx.completionEscalation.findFirst({ where: { bookingId }, orderBy: { createdAt: "desc" } });
@@ -51,7 +56,8 @@ export async function createCompletionEscalation(bookingId: string, providerId: 
     if (previous?.resolution === "KEEP_AWAITING" && previous.resolvedAt && previous.resolvedAt.getTime() + RETRY_COOLDOWN_MS > Date.now()) {
       throw httpError("Wait 72 hours before submitting another completion escalation", 409, "ESCALATION_COOLDOWN");
     }
-    if (booking.updatedAt.getTime() + WAIT_MS > Date.now()) throw httpError("Completion can be escalated after 72 hours without a seeker response", 409, "ESCALATION_WAIT_PERIOD");
+    const availability = completionReviewAvailability(booking, previous)!;
+    if (Date.parse(availability.availableAt) > Date.now()) throw httpError("Completion can be escalated after 72 hours without a seeker response", 409, "ESCALATION_WAIT_PERIOD");
 
     const escalation = await tx.completionEscalation.create({ data: { bookingId, requestedBy: providerId, reason: reason.trim() } });
     const admins = await tx.user.findMany({ where: { role: "admin", isActive: true, moderationStatus: "ACTIVE" }, select: { id: true } });

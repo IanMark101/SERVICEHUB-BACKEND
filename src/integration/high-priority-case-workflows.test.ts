@@ -79,10 +79,10 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
   await prisma.booking.update({ where: { id: cashOngoing.id }, data: { status: "CANCELED" } });
   await prisma.booking.update({ where: { id: nextCashBooking.id }, data: { status: "CANCELED" } });
 
-  // H3: all three outcomes, durable duplicate resolution, and supersession.
+  // H3: retain resolution/recovery for historical cash escalations; new cash cases are blocked.
   const oldDate = new Date(Date.now() - 73 * 60 * 60 * 1000);
   const awaitingRelease = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 650, paymentStatus: "UNPAID", status: "AWAITING_CONFIRMATION", started: true, updatedAt: oldDate } });
-  const releaseEscalation = await createCompletionEscalation(awaitingRelease.id, secondProvider.id, "The seeker has not responded after the required waiting period.");
+  const releaseEscalation = await prisma.completionEscalation.create({ data: { bookingId: awaitingRelease.id, requestedBy: secondProvider.id, reason: "Historical cash case awaiting resolution." } });
   const releaseResults = await Promise.all([
     resolveCompletionEscalation({ escalationId: releaseEscalation.id, adminId: admin.id, action: "release_provider_and_complete", resolution: "Evidence confirms the completed cash service." }),
     resolveCompletionEscalation({ escalationId: releaseEscalation.id, adminId: admin.id, action: "release_provider_and_complete", resolution: "Evidence confirms the completed cash service." }),
@@ -92,24 +92,24 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
   assert.equal(await prisma.adminResolutionOperation.count({ where: { caseType: "COMPLETION_ESCALATION", caseId: releaseEscalation.id } }), 1);
 
   const awaitingRefund = await prisma.booking.create({ data: { seekerId: secondSeeker.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 400, paymentStatus: "UNPAID", status: "AWAITING_CONFIRMATION", started: true, updatedAt: oldDate } });
-  const refundEscalation = await createCompletionEscalation(awaitingRefund.id, secondProvider.id, "The completion confirmation has remained unanswered for over 72 hours.");
+  const refundEscalation = await prisma.completionEscalation.create({ data: { bookingId: awaitingRefund.id, requestedBy: secondProvider.id, reason: "Historical cash case awaiting resolution." } });
   await resolveCompletionEscalation({ escalationId: refundEscalation.id, adminId: admin.id, action: "refund_seeker", resolution: "The evidence does not support provider completion." });
   assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: awaitingRefund.id } })).status, "CANCELED");
 
   const awaitingKeep = await prisma.booking.create({ data: { seekerId: outsider.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 450, paymentStatus: "UNPAID", status: "AWAITING_CONFIRMATION", started: true, updatedAt: oldDate } });
-  const keepEscalation = await createCompletionEscalation(awaitingKeep.id, secondProvider.id, "More documentation is needed after the response window expired.");
+  const keepEscalation = await prisma.completionEscalation.create({ data: { bookingId: awaitingKeep.id, requestedBy: secondProvider.id, reason: "Historical cash case awaiting resolution." } });
   await resolveCompletionEscalation({ escalationId: keepEscalation.id, adminId: admin.id, action: "keep_awaiting", resolution: "Allow the seeker additional time to provide evidence." });
   assert.equal((await prisma.booking.findUniqueOrThrow({ where: { id: awaitingKeep.id } })).status, "AWAITING_CONFIRMATION");
-  await assert.rejects(createCompletionEscalation(awaitingKeep.id, secondProvider.id, "A premature duplicate escalation should be blocked by cooldown."), /Wait 72 hours/i);
+  await assert.rejects(createCompletionEscalation(awaitingKeep.id, secondProvider.id, "A premature duplicate escalation should be blocked by cooldown."), (error: any) => error?.code === "CASH_COMPLETION_REVIEW_NOT_AVAILABLE");
 
   const awaitingConfirm = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 475, paymentStatus: "UNPAID", status: "AWAITING_CONFIRMATION", started: true, updatedAt: oldDate } });
-  const confirmEscalation = await createCompletionEscalation(awaitingConfirm.id, secondProvider.id, "The seeker has not responded within the required window.");
+  const confirmEscalation = await prisma.completionEscalation.create({ data: { bookingId: awaitingConfirm.id, requestedBy: secondProvider.id, reason: "Historical cash case awaiting resolution." } });
   await confirmCompletionService(awaitingConfirm.id, seeker.id);
   assert.equal((await prisma.completionEscalation.findUniqueOrThrow({ where: { id: confirmEscalation.id } })).resolution, "SEEKER_CONFIRMED");
   await assert.rejects(resolveCompletionEscalation({ escalationId: confirmEscalation.id, adminId: admin.id, action: "refund_seeker", resolution: "This stale action must not run." }), (error: any) => error?.code === "STALE_ESCALATION");
 
   const awaitingDispute = await prisma.booking.create({ data: { seekerId: secondSeeker.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 480, paymentStatus: "UNPAID", status: "AWAITING_CONFIRMATION", started: true, updatedAt: oldDate } });
-  const disputeEscalation = await createCompletionEscalation(awaitingDispute.id, secondProvider.id, "The seeker has not responded within the required window.");
+  const disputeEscalation = await prisma.completionEscalation.create({ data: { bookingId: awaitingDispute.id, requestedBy: secondProvider.id, reason: "Historical cash case awaiting resolution." } });
   await prisma.adminResolutionOperation.create({ data: { operationKey: `COMPLETION_ESCALATION:${disputeEscalation.id}`, caseType: "COMPLETION_ESCALATION", caseId: disputeEscalation.id, bookingId: awaitingDispute.id, requestedByAdminId: admin.id, requestedOutcome: "refund_seeker", notes: "Claimed immediately before the seeker supplied a dispute.", status: "PROCESSING", stage: "CLAIMED" } });
   await prisma.completionEscalation.update({ where: { id: disputeEscalation.id }, data: { status: "UNDER_REVIEW", adminId: admin.id, resolution: "REFUND_SEEKER" } });
   await disputeJobService(awaitingDispute.id, secondSeeker.id, "INCOMPLETE_SERVICE", "The work is incomplete and requires administrator review.");

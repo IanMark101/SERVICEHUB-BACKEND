@@ -547,7 +547,8 @@ For onsite cash, the lifecycle is the same from Start Job through confirmation, 
 
 Completion is never auto-confirmed and funds are never auto-released.
 
-- If the Booking remains `AWAITING_CONFIRMATION` for 72 hours after Mark Completed, the provider may create one active `CompletionEscalation`. The server—not a client clock—enforces eligibility.
+- Only GCash bookings in `AWAITING_CONFIRMATION` support no-response completion review. Eligibility begins 72 hours after the latest recorded `WORK_MARKED_COMPLETE` event; unrelated booking edits do not restart the wait. Older bookings without that event retain the conservative `updatedAt` fallback. The server enforces eligibility and returns the availability date and whether a review is already open. The UI disables early or duplicate submissions and shows the deadline in Philippine time.
+- On-site Cash bookings do not show or accept routine completion-review requests. Provider Mark Work Finished leaves the record awaiting seeker confirmation without blocking other jobs, granting completion credit or enabling reviews. Seeker confirmation completes the cash record; an actual completion dispute or safety report retains its existing review path. Existing historical cash escalation records remain resolvable; they are not deleted or recreated.
 - Creating an escalation while one is active returns the existing escalation instead of creating a duplicate.
 - After Admin resolves an escalation with `KEEP_AWAITING`, another escalation is allowed only after an additional 72 hours measured by the server from the previous escalation's `resolved_at`.
 - Creating the escalation does not change Booking/payment state: online funds remain `PAID_HELD`, and the Booking remains `AWAITING_CONFIRMATION` until a seeker or admin action wins a booking-row lock.
