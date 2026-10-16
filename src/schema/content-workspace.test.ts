@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ContentDecisionSchema, ContentWorkspaceQuery } from './content-workspace.schema';
+import { ContentReportReasonSchema } from './content-case-submission.schema';
 
 test('content decisions require a deliberate action, a useful reason, and no unknown fields', () => {
   assert.equal(ContentDecisionSchema.safeParse({ resolution: 'Reviewed the content.' }).success, false);
@@ -26,4 +27,19 @@ test('content filters and suspensions have safe limits', () => {
   assert.equal(ContentWorkspaceQuery.safeParse({ contentType: 'PRIVATE_BOOKING' }).success, false);
   assert.equal(ContentWorkspaceQuery.safeParse({ contentType: 'SERVICE_REQUEST', caseType: 'APPEAL', status: 'RESOLVED' }).success, true);
   for (const suspensionDays of [0,31,1.5]) assert.equal(ContentDecisionSchema.safeParse({ decision: 'REMOVE', resolution: 'Confirmed violation.', expectedUpdatedAt: new Date().toISOString(), suspensionDays }).success, false);
+});
+
+test('report reason filters accept the report categories and uncategorized historical reports', () => {
+  for (const reportReason of [...ContentReportReasonSchema.options, 'UNSPECIFIED']) {
+    assert.equal(ContentWorkspaceQuery.parse({ reportReason }).reportReason, reportReason);
+    assert.equal(ContentWorkspaceQuery.safeParse({ reportReason, caseType: 'REPORT', status: 'RESOLVED' }).success, true);
+    assert.equal(ContentWorkspaceQuery.safeParse({ reportReason, caseType: 'APPEAL' }).success, false);
+  }
+});
+
+test('report reason filters reject unknown, repeated, and malformed query values', () => {
+  for (const reportReason of ['UNKNOWN', '', null, 1, ['SCAM', 'SPAM'], { not: null }]) {
+    assert.equal(ContentWorkspaceQuery.safeParse({ reportReason }).success, false);
+  }
+  assert.equal(ContentWorkspaceQuery.safeParse({ caseType: 'APPEAL' }).success, true);
 });

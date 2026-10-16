@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { ContentReportReasonSchema } from "./content-case-submission.schema";
+
+export const ContentReportReasonFilterSchema = ContentReportReasonSchema.or(z.literal("UNSPECIFIED"));
+export type ContentReportReasonFilter = z.infer<typeof ContentReportReasonFilterSchema>;
 
 export const ContentDecisionSchema = z.object({
   decision: z.enum(["KEEP", "REMOVE", "RESTORE", "KEEP_REMOVED", "GUIDANCE"]),
@@ -19,6 +23,9 @@ export const ContentWorkspaceQuery = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
   contentType: z.enum(["SERVICE_LISTING", "SERVICE_REQUEST"]).optional(),
   caseType: z.enum(["REPORT", "APPEAL"]).optional(),
+  reportReason: ContentReportReasonFilterSchema.optional(),
   status: z.enum(["OPEN", "RESOLVED"]).default("OPEN"),
   search: z.string().trim().max(100).default(""),
+}).refine(value => value.caseType !== "APPEAL" || !value.reportReason, {
+  path: ["reportReason"], message: "Report reasons apply to reports from users, not owner appeals.",
 });

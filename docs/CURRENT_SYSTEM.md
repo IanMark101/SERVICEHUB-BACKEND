@@ -55,6 +55,8 @@ Backend: src/schema/services.schema.ts, src/schema/location.schema.ts, src/lib/s
 
 ## Clarified operating rules October 17 2026
 
+The admin content-case list accepts an optional reportReason filter containing a supported report category or UNSPECIFIED for historical reports with no category. The same database predicate is used before pagination and counting, for both open and resolved cases. Uncategorized owner appeals are excluded, and an appeal-only query combined with a report reason is rejected. This uses the existing reportReason column and requires no additional migration.
+
 A direct listing total is its fixed/project price or hourly/daily rate multiplied by the allowed quantity, plus one provider-visit travel fee. Hourly quantity is 1–40, daily quantity 1–7 and fixed/project quantity one; an estimated day is eight hours, not a reserved calendar appointment. The local GCash attempt lasts 15 minutes. An offer/request payment hold is not a paid queue reservation, and late confirmation requires recovery rather than automatic admission. Queue capacity counts paid WAITING rows only; wait estimates sum recorded work durations and do not subtract elapsed time. Each participant may review a completed booking once, edit within 24 hours of first submission, and must explain 1–2 stars in at least ten characters. The manuscript now includes the exact seven-day rule, trust weights, score bands, examples and the unchanged reporting/settlement limits.
 
 The public FAQ wording was also aligned: physical radius filtering does not limit remote results or provider travel, and review ratings do not change trust points. This is explanatory copy, with no booking, payment, queue or scoring logic change.

@@ -134,4 +134,39 @@ test('unified public content lifecycle, owner consequences, recovery, and author
     const items = await listWorkspaceContent({ page: 1, limit: 50, contentType: 'SERVICE_LISTING', search: 'faucet' });
     assert.equal(items.items.length, 1); assert.equal(items.items[0].id, listing.id);
   });
+
+  await t.test('report reasons filter before pagination and counting, while excluding owner appeals', async () => {
+    const baseCase = { submitterId: reporter.id, caseType: 'REPORT', contentType: 'SERVICE_LISTING', status: 'OPEN', reason: 'Fixture report for report-reason filtering.', contentSnapshot: { title: 'Filter fixture' } };
+    await prisma.contentModerationCase.createMany({ data: [
+      { ...baseCase, reportReason: 'SCAM' }, { ...baseCase, reportReason: 'SCAM' },
+      { ...baseCase, reportReason: 'SCAM', contentType: 'SERVICE_REQUEST' },
+      { ...baseCase, reportReason: 'SCAM', status: 'RESOLVED' },
+      { ...baseCase, reportReason: 'SPAM' }, { ...baseCase, reportReason: null },
+      { ...baseCase, caseType: 'APPEAL', reportReason: null },
+    ] });
+    const session = await prisma.refreshToken.create({ data: { userId: admin.id, token: randomUUID(), expiresAt: new Date(Date.now() + 300000) } });
+    const headers = { Authorization: `Bearer ${jwt.sign({ sub: admin.id, sid: session.id, role: admin.role }, env.JWT_ACCESS_SECRET, { expiresIn: '5m' })}` };
+    const pages = [];
+    for (const page of [1, 2, 3]) {
+      const response = await fetch(`${base}/cases?reportReason=SCAM&page=${page}&limit=1`, { headers });
+      assert.equal(response.status, 200);
+      const result = await response.json() as any;
+      assert.deepEqual(result.pagination, { page, limit: 1, total: 3, totalPages: 3 });
+      assert.equal(result.data.length, 1); assert.equal(result.data[0].reportReason, 'SCAM');
+      assert.equal(result.data[0].caseType, 'REPORT'); pages.push(result.data[0].id);
+    }
+    assert.equal(new Set(pages).size, 3);
+    const byType = await listWorkspaceCases({ page: 1, limit: 10, reportReason: 'SCAM', contentType: 'SERVICE_REQUEST' });
+    assert.equal(byType.pagination.total, 1); assert.equal(byType.items[0].contentType, 'SERVICE_REQUEST');
+    const history = await listWorkspaceCases({ page: 1, limit: 10, reportReason: 'SCAM', status: 'RESOLVED' });
+    assert.equal(history.pagination.total, 1); assert.equal(history.items[0].status, 'RESOLVED');
+    const unspecified = await listWorkspaceCases({ page: 1, limit: 50, reportReason: 'UNSPECIFIED' });
+    assert.ok(unspecified.items.length); assert.ok(unspecified.items.every(item => item.caseType === 'REPORT' && item.reportReason === null));
+    const all = await listWorkspaceCases({ page: 1, limit: 50 });
+    assert.ok(all.items.some(item => item.caseType === 'APPEAL'));
+    assert.ok(all.pagination.total > 3);
+    for (const query of ['reportReason=INVALID', 'reportReason=SCAM&caseType=APPEAL']) {
+      assert.equal((await fetch(`${base}/cases?${query}`, { headers })).status, 400);
+    }
+  });
 });

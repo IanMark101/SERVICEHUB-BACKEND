@@ -5,12 +5,12 @@ import { disconnectUserSockets, safeBroadcast, safeEmit } from "../lib/socket";
 import { lockAccountLifecycle } from "./account-lifecycle.service";
 import { NONTERMINAL_BOOKING_STATUSES } from "./data-retention.service";
 import { applyPublicContentAction, emitPublicContentAction, type PublicContentType } from "./public-content-actions.service";
-import { ContentDecisionSchema, type ContentDecisionInput } from "../schema/content-workspace.schema";
+import { ContentDecisionSchema, type ContentDecisionInput, type ContentReportReasonFilter } from "../schema/content-workspace.schema";
 
 const ownerSelect = { id: true, name: true, email: true, trustScore: true, verificationStatus: true, moderationStatus: true, isActive: true, deactivatedAt: true, role: true, emailVerified: true } as const;
 const fail = (message: string, status = 409) => Object.assign(new Error(message), { status });
 type Reader = Prisma.TransactionClient;
-type Query = { page: number; limit: number; contentType?: PublicContentType; caseType?: "REPORT" | "APPEAL"; status?: "OPEN" | "RESOLVED"; search?: string };
+type Query = { page: number; limit: number; contentType?: PublicContentType; caseType?: "REPORT" | "APPEAL"; reportReason?: ContentReportReasonFilter; status?: "OPEN" | "RESOLVED"; search?: string };
 
 export async function readPublicContent(db: Reader, type: PublicContentType, id: string) {
   if (type === "SERVICE_LISTING") {
@@ -53,7 +53,12 @@ export async function listWorkspaceContent(query: Query) {
 }
 
 export async function listWorkspaceCases(query: Query) {
-  const where: Prisma.ContentModerationCaseWhereInput = { status: query.status ?? "OPEN", ...(query.contentType && { contentType: query.contentType }), ...(query.caseType && { caseType: query.caseType }) };
+  const where: Prisma.ContentModerationCaseWhereInput = {
+    status: query.status ?? "OPEN",
+    ...(query.contentType && { contentType: query.contentType }),
+    ...(query.caseType && { caseType: query.caseType }),
+    ...(query.reportReason && { AND: { caseType: "REPORT", reportReason: query.reportReason === "UNSPECIFIED" ? null : query.reportReason } }),
+  };
   const [cases, total] = await Promise.all([
     prisma.contentModerationCase.findMany({ where, include: { submitter: { select: { id: true, name: true, email: true } } }, orderBy: [{ createdAt: query.status === "RESOLVED" ? "desc" : "asc" }, { id: "asc" }], skip: (query.page - 1) * query.limit, take: query.limit }),
     prisma.contentModerationCase.count({ where }),
