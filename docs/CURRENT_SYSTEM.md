@@ -1,6 +1,6 @@
 # Current ServiceHub behavior
 
-Aligned October 16, 2026 with frontend f0398bd and backend 821282e on feature/codebase-cleanup-2026-10-16. These local cleanup commits follow the recorded deployed frontend 3411838 and API c9a9a38 and change no application behavior. This alignment is documentation only and is not a new deployment claim.
+Baseline alignment was recorded October 16, 2026 after local cleanup. Subsequent local changes on feature/completion-review-availability separate cash completion from GCash review and shorten the account-pair trust reward window to seven full days. These current rules and the October 17 documentation clarifications are local work, not a new deployment or acceptance claim.
 
 ## Discovery and delivery
 
@@ -50,3 +50,9 @@ Local cleanup verification passed 1,441 frontend tests, 258 backend schema/contr
 Frontend: src/lib/location.ts, src/lib/serviceArrangement.ts, src/components/location/ListingLocationFields.tsx, src/components/location/DiscoveryLocationField.tsx, src/components/provider/OfferServices.tsx, src/components/provider/service-manager/EditServiceModal.tsx, src/components/seeker/IncomingOffers.tsx, src/components/ui/GCashNumberField.tsx and src/components/profile/TrustHistorySection.tsx.
 
 Backend: src/schema/services.schema.ts, src/schema/location.schema.ts, src/lib/service-arrangement.ts, src/services/gcash-listing-policy.ts, src/services/ai-marketplace.service.ts, src/services/bookings/direct-listing-pricing.ts, src/services/nearby.service.ts and src/services/trust-policy.service.ts. The current schema contains 41 Prisma models. Retained compatibility fields alone do not prove a current UI feature.
+
+## Clarified operating rules October 17 2026
+
+A direct listing total is its fixed/project price or hourly/daily rate multiplied by the allowed quantity, plus one provider-visit travel fee. Hourly quantity is 1–40, daily quantity 1–7 and fixed/project quantity one; an estimated day is eight hours, not a reserved calendar appointment. The local GCash attempt lasts 15 minutes. An offer/request payment hold is not a paid queue reservation, and late confirmation requires recovery rather than automatic admission. Queue capacity counts paid WAITING rows only; wait estimates sum recorded work durations and do not subtract elapsed time. Each participant may review a completed booking once, edit within 24 hours of first submission, and must explain 1–2 stars in at least ten characters. The manuscript now includes the exact seven-day rule, trust weights, score bands, examples and the unchanged reporting/settlement limits.
+
+The public FAQ wording was also aligned: physical radius filtering does not limit remote results or provider travel, and review ratings do not change trust points. This is explanatory copy, with no booking, payment, queue or scoring logic change.
