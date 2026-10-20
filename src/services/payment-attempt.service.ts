@@ -310,7 +310,9 @@ export async function initiateOnlinePayment(params: {
 export async function getPaymentAttemptStatus(seekerId: string, paymentIntentId: string) {
   const attempt = await prisma.paymentAttempt.findFirst({
     where: { seekerId, providerIntentId: paymentIntentId },
-    select: { id: true, status: true, failureReason: true, expiresAt: true },
+    select: { id: true, status: true, failureReason: true, expiresAt: true,
+      amount: true, commissionRateBps: true, platformFeeAmount: true, providerNetAmount: true,
+      isTestMode: true, paidAt: true, providerPaymentId: true, serviceId: true, offerId: true, quantity: true },
   });
   if (!attempt) throw httpError("Payment attempt not found", 404);
   return attempt;

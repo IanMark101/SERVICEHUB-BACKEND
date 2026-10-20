@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { ConfirmOnlineBookingSchema, InitiatePaymentSchema } from "../../schema/marketplace.schema";
 import { initiateOnlinePayment, reconcileOnlinePaymentReturn } from "../../services/payment-attempt.service";
+import { paymentReturnCheckout } from "../../services/payment-return-details";
 
 export async function initiatePayment(req: Request, res: Response, next: NextFunction) {
   try {
@@ -28,6 +29,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
         redirectUrl: attempt.redirectUrl,
         expectedAmount: Number(attempt.amount),
         commission: commissionResponse(attempt),
+        isTestMode: attempt.isTestMode,
         expiresAt: attempt.expiresAt,
       },
     });
@@ -50,7 +52,7 @@ export async function confirmOnlineBooking(req: Request, res: Response, next: Ne
         : attempt.status === "PENDING"
           ? "Payment return received. Waiting for secure provider confirmation."
           : "Payment could not be completed.",
-      data: attempt,
+      data: { ...attempt, checkout: await paymentReturnCheckout(user.id, paymentIntentId, attempt) },
     });
   } catch (error: any) {
     if (error?.name === "ZodError") return res.status(400).json({ success: false, error: "Validation failed", errors: error.issues });
