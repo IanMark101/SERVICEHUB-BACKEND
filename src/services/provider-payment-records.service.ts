@@ -11,6 +11,8 @@ export interface ProviderPaymentRecord {
   paymentStatus: string;
   amount: number;
   earnedAmount: number;
+  platformFeeAmount: number;
+  commissionRateBps: number;
   recordedAt: string;
 }
 
@@ -36,7 +38,8 @@ export function providerPaymentRecordsSql(providerId: string, query: ProviderPay
         CASE WHEN b.status = 'COMPLETED' AND cs.id IS NOT NULL
           AND cs."paymentStatus" IN ('RELEASED', 'CASH_CONFIRMED')
           AND b."paymentStatus" = cs."paymentStatus"
-          THEN cs."finalPrice" ELSE 0 END AS "earnedAmount",
+          THEN COALESCE(cs."providerNetAmount", cs."finalPrice") ELSE 0 END AS "earnedAmount",
+        COALESCE(cs."platformFeeAmount", 0) AS "platformFeeAmount", COALESCE(cs."commissionRateBps", 0) AS "commissionRateBps",
         COALESCE(cs."completedAt", progress."occurredAt", b."updatedAt") AS "recordedAt"
       FROM bookings b
       JOIN users u ON u.id = b."seekerId"
@@ -58,7 +61,8 @@ export function providerPaymentRecordsSql(providerId: string, query: ProviderPay
         COALESCE(r.title, s.title, ds.title, 'Previous service booking'),
         u.name, CASE WHEN cs."paymentStatus" = 'CASH_CONFIRMED' THEN 'On-site Cash' ELSE 'GCash' END,
         'COMPLETED', cs."paymentStatus"::text, cs."finalPrice",
-        CASE WHEN cs."paymentStatus" IN ('RELEASED', 'CASH_CONFIRMED') THEN cs."finalPrice" ELSE 0 END,
+        CASE WHEN cs."paymentStatus" IN ('RELEASED', 'CASH_CONFIRMED') THEN COALESCE(cs."providerNetAmount", cs."finalPrice") ELSE 0 END,
+        cs."platformFeeAmount", cs."commissionRateBps",
         cs."completedAt"
       FROM completed_services cs
       JOIN users u ON u.id = cs."seekerId"
@@ -100,6 +104,7 @@ export function providerPaymentRecordsSql(providerId: string, query: ProviderPay
       'id', id, 'bookingId', "bookingId", 'serviceTitle', "serviceTitle", 'seekerName', "seekerName",
       'paymentMethod', "paymentMethod", 'outcome', outcome, 'paymentStatus', "paymentStatus",
       'amount', amount, 'earnedAmount', "earnedAmount",
+      'platformFeeAmount', "platformFeeAmount", 'commissionRateBps', "commissionRateBps",
       'recordedAt', to_char("recordedAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
     ) ORDER BY ordinal) FROM filtered, meta
       WHERE ordinal > (meta.page - 1) * ${query.limit} AND ordinal <= meta.page * ${query.limit}), '[]'::json) AS items

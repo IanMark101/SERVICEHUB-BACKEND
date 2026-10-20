@@ -42,6 +42,8 @@ import { listBanAppeals, decideBanAppeal, getBanAppealSummary } from "../control
 import { getAdminUserProfile, getAdminUserRecords } from "../controllers/admin/user-profile.controller";
 import { listCases as listModerationCases, getCase, reviewCase } from "../controllers/admin/case-workspace.controller";
 
+import { getPlatformEarnings } from '../controllers/admin/platform-earnings.controller';
+
 const router = Router();
 
 // All admin routes require auth + admin role
@@ -55,6 +57,7 @@ router.use((req, res, next) => {
 
 // Overview stats
 router.get("/overview", getOverview);
+router.get('/earnings', getPlatformEarnings);
 router.get("/audit-logs", listAdminAuditLogs);
 
 // Community Hub: official administration announcements

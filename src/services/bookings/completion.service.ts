@@ -100,6 +100,12 @@ export async function settleCompletedBooking(
     if (!booking.agreedAmount || Number(booking.agreedAmount) <= 0) throw httpError("Booking has no valid agreed amount", 409, "AGREED_AMOUNT_MISSING");
 
     const settlementStatus = isCash ? "CASH_CONFIRMED" : "RELEASED";
+    // Old attempts and cash retain their original full provider earnings.
+    const paymentTerms = !isCash && booking.paymentAttemptId
+      ? await tx.paymentAttempt.findUnique({ where: { id: booking.paymentAttemptId } }) : null;
+    const commissionRateBps = paymentTerms?.commissionRateBps ?? 0;
+    const platformFeeAmount = paymentTerms?.platformFeeAmount ?? 0;
+    const providerNetAmount = paymentTerms?.providerNetAmount ?? booking.agreedAmount;
     const completed = await tx.completedService.create({
       data: {
         bookingId: booking.id,
@@ -109,6 +115,7 @@ export async function settleCompletedBooking(
         seekerId: booking.seekerId,
         providerId: booking.providerId,
         finalPrice: booking.agreedAmount,
+        commissionRateBps, platformFeeAmount, providerNetAmount,
         paymentStatus: settlementStatus,
       },
     });
@@ -138,7 +145,7 @@ export async function settleCompletedBooking(
         data: {
           walletOwnerId: booking.providerId,
           type: "EARNING",
-          amount: booking.agreedAmount,
+          amount: providerNetAmount,
           relatedBookingId: completed.id,
           description: "Online payment released after completion confirmation",
           settlementSource: "ONLINE_LEDGER",

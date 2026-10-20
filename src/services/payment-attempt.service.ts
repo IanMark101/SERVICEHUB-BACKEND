@@ -1,6 +1,7 @@
 import { resolveDirectArrangement, offerJobLocation } from '../lib/service-arrangement';
 import { JobLocationSchema, type JobLocation, type BookingLocationMode } from '../schema/location.schema';
 import crypto from "crypto";
+import { paymentCommission } from "./payment-commission";
 import { Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
@@ -232,6 +233,8 @@ export async function initiateOnlinePayment(params: {
         quantity,
         offerId: params.offerId || null,
         amount,
+        ...paymentCommission(amount),
+        isTestMode: !env.PAYMONGO_SECRET_KEY?.startsWith('sk_live_'),
         jobLocation, estimatedDurationMins,
         serviceLocationMode,
         transportationFee: arrangement?.transportationFee,
@@ -426,6 +429,7 @@ export async function finalizeSuccessfulPayment(params: {
       (params.metadata.servicehub_service_id || "") === (fresh.serviceId || "") && (params.metadata.servicehub_offer_id || "") === (fresh.offerId || "") &&
       params.metadata.servicehub_expected_amount === amount.toFixed(2) && params.metadata.servicehub_payment_method === fresh.paymentMethod;
     if (!metadataValid) throw httpError("Captured payment metadata does not match the local attempt", 409, "PAYMENT_MISMATCH");
+    if (!fresh.paidAt) await tx.paymentAttempt.update({ where: { id: fresh.id }, data: { paidAt: new Date() } });
 
     if (fresh.expiresAt <= new Date()) {
       await tx.paymentAttempt.update({

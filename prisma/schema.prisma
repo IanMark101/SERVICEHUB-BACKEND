@@ -805,6 +805,9 @@ model CompletedService {
   providerId    String
   provider      User          @relation("ProviderCompleted", fields: [providerId], references: [id])
   finalPrice    Decimal       @db.Decimal(10, 2)
+  commissionRateBps Int       @default(0)
+  platformFeeAmount Decimal   @default(0) @db.Decimal(10, 2)
+  providerNetAmount Decimal?  @db.Decimal(10, 2)
   paymentStatus PaymentStatus @default(PAID_HELD)
   completedAt   DateTime      @default(now())
 
@@ -1132,6 +1135,11 @@ model PaymentAttempt {
   offerId           String?
   providerIntentId  String?              @unique
   providerPaymentId String?              @unique
+  commissionRateBps Int                  @default(0)
+  platformFeeAmount Decimal              @default(0) @db.Decimal(10, 2)
+  providerNetAmount Decimal?             @db.Decimal(10, 2)
+  isTestMode        Boolean              @default(true)
+  paidAt            DateTime?
   providerClientKey String?
   redirectUrl       String?
   amount            Decimal              @db.Decimal(10, 2)
@@ -1147,6 +1155,7 @@ model PaymentAttempt {
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
+  @@index([paidAt])
   @@index([seekerId, providerId, status])
   @@index([offerId, status])
   @@map("payment_attempts")

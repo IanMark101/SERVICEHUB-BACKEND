@@ -48,6 +48,7 @@ const protectedRoutes: ProtectedRoute[] = [
   ['POST', '/api/requests/listing-inquiry'],
   ['POST', '/api/requests/request-id/decline-inquiry'],
   ['POST', '/api/bookings/initiate-payment'],
+  ['GET', '/api/admin/earnings'],
   ['POST', '/api/bookings/confirm-online'],
   ['POST', '/api/bookings/waitlist'],
   ['DELETE', '/api/bookings/queue/queue-id'],

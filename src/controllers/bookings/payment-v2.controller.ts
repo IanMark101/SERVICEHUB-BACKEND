@@ -1,3 +1,4 @@
+import { commissionResponse } from "../../services/payment-commission";
 import type { NextFunction, Request, Response } from "express";
 import type { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import { ConfirmOnlineBookingSchema, InitiatePaymentSchema } from "../../schema/marketplace.schema";
@@ -26,6 +27,7 @@ export async function initiatePayment(req: Request, res: Response, next: NextFun
         clientKey: attempt.providerClientKey,
         redirectUrl: attempt.redirectUrl,
         expectedAmount: Number(attempt.amount),
+        commission: commissionResponse(attempt),
         expiresAt: attempt.expiresAt,
       },
     });

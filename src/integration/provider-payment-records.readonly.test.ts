@@ -32,7 +32,7 @@ async function fixtureResult(params: object = {}): Promise<ProviderPaymentRecord
   const tail = query.text.slice(boundary).replace(/\$(\d+)/g, (_, index: string) => '$' + (Number(index) - recordParameterCount + 1));
   const text = `WITH records AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS fixture(
     id text, "bookingId" text, "serviceTitle" text, "seekerName" text, "paymentMethod" text,
-    "bookingStatus" text, "paymentStatus" text, amount numeric, "earnedAmount" numeric, "recordedAt" timestamp
+    "bookingStatus" text, "paymentStatus" text, amount numeric, "earnedAmount" numeric, "platformFeeAmount" numeric, "commissionRateBps" integer, "recordedAt" timestamp
   ) ${tail}`;
   const result = await client.query(text, [JSON.stringify(fixtures), ...query.values.slice(recordParameterCount)]);
   return result.rows[0];
@@ -87,7 +87,7 @@ test('the actual provider projection matches independent settled-completion tota
   for (const { providerId } of providers.rows) {
     const query = providerPaymentRecordsSql(providerId, ProviderPaymentRecordsQuerySchema.parse({}));
     const { rows: [actual] } = await client.query(query.text, query.values);
-    const { rows: [expected] } = await client.query(`SELECT COALESCE(SUM(cs."finalPrice"), 0)::text AS total
+    const { rows: [expected] } = await client.query(`SELECT COALESCE(SUM(cs."finalPrice" - cs."platformFeeAmount"), 0)::text AS total
       FROM completed_services cs LEFT JOIN bookings b ON b.id = cs."bookingId"
       WHERE cs."providerId" = $1 AND cs."seekerId" <> $1 AND cs."paymentStatus" IN ('RELEASED', 'CASH_CONFIRMED')
         AND (cs."bookingId" IS NULL OR (b."providerId" = $1 AND b.status = 'COMPLETED' AND b."paymentStatus" = cs."paymentStatus"))`, [providerId]);
