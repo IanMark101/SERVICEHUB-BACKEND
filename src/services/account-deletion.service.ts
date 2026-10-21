@@ -45,7 +45,8 @@ export async function getDeletionEligibilityInTransaction(tx: Prisma.Transaction
       AND (c.status IN ('PENDING', 'ESCALATED', 'UNDER_REVIEW') OR (c.status = 'DECLINED' AND ${nonterminal}))) AS cancellations,
     (SELECT count(*)::int FROM reports WHERE ("reporterId" = ${userId} OR "reportedUserId" = ${userId}) AND status IN ('PENDING', 'UNDER_REVIEW')) AS reports,
     (SELECT count(*)::int FROM completion_escalations c JOIN bookings b ON b.id = c."bookingId" WHERE ${bookingScope} AND c.status IN ('PENDING', 'UNDER_REVIEW')) AS "completionEscalations",
-    (SELECT count(*)::int FROM payment_attempts WHERE ("seekerId" = ${userId} OR "providerId" = ${userId}) AND status IN ('PENDING', 'REFUND_REQUIRED')) AS "paymentAttempts",
+    ((SELECT count(*) FROM payment_attempts WHERE ("seekerId" = ${userId} OR "providerId" = ${userId}) AND status IN ('PENDING', 'REFUND_REQUIRED'))
+      + (SELECT count(*) FROM subscription_payments WHERE "providerId" = ${userId} AND "paymentStatus" IN ('PENDING', 'REFUND_REQUIRED')))::int AS "paymentAttempts",
     (SELECT count(*)::int FROM payment_refunds r WHERE r.status IN ('PENDING', 'PROCESSING', 'FAILED') AND
       (r."requestedById" = ${userId} OR EXISTS (SELECT 1 FROM bookings b WHERE b.id = r."bookingId" AND ${bookingScope})
        OR EXISTS (SELECT 1 FROM payment_attempts a WHERE a.id = r."paymentAttemptId" AND (a."seekerId" = ${userId} OR a."providerId" = ${userId})))) AS "unresolvedRefunds",

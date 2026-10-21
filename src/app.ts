@@ -1,4 +1,5 @@
 import locationsRoutes from './routes/locations.routes';
+import subscriptionRoutes from './routes/subscriptions.routes';
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -70,6 +71,7 @@ app.use(securityActivity);
 app.use("/api/auth", authRoutes);
 app.use("/api/verifications", verificationRoutes);
 app.use("/api/services", serviceRoutes);
+app.use('/api/provider/subscription', subscriptionRoutes);
 app.use('/api/saved', savedListingsRoutes);
 app.use("/api/locations", locationsRoutes);
 app.use("/api/categories", categoryRoutes);
@@ -109,6 +111,7 @@ app.use((error: unknown, req: express.Request, res: express.Response, _next: exp
   }
   const message = databaseFailure?.error || (status >= 500 ? "Internal server error" : err.message);
   const moderationField = err.code === "CONTENT_REVISION_REQUIRED" && ["title", "description", "category"].includes(err.field || "") ? err.field : undefined;
+  if (err.code === 'FREE_LISTING_LIMIT') return res.status(status).json({ success: false, error: message, code: err.code, requestId });
   const passwordCode = ["CURRENT_PASSWORD_INCORRECT", "CURRENT_PASSWORD_CHANGED", "PASSWORD_NOT_SET", "PASSWORD_ALREADY_SET", "GOOGLE_VERIFICATION_EXPIRED", "GOOGLE_VERIFICATION_FAILED", "GOOGLE_NOT_CONNECTED", "GOOGLE_UNAVAILABLE", "SIGN_IN_METHODS_CHANGED", "SESSION_EXPIRED"].includes(err.code || "") ? err.code : undefined;
   const offerCode = ['REQUEST_RESERVED', 'REQUEST_LISTING_REQUIRED', 'OFFER_LISTING_UNAVAILABLE', 'DUPLICATE_OFFER', 'REQUEST_ALREADY_MATCHED', 'REQUEST_DELETE_BLOCKED', 'REQUEST_STATE_CHANGED', 'PARTICIPANT_INELIGIBLE', 'SEEKER_UNAVAILABLE', 'SELF_TRANSACTION_NOT_ALLOWED', 'ACCOUNT_SUSPENDED', 'ACCOUNT_BANNED', 'EMAIL_NOT_VERIFIED', 'VERIFICATION_REQUIRED'].includes(err.code || '') ? err.code : undefined;
   res.status(status).json({ success: false, error: message || "Request failed", ...(databaseFailure ? { code: databaseFailure.code } : {}), ...(moderationField ? { code: "CONTENT_REVISION_REQUIRED", field: moderationField } : {}), ...((passwordCode || offerCode) ? { code: passwordCode || offerCode } : {}), requestId });

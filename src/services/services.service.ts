@@ -14,7 +14,7 @@ import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
 import { RATE_PRICE_TYPES, validListingPrice } from '../lib/listing-pricing';
 
-const MAX_ACTIVE_LISTINGS = 3; // free-tier cap (master prompt Section 8)
+import { assertListingCapacity, subscriptionSelect } from './subscription-policy';
 
 export function normalizeServiceTitle(title: string) {
   return title.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-PH");
@@ -252,11 +252,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
       const activeCount = await tx.service.count({
         where: { providerId, status: "ACTIVE" },
       });
-      if (activeCount >= MAX_ACTIVE_LISTINGS) {
-        const error = new Error(`You can have at most ${MAX_ACTIVE_LISTINGS} active service listings at a time`) as Error & { status?: number };
-        error.status = 422;
-        throw error;
-      }
+      assertListingCapacity(await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect }), activeCount);
 
       const category = await tx.category.findFirst({
         where: { OR: [{ id: input.categoryId }, { name: input.categoryId }], isActive: true },
@@ -391,9 +387,7 @@ export async function updateService(serviceId: string, providerId: string, input
 
       if (materialChanged && service.status !== "ACTIVE" && service.status !== "INACTIVE") {
         const occupied = await tx.service.count({ where: { providerId, status: "ACTIVE" } });
-        if (occupied >= MAX_ACTIVE_LISTINGS) {
-          throw Object.assign(new Error("Pause or archive a listing before publishing another"), { status: 422 });
-        }
+        assertListingCapacity(await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect }), occupied);
       }
 
       const { serviceLocation, photoIds, ...updatedInput } = input;
@@ -467,7 +461,7 @@ export async function toggleServiceAvailability(serviceId: string, providerId: s
       const resume = service.status === 'INACTIVE' || !service.isAvailable;
       if (resume) {
         const occupied = await tx.service.count({ where: { providerId, id: { not: serviceId }, status: 'ACTIVE' } });
-        if (occupied >= MAX_ACTIVE_LISTINGS) throw Object.assign(new Error('Pause or archive another listing before resuming this one'), { status: 422 });
+        assertListingCapacity(await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect }), occupied);
       }
       return tx.service.update({ where: { id: serviceId }, data: { status: resume ? 'ACTIVE' : 'INACTIVE', isAvailable: resume, ...(resume && { publishedAt: service.publishedAt ?? new Date() }) } });
     });

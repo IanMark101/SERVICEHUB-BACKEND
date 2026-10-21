@@ -2,7 +2,10 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { requireAuth, requireMarketplaceUser } from '../middlewares/auth.middleware';
+import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { localityLabel } from '../lib/place-label';
+import { PlaceSuggestionQuerySchema } from '../schema/location.schema';
+import { suggestPlaces } from '../services/place-suggestions.service';
 
 const router = Router();
 const SearchSchema = z.object({ q: z.string().trim().min(3).max(80) }).strict();
@@ -52,7 +55,20 @@ async function searchPlaces(q: string) {
 }
 
 const locationLimiter = rateLimit({ windowMs:60000, limit:20, standardHeaders:'draft-8', legacyHeaders:false });
-router.use(requireAuth, requireMarketplaceUser, locationLimiter);
+router.use(requireAuth, requireMarketplaceUser);
+const suggestionLimiter = rateLimit({ windowMs:60000, limit:60, standardHeaders:'draft-8', legacyHeaders:false,
+  keyGenerator: req => (req as AuthenticatedRequest).user.id,
+  message: { success:false, error:'Too many place searches. Wait a moment, or choose a pin on the map.' },
+});
+router.get('/suggest', suggestionLimiter, async (req, res, next) => {
+  try {
+    const input = PlaceSuggestionQuerySchema.safeParse(req.query);
+    if (!input.success) return res.status(400).json({ success:false, error:'Enter a city or barangay name between 3 and 80 characters.' });
+    res.json({ success:true, data:await suggestPlaces(input.data), attribution:'© OpenStreetMap contributors · Photon' });
+  } catch (error) { next(error); }
+});
+// Manual search and reverse lookups retain their existing provider and shared limit.
+router.use(locationLimiter);
 router.get('/search',
   async (req, res, next) => {
     try {

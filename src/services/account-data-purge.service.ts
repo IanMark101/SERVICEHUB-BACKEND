@@ -54,6 +54,7 @@ export async function purgeAccountData(tx: Prisma.TransactionClient, userId: str
   await tx.directRequest.deleteMany({ where: { id: { in: directIds } } });
   await tx.offer.deleteMany({ where: { id: { in: offerIds } } });
   await tx.paymentAttempt.deleteMany({ where: { id: { in: attemptIds } } });
+  await tx.subscriptionPayment.deleteMany({ where: { providerId: userId } });
   await tx.contentModerationCase.deleteMany({ where: contentScope });
   await tx.contentModerationEvent.deleteMany({ where: { OR: [{ actorId: userId }, { resourceId: { in: relatedIds } }] } });
   await tx.serviceRequest.deleteMany({ where: { id: { in: requestIds } } });

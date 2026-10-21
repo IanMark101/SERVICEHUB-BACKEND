@@ -206,6 +206,12 @@ model User {
   postingSuspendedAt   DateTime?
   postingSuspendReason String?
   onlineQueueLimit     Int                     @default(5)
+  subscriptionPlan      SubscriptionPlan        @default(FREE)
+  subscriptionStatus    SubscriptionStatus      @default(ACTIVE)
+  subscriptionStartedAt DateTime?
+  subscriptionExpiresAt DateTime?
+  subscriptionUpdatedAt DateTime                @default(now())
+  subscriptionPayments  SubscriptionPayment[]
   emailVerified        Boolean                 @default(false)
   onboardingStatus     OnboardingStatus        @default(PENDING)
   deactivatedAt        DateTime?
@@ -284,7 +290,59 @@ model User {
   banAppeals             BanAppeal[]           @relation("BanAppealOwner")
   banAppealsReviewed     BanAppeal[]           @relation("BanAppealReviewer")
 
+  @@index([subscriptionPlan, subscriptionExpiresAt], map: "users_subscription_expiry_idx")
   @@map("users")
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum SubscriptionPaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  EXPIRED
+  CANCELLED
+  REFUND_REQUIRED
+  REFUNDED
+}
+
+model SubscriptionPayment {
+  id                    String                    @id @default(cuid())
+  providerId            String
+  provider              User                      @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  plan                  SubscriptionPlan          @default(PRO)
+  amount                Decimal                   @db.Decimal(10, 2)
+  currency              String                    @default("PHP")
+  paymentMethod         String                    @default("gcash")
+  paymentReference      String?                   @unique
+  providerIntentId      String?                   @unique
+  providerClientKey     String?
+  idempotencyKey        String                    @unique
+  redirectUrl           String?
+  paymentStatus         SubscriptionPaymentStatus @default(PENDING)
+  isTestMode            Boolean                   @default(true)
+  checkoutExpiresAt     DateTime
+  checkoutClaimedAt     DateTime?
+  failureReason         String?
+  subscriptionStartedAt DateTime?
+  subscriptionExpiresAt DateTime?
+  paidAt                DateTime?
+  refundedAt            DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  @@index([providerId, createdAt])
+  @@index([paymentStatus, createdAt])
+  @@map("subscription_payments")
 }
 
 model RefreshToken {

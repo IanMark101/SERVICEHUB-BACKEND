@@ -105,6 +105,8 @@ export async function getPaymentIntent(paymentIntentId: string): Promise<{
   amount: number;
   currency: string;
   metadata: Record<string, string>;
+  clientKey?: string;
+  nextAction?: { type?: string; redirect?: { url?: string } };
 }> {
   const body = await paymongoFetch(`/payment_intents/${paymentIntentId}`);
   return {
@@ -114,6 +116,8 @@ export async function getPaymentIntent(paymentIntentId: string): Promise<{
     amount: body.data.attributes.amount / 100, // convert back to PHP
     currency: body.data.attributes.currency,
     metadata: body.data.attributes.metadata || {},
+    clientKey: body.data.attributes.client_key,
+    nextAction: body.data.attributes.next_action,
   };
 }
 

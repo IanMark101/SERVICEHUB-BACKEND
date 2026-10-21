@@ -2,6 +2,7 @@ import { resolveDirectArrangement, offerJobLocation } from '../lib/service-arran
 import { JobLocationSchema, type JobLocation, type BookingLocationMode } from '../schema/location.schema';
 import crypto from "crypto";
 import { paymentCommission } from "./payment-commission";
+import { subscriptionBenefits, subscriptionSelect } from './subscription-policy';
 import { Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
@@ -233,7 +234,7 @@ export async function initiateOnlinePayment(params: {
         quantity,
         offerId: params.offerId || null,
         amount,
-        ...paymentCommission(amount),
+        ...paymentCommission(amount, subscriptionBenefits(await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect })).commissionRateBps),
         isTestMode: !env.PAYMONGO_SECRET_KEY?.startsWith('sk_live_'),
         jobLocation, estimatedDurationMins,
         serviceLocationMode,

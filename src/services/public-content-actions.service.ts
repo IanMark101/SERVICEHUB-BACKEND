@@ -3,6 +3,7 @@ import { safeBroadcast, safeEmit } from "../lib/socket";
 import { lockAccountLifecycle, assertActiveMarketplaceAccount } from "./account-lifecycle.service";
 import { assessMarketplaceContent } from "./content-moderation.service";
 import { validListingPrice } from '../lib/listing-pricing';
+import { assertListingCapacity } from './subscription-policy';
 
 export type PublicContentType = "SERVICE_LISTING" | "SERVICE_REQUEST";
 export type PublicContentAction = "REMOVE" | "RESTORE";
@@ -27,7 +28,7 @@ export async function applyPublicContentAction(tx: Prisma.TransactionClient, typ
       const check = assessMarketplaceContent({ kind: type, categoryName: content.category.name, title: content.title, description: content.description });
       if (check.outcome !== "PASS") throw fail(`This listing does not meet the current posting rules. Send guidance asking the provider to post a corrected listing. ${check.message}`);
       if (!validListingPrice(content.priceType, content.price)) throw fail("This older listing needs supported pricing. Send guidance asking the provider to post a corrected listing.");
-      if (await tx.service.count({ where: { providerId: ownerId, status: "ACTIVE" } }) >= 3) throw fail("The provider must pause a service before this one can be restored.");
+      assertListingCapacity(content.provider, await tx.service.count({ where: { providerId: ownerId, status: 'ACTIVE' } }));
       if (await tx.service.count({ where: { id: { not: id }, providerId: ownerId, status: "ACTIVE", titleNormalized: content.titleNormalized } })) throw fail("The provider already has an active listing with this title. Keep this one removed or ask them to pause the duplicate.");
       await tx.service.update({ where: { id }, data: { status: "ACTIVE", isAvailable: true, moderationReasonCode: "ADMIN_RESTORED", adminNotes: reason, reviewedById: adminId, reviewedAt: new Date(), publishedAt: content.publishedAt ?? new Date() } });
     }

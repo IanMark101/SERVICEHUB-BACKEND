@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { z } from 'zod';
+import { adminSubscriptionOverview } from '../services/subscriptions.service';
 import { requireAuth, requireAdmin } from "../middlewares/auth.middleware";
 import {
   getOverview,
@@ -58,6 +60,12 @@ router.use((req, res, next) => {
 // Overview stats
 router.get("/overview", getOverview);
 router.get('/earnings', getPlatformEarnings);
+router.get('/subscriptions', async (req, res, next) => {
+  try {
+    const input = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) }).parse(req.query);
+    res.json({ success: true, data: await adminSubscriptionOverview(input.page, input.limit) });
+  } catch (error) { next(error); }
+});
 router.get("/audit-logs", listAdminAuditLogs);
 
 // Community Hub: official administration announcements

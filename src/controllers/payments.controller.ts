@@ -4,6 +4,7 @@ import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { getPaymentIntent } from "../services/paymongo.service";
 import { finalizeSuccessfulPayment, markPaymentAttemptFailed, refundCapturedAttempt } from "../services/payment-attempt.service";
+import { handleSubscriptionWebhook } from '../services/subscriptions.service';
 
 function secureEqualHex(left: string, right: string) {
   if (!/^[a-f0-9]{64}$/i.test(left) || !/^[a-f0-9]{64}$/i.test(right)) return false;
@@ -65,7 +66,9 @@ export async function receivePaymongoWebhook(req: Request, res: Response, next: 
     const paymentIntentId = paymentIntentIdFromEvent(payload);
     if (!paymentIntentId) throw new Error("Webhook does not identify a payment intent");
 
-    if (["payment.failed", "payment_intent.payment_failed"].includes(eventType)) {
+    if (await handleSubscriptionWebhook(paymentIntentId)) {
+      // Subscription reconciliation independently retrieves and validates the intent.
+    } else if (["payment.failed", "payment_intent.payment_failed"].includes(eventType)) {
       await markPaymentAttemptFailed(paymentIntentId, eventType);
     } else {
       const intent = await getPaymentIntent(paymentIntentId);

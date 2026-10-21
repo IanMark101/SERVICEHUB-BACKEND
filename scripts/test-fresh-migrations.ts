@@ -59,6 +59,11 @@ function runNpm(args: string[], env: NodeJS.ProcessEnv) {
 }
 
 async function main() {
+  if (process.env.SERVICEHUB_SUBSCRIPTION_ONLY === '1') {
+    assertCategoryDevelopmentTarget();
+    isolatedUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+    isolatedDirectUrl.searchParams.set('options', `-c search_path=${schemaName}`);
+  }
   if (process.env.SERVICEHUB_CONTENT_ONLY === '1') assertCategoryDevelopmentTarget();
   if (process.env.SERVICEHUB_BOOKING_FLOW_ONLY === '1' || process.env.SERVICEHUB_LISTING_CORRECTNESS_ONLY === '1') assertCategoryDevelopmentTarget();
   if (process.env.SERVICEHUB_PROXIMITY_ONLY === '1') assertProximityDatabase();
@@ -117,6 +122,11 @@ async function main() {
     ], isolatedEnv);
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
 
+    if (process.env.SERVICEHUB_SUBSCRIPTION_ONLY === '1') {
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/provider-subscriptions.test.ts'], isolatedEnv);
+      assert.equal(result.status, 0, 'Provider subscription integration failed');
+      return;
+    }
     if (process.env.SERVICEHUB_COMMISSION_ONLY === '1' || process.env.SERVICEHUB_COMMISSION_RECORDS_ONLY === '1') {
       const suites = process.env.SERVICEHUB_COMMISSION_RECORDS_ONLY === '1'
         ? ['gcash-commission-records.test.ts', 'provider-payment-records.readonly.test.ts', 'platform-earnings.readonly.test.ts']
