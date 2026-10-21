@@ -8,22 +8,46 @@ const response = (features = [feature('Cordova')]) => new Response(JSON.stringif
 
 test('place-suggestion queries validate partial names and paired coordinates', () => {
   assert.deepEqual(PlaceSuggestionQuerySchema.parse({q:' cordov '}),{q:'cordov'});
-  for (const value of [{q:'co'},{q:'x'.repeat(81)},{q:'cordov',latitude:10},{q:'cordov',latitude:91,longitude:123},{q:'cordov',url:'https://example.test'}]) assert.equal(PlaceSuggestionQuerySchema.safeParse(value).success,false);
+  assert.deepEqual(PlaceSuggestionQuerySchema.parse({q:' c '}),{q:'c'});
+  for (const value of [{q:' '},{q:'x'.repeat(81)},{q:'cordov',latitude:10},{q:'cordov',latitude:91,longitude:123},{q:'cordov',url:'https://example.test'}]) assert.equal(PlaceSuggestionQuerySchema.safeParse(value).success,false);
 });
 
-test('partial names use Photon with Philippine locality filters and coarse map bias, never private addresses', async () => {
+test('partial names use worldwide Photon layers and coarse map bias, never private addresses', async () => {
   let called!: URL;
   const fetcher: typeof fetch = async url => { called = new URL(String(url)); return response([feature('Cordova',{city:'Cordova',street:'Private street',housenumber:'12'})]); };
   const suggest = createPlaceSuggester({fetcher});
   assert.deepEqual(await suggest({q:'cordov',latitude:10.25219,longitude:123.94947}),[{latitude:10.25,longitude:123.95,label:'Cordova, Cebu'}]);
   assert.equal(called.hostname,'photon.komoot.io'); assert.equal(called.searchParams.get('q'),'cordov');
-  assert.equal(called.searchParams.get('countrycode'),'PH'); assert.equal(called.searchParams.get('lat'),'10.25'); assert.equal(called.searchParams.get('lon'),'123.95');
-  assert.deepEqual(called.searchParams.getAll('layer'),['locality','district','city','county','state']);
+  assert.equal(called.searchParams.has('countrycode'),false); assert.equal(called.searchParams.get('lat'),'10.25'); assert.equal(called.searchParams.get('lon'),'123.95');
+  assert.deepEqual(called.searchParams.getAll('layer'),['country','locality','district','city','county','state']);
 });
 
-test('deduplicates local results and rejects malformed, foreign and non-point records', async () => {
-  const suggest = createPlaceSuggester({fetcher:async()=>response([feature('Cordova'),feature('Cordova'),feature('Foreign',{countrycode:'US'}),{...feature('Broken'),geometry:{type:'Point',coordinates:[123.95,NaN]}},{...feature('Area'),geometry:{type:'Polygon',coordinates:[]}}])});
+test('deduplicates results and rejects malformed and non-point records', async () => {
+  const suggest = createPlaceSuggester({fetcher:async()=>response([feature('Cordova'),feature('Cordova'),{...feature('Broken'),geometry:{type:'Point',coordinates:[123.95,NaN]}},{...feature('Area'),geometry:{type:'Polygon',coordinates:[]}}])});
   assert.deepEqual(await suggest({q:'cordov'}),[{latitude:10.25,longitude:123.95,label:'Cordova, Cebu'}]);
+});
+
+test('first-letter suggestions contain matching countries without a local map bias', async () => {
+  let called!: URL;
+  const suggest=createPlaceSuggester({fetcher:async url=>{called=new URL(String(url));return response([
+    feature('Canada',{country:'Canada',countrycode:'CA',state:undefined}),
+    feature('China',{country:'China',countrycode:'CN',state:undefined}),
+    feature('France',{country:'France',countrycode:'FR',state:undefined}),
+  ]);}});
+  assert.deepEqual((await suggest({q:'c',latitude:10.25,longitude:123.95})).map(p=>p.label),['Canada','China']);
+  assert.deepEqual(called.searchParams.getAll('layer'),['country']);
+  assert.equal(called.searchParams.has('lat'),false);assert.equal(called.searchParams.has('lon'),false);
+});
+
+test('worldwide places include country names to distinguish matching localities', async () => {
+  const suggest=createPlaceSuggester({fetcher:async()=>response([
+    feature('Cordova',{country:'Philippines'}),
+    {...feature('Cordova',{country:'United States',countrycode:'US',state:'Alaska'}),geometry:{type:'Point',coordinates:[-145.76,60.54]}},
+  ])});
+  assert.deepEqual(await suggest({q:'cordov'}),[
+    {latitude:10.25,longitude:123.95,label:'Cordova, Cebu, Philippines'},
+    {latitude:60.54,longitude:-145.76,label:'Cordova, Alaska, United States'},
+  ]);
 });
 
 test('coalesces identical in-flight queries and serves cached prefixes without upstream traffic', async () => {

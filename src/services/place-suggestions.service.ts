@@ -16,7 +16,8 @@ export function createPlaceSuggester({ fetcher = fetch, now = Date.now, endpoint
     const query = input.q.trim().replace(/\s+/g, ' ');
     const url = new URL(endpoint());
     if (!['https:', 'http:'].includes(url.protocol) || url.hostname === 'nominatim.openstreetmap.org') throw unavailable();
-    const latitude = input.latitude?.toFixed(2), longitude = input.longitude?.toFixed(2);
+    const countriesOnly = Array.from(query).length === 1;
+    const latitude = countriesOnly ? undefined : input.latitude?.toFixed(2), longitude = countriesOnly ? undefined : input.longitude?.toFixed(2);
     const key = `${url.href}:${query.toLowerCase()}:${latitude ?? ''}:${longitude ?? ''}`;
     const cached = cache.get(key);
     if (cached && cached.expires > now()) return cached.places;
@@ -28,10 +29,10 @@ export function createPlaceSuggester({ fetcher = fetch, now = Date.now, endpoint
     recentStarts.push(now());
     url.searchParams.set('q', query);
     url.searchParams.set('lang', 'en');
-    url.searchParams.set('countrycode', 'PH');
+    url.searchParams.delete('countrycode');
     url.searchParams.set('limit', '5');
     url.searchParams.delete('layer');
-    for (const layer of ['locality', 'district', 'city', 'county', 'state']) url.searchParams.append('layer', layer);
+    for (const layer of countriesOnly ? ['country'] : ['country', 'locality', 'district', 'city', 'county', 'state']) url.searchParams.append('layer', layer);
     url.searchParams.delete('lat'); url.searchParams.delete('lon');
     if (latitude !== undefined && longitude !== undefined) {
       // A coarse bias improves local matches without disclosing an exact private pin.
@@ -50,9 +51,10 @@ export function createPlaceSuggester({ fetcher = fetch, now = Date.now, endpoint
           const [longitude, latitude] = feature.geometry.coordinates;
           if (typeof latitude !== 'number' || typeof longitude !== 'number' || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) continue;
           const properties = feature.properties;
-          if (!properties || typeof properties !== 'object' || typeof properties.countrycode !== 'string' || properties.countrycode.toUpperCase() !== 'PH') continue;
-          const parts = ['name', 'district', 'city', 'county', 'state'].map(field => typeof properties[field] === 'string' ? properties[field].trim().slice(0, 100) : '').filter(Boolean);
+          if (!properties || typeof properties !== 'object') continue;
+          const parts = (countriesOnly ? ['name', 'country'] : ['name', 'district', 'city', 'county', 'state', 'country']).map(field => typeof properties[field] === 'string' ? properties[field].trim().slice(0, 100) : '').filter(Boolean);
           const label = [...new Map(parts.map(part => [part.toLowerCase(), part])).values()].join(', ').slice(0, 160);
+          if (countriesOnly && !label.toLowerCase().startsWith(query.toLowerCase())) continue;
           if (label.length < 2 || labels.has(label.toLowerCase())) continue;
           labels.add(label.toLowerCase());
           places.push({ latitude, longitude, label });

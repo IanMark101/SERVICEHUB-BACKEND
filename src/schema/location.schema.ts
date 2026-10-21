@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const PlaceSuggestionQuerySchema = z.object({
-  q: z.string().trim().min(3).max(80),
+  q: z.string().trim().min(1).max(80),
   latitude: z.coerce.number().finite().min(-90).max(90).optional(),
   longitude: z.coerce.number().finite().min(-180).max(180).optional(),
 }).strict().refine(value => (value.latitude === undefined) === (value.longitude === undefined), 'Provide both search coordinates.');
