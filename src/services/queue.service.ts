@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
+import { subscriptionBenefits, subscriptionSelect } from './subscription-policy';
 
 export type WaitlistNotification = {
   seekerId: string;
@@ -76,9 +77,9 @@ export async function notifyWaitlistInTransaction(
 
   const provider = await tx.user.findUnique({
     where: { id: providerId },
-    select: { onlineQueueLimit: true },
+    select: { onlineQueueLimit: true, ...subscriptionSelect },
   });
-  if (!provider) return null;
+  if (!provider || !subscriptionBenefits(provider).marketplaceAccess) return null;
 
   const waitingCount = await tx.queue.count({
     where: { providerId, status: "WAITING" },

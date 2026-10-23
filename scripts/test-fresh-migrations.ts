@@ -123,7 +123,7 @@ async function main() {
     assert.equal(drift.status, 0, 'fresh migration history does not match the Prisma schema');
 
     if (process.env.SERVICEHUB_SUBSCRIPTION_ONLY === '1') {
-      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/provider-subscriptions.test.ts'], isolatedEnv);
+      const result = runNpm(['exec', '--', 'tsx', '--test', 'src/integration/provider-subscriptions.test.ts', 'src/integration/provider-membership-rollout.test.ts', 'src/integration/saved-listings.test.ts'], isolatedEnv);
       assert.equal(result.status, 0, 'Provider subscription integration failed');
       return;
     }

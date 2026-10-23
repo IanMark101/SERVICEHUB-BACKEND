@@ -14,7 +14,8 @@ import type { CreateServiceInput, UpdateServiceInput } from "../schema/services.
 import { assessMarketplaceContent, type ContentDecision } from "./content-moderation.service";
 import { RATE_PRICE_TYPES, validListingPrice } from '../lib/listing-pricing';
 
-import { assertListingCapacity, subscriptionSelect } from './subscription-policy';
+import { assertListingCapacity, providerMembershipWhere } from './subscription-policy';
+import { assertNewProviderBusiness } from './provider-membership.service';
 
 export function normalizeServiceTitle(title: string) {
   return title.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-PH");
@@ -30,34 +31,35 @@ function listingConflict(error: unknown): never {
 }
 
 // ── Shared Marketplace Visibility Definition (Canonical Source of Truth) ──────
-export const PUBLIC_PROVIDER_ACCOUNT_WHERE = {
+export const publicProviderAccountWhere = () => ({
   verificationStatus: "APPROVED" as const,
   isActive: true,
   moderationStatus: "ACTIVE" as const,
   emailVerified: true,
-};
+  ...providerMembershipWhere(),
+});
 
 export const PUBLIC_SERVICE_PRICE_WHERE: Prisma.ServiceWhereInput = { OR: [
   { priceType: { in: RATE_PRICE_TYPES }, price: { gte: 50, lte: 50_000 } },
   { priceType: 'BY_AGREEMENT', price: null },
 ] };
-export const PUBLIC_SERVICE_WHERE = {
+export const publicServiceWhere = () => ({
   status: "ACTIVE" as const,
   isAvailable: true,
   ...PUBLIC_SERVICE_PRICE_WHERE,
-  provider: PUBLIC_PROVIDER_ACCOUNT_WHERE,
-};
+  provider: publicProviderAccountWhere(),
+});
 
-export const PUBLIC_PROVIDER_WHERE = {
-  ...PUBLIC_PROVIDER_ACCOUNT_WHERE,
+export const publicProviderWhere = () => ({
+  ...publicProviderAccountWhere(),
   services: {
     some: {
-      status: PUBLIC_SERVICE_WHERE.status,
-      isAvailable: PUBLIC_SERVICE_WHERE.isAvailable,
+      status: publicServiceWhere().status,
+      isAvailable: publicServiceWhere().isAvailable,
       ...PUBLIC_SERVICE_PRICE_WHERE,
     },
   },
-};
+});
 
 async function attachEligibleProviderRatings<T extends { providerId: string; provider: Record<string, unknown> }>(services: T[]) {
   const providerIds = [...new Set(services.map((service) => service.providerId))];
@@ -103,20 +105,20 @@ async function attachProviderWorkload<T extends { providerId: string }>(services
 
 export async function getPublicServiceCount() {
   return prisma.service.count({
-    where: PUBLIC_SERVICE_WHERE,
+    where: publicServiceWhere(),
   });
 }
 
 export async function getActivePublicProviderCount() {
   return prisma.user.count({
-    where: PUBLIC_PROVIDER_WHERE,
+    where: publicProviderWhere(),
   });
 }
 
 export async function getRecentlyPublishedServices(limit = 6, since?: Date) {
   return prisma.service.findMany({
     where: {
-      ...PUBLIC_SERVICE_WHERE,
+      ...publicServiceWhere(),
       publishedAt: { not: null, ...(since ? { gte: since } : {}) },
     },
     orderBy: { publishedAt: "desc" },
@@ -157,7 +159,7 @@ export async function browseServices(params: {
 
   const services = await prisma.service.findMany({
     where: {
-      ...PUBLIC_SERVICE_WHERE,
+      ...publicServiceWhere(),
       ...(params.ids && { id: { in: params.ids } }),
       ...(categoryId && { categoryId }),
       ...(params.nearby && { AND: [{OR:[{serviceLocationMode:'REMOTE'},locationBounds(params.nearby)]}, ...marketplaceSearchConditions(search)] }),
@@ -206,7 +208,7 @@ export async function getServiceById(id: string) {
     // This is a public endpoint. Draft, rejected, paused, and unverified
     // provider listings are available through authenticated owner/admin APIs,
     // never by guessing an ID here.
-    where: { id, ...PUBLIC_SERVICE_WHERE },
+    where: { id, ...publicServiceWhere() },
     include: {
       ...listingPhotosInclude,
       provider: {
@@ -252,7 +254,7 @@ export async function createService(providerId: string, input: CreateServiceInpu
       const activeCount = await tx.service.count({
         where: { providerId, status: "ACTIVE" },
       });
-      assertListingCapacity(await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect }), activeCount);
+      assertListingCapacity(await assertNewProviderBusiness(tx, providerId), activeCount);
 
       const category = await tx.category.findFirst({
         where: { OR: [{ id: input.categoryId }, { name: input.categoryId }], isActive: true },
@@ -387,7 +389,7 @@ export async function updateService(serviceId: string, providerId: string, input
 
       if (materialChanged && service.status !== "ACTIVE" && service.status !== "INACTIVE") {
         const occupied = await tx.service.count({ where: { providerId, status: "ACTIVE" } });
-        assertListingCapacity(await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect }), occupied);
+        assertListingCapacity(await assertNewProviderBusiness(tx, providerId), occupied);
       }
 
       const { serviceLocation, photoIds, ...updatedInput } = input;
@@ -461,7 +463,7 @@ export async function toggleServiceAvailability(serviceId: string, providerId: s
       const resume = service.status === 'INACTIVE' || !service.isAvailable;
       if (resume) {
         const occupied = await tx.service.count({ where: { providerId, id: { not: serviceId }, status: 'ACTIVE' } });
-        assertListingCapacity(await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect }), occupied);
+        assertListingCapacity(await assertNewProviderBusiness(tx, providerId), occupied);
       }
       return tx.service.update({ where: { id: serviceId }, data: { status: resume ? 'ACTIVE' : 'INACTIVE', isAvailable: resume, ...(resume && { publishedAt: service.publishedAt ?? new Date() }) } });
     });
@@ -540,7 +542,7 @@ export async function getMyServices(providerId: string) {
 
 export async function listAdminServices(page = 1, limit = 20, status?: ServiceStatus | "LIVE") {
   const where: Prisma.ServiceWhereInput = status === "LIVE"
-    ? PUBLIC_SERVICE_WHERE
+    ? publicServiceWhere()
     : status
     ? { status }
     : { status: { not: "DELETED" } };

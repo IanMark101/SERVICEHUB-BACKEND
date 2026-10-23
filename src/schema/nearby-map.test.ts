@@ -21,7 +21,10 @@ test('both nearby maps share exact radius, filters and eligibility queries with 
   const records=[make('near',10.3005),make('next-page',10.303),make('edge',10.304),make('far',10.4),make('unknown',NaN,{latitude:null})];
   const serviceFind=t.mock.fn(async(_query:unknown)=>records);
   const requestFind=t.mock.fn(async(_query:unknown)=>records);
+  const eligible = { id:'provider', role:'user', isActive:true, moderationStatus:'ACTIVE', subscriptionPlan:'FREE', subscriptionStatus:'ACTIVE', freePlanStartedAt:new Date(Date.now()-86400000), freePlanExpiresAt:new Date(Date.now()+29*86400000) };
+  const transaction = { $executeRaw:async()=>0, user:{findUnique:async()=>eligible,findUniqueOrThrow:async()=>eligible} };
   singleton.prisma={
+    $transaction: async (run:(tx:typeof transaction)=>unknown)=>run(transaction),
     service:{findMany:serviceFind},serviceRequest:{findMany:requestFind},
     review:{findMany:async()=>[]},user:{findMany:async()=>[{id:'provider',onlineQueueLimit:5}]},queue:{findMany:async()=>[]},$queryRaw:async()=>[],
   } as unknown as PrismaClient;

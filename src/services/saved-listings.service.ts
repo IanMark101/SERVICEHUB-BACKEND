@@ -1,8 +1,10 @@
 import { prisma } from '../lib/prisma';
 import { publicLocation } from '../lib/proximity';
-import { browseServices, PUBLIC_SERVICE_WHERE } from './services.service';
+import { browseServices, publicServiceWhere } from './services.service';
 import { listRequests, publicRequestWhere } from './requests.service';
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from './account-lifecycle.service';
+import { assertNewProviderBusiness } from './provider-membership.service';
+import { subscriptionBenefits, subscriptionSelect } from './subscription-policy';
 import type { SavedListingType } from '../schema/saved-listings.schema';
 
 function targetWhere(contentType: SavedListingType) {
@@ -26,8 +28,9 @@ export async function saveListing(userId: string, contentType: SavedListingType,
     if (owner === userId) throw Object.assign(new Error('You cannot save your own listing.'), { status: 409 });
     await lockAccountLifecycle(tx, userId, owner);
     await assertActiveMarketplaceAccount(tx, userId);
+    if (contentType === 'SERVICE_REQUEST') await assertNewProviderBusiness(tx, userId);
     const visible = contentType === 'SERVICE_LISTING'
-      ? await tx.service.findFirst({ where: { id: listingId, ...PUBLIC_SERVICE_WHERE }, select: { id: true } })
+      ? await tx.service.findFirst({ where: { id: listingId, ...publicServiceWhere() }, select: { id: true } })
       : await tx.serviceRequest.findFirst({ where: { id: listingId, ...publicRequestWhere() }, select: { id: true } });
     if (!visible) throw Object.assign(new Error('This listing is no longer available.'), { status: 404 });
     return contentType === 'SERVICE_LISTING'
@@ -38,6 +41,19 @@ export async function saveListing(userId: string, contentType: SavedListingType,
 
 export async function unsaveListing(userId: string, contentType: SavedListingType, listingId: string) {
   await prisma.savedListing.deleteMany({ where: { userId, ...(contentType === 'SERVICE_LISTING' ? { serviceId: listingId } : { requestId: listingId }) } });
+}
+
+async function savedRequests(userId: string, ids: string[]) {
+  const membership = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: subscriptionSelect });
+  // Keep bookmarks removable without exposing opportunities or starting a trial.
+  if (!subscriptionBenefits(membership).marketplaceAccess) return [];
+  try {
+    return await listRequests(undefined, userId, undefined, ids);
+  } catch (error) {
+    // Expiry can occur between the summary read and request authorization.
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'PROVIDER_MEMBERSHIP_EXPIRED') return [];
+    throw error;
+  }
 }
 
 export async function getSavedListings(userId: string, contentType: SavedListingType, page: number, limit: number) {
@@ -51,7 +67,7 @@ export async function getSavedListings(userId: string, contentType: SavedListing
   // stays removable, but its text/photos/private location are never disclosed.
   const listings = !ids.length ? [] : contentType === 'SERVICE_LISTING'
     ? (await browseServices({ ids })).map(publicLocation)
-    : (await listRequests(undefined, undefined, undefined, ids)).map(publicLocation);
+    : (await savedRequests(userId, ids)).map(publicLocation);
   const byId = new Map(listings.map(listing => [listing.id, listing]));
   return {
     items: rows.map(row => ({ id: row.id, listingId: (row.serviceId || row.requestId)!, contentType, savedAt: row.createdAt, listing: byId.get((row.serviceId || row.requestId)!) ?? null })),

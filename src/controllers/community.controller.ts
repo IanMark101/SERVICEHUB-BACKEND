@@ -4,8 +4,8 @@ import {
   getPublicServiceCount,
   getActivePublicProviderCount,
   getRecentlyPublishedServices,
-  PUBLIC_PROVIDER_WHERE,
-  PUBLIC_SERVICE_WHERE,
+  publicProviderWhere,
+  publicServiceWhere,
 } from "../services/services.service";
 
 const RECENT_CONTENT_WINDOW_DAYS = 30;
@@ -48,7 +48,7 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
       // and have active public services in the marketplace.
       prisma.user.findMany({
         where: {
-          ...PUBLIC_PROVIDER_WHERE,
+          ...publicProviderWhere(),
           completedAsProvider: {
             some: { completedAt: { gte: leaderboardWeekStart, lt: leaderboardWeekEnd } },
           },
@@ -60,7 +60,7 @@ export async function getCommunityStats(_req: Request, res: Response, next: Next
           trustScore: true,
           verificationStatus: true,
           services: {
-            where: PUBLIC_SERVICE_WHERE,
+            where: publicServiceWhere(),
             select: { title: true, category: { select: { name: true } } },
             take: 2,
           },
