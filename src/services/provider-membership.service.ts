@@ -61,7 +61,11 @@ export async function maintainProviderMemberships(now = new Date()) {
         : 'Choose Basic or Pro to continue receiving new customers. There are no automatic charges.';
       const inserted = await prisma.$transaction(async tx => {
         await lockAccountLifecycle(tx, user.id);
-        const fresh = await tx.user.findUniqueOrThrow({ where: { id: user.id }, select: subscriptionSelect });
+        const fresh = await tx.user.findUnique({ where: { id: user.id }, select: {
+          ...subscriptionSelect, role: true, isActive: true, moderationStatus: true, deactivatedAt: true,
+        } });
+        // Accounts can be removed or deactivated after the maintenance scan.
+        if (!fresh || fresh.role !== 'user' || !fresh.isActive || fresh.deactivatedAt || fresh.moderationStatus !== 'ACTIVE') return 0;
         const current = subscriptionBenefits(fresh, now);
         if (current.plan !== benefits.plan || current.expiresAt?.getTime() !== benefits.expiresAt!.getTime()) return 0;
         if (days <= 0) await tx.user.update({ where: { id: user.id }, data: { subscriptionStatus: 'EXPIRED' } });

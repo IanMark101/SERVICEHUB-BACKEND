@@ -10,6 +10,7 @@ import {
   resolveCompletionEscalation,
 } from "../services/completion-escalation.service";
 import { finalizeSuccessfulPayment } from "../services/payment-attempt.service";
+import { startProviderTrial } from "../services/provider-membership.service";
 import {
   lockProviderQueue,
   notifyWaitlist,
@@ -72,6 +73,8 @@ test("queue lifecycle and completion escalation remain correct under concurrency
   };
 
   const provider = await makeUser("Provider");
+  // Raw payment fixtures bypass initiation, which normally enrolls providers.
+  await startProviderTrial(provider.id);
   const admin = await makeUser("Admin", "admin");
   const seekers = await Promise.all([
     makeUser("SeekerOne"),

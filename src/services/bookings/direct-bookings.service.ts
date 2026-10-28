@@ -230,7 +230,6 @@ export async function respondToDirectBookingService(requestId: string, providerI
   if (accept) {
     const result = await prisma.$transaction(async (tx) => {
       await lockAccountLifecycle(tx, providerId);
-      await assertNewProviderBusiness(tx, providerId);
       if (targetBooking) await lockBookingLifecycle(tx, targetBooking.id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
       const provider = await tx.user.findUnique({
@@ -249,6 +248,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
         err.code = "ACCEPT_BOOKING_NOT_ALLOWED";
         throw err;
       }
+      await assertNewProviderBusiness(tx, providerId);
       if (directRequest) {
         const freshRequest = await tx.directRequest.findUnique({ where: { id: directRequest.id }, select: { status: true } });
         if (freshRequest?.status !== "PENDING_APPROVAL") {

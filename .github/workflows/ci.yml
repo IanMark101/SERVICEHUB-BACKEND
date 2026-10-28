@@ -57,6 +57,12 @@ jobs:
         run: npm run test:fresh-migrations
         env:
           SERVICEHUB_ARRANGEMENTS_ONLY: "1"
+      - name: Verify provider membership rollout, payments and Saved access
+        run: npm run test:fresh-migrations
+        env:
+          DIRECT_URL: postgresql://servicehub:servicehub_test_password@localhost:5432/servicehub_ci
+          SERVICEHUB_LOCAL_TEST_DATABASE: "1"
+          SERVICEHUB_SUBSCRIPTION_ONLY: "1"
       - run: npm run test:booking-integration
       - run: npm run test:phase2-integration
       - run: npm run test:phase3-integration

@@ -229,6 +229,30 @@ test('three memberships use real isolated records and a simulated gateway', asyn
     assert.deepEqual(analytics.summary, { earned: 920.3, cash: 0.3, gcash: 920, fees: 80, completed: 3, averagePerBooking: 306.77 });
     assert.equal(analytics.daily?.reduce((total, row) => total + row.completed, 0), 3);
   });
+  await t.test('reminder maintenance skips an account removed after its scan and continues other notices', async () => {
+    const removed = await user('removedreminder');
+    const retained = await user('retainedreminder');
+    await startProviderTrial(removed.id); await startProviderTrial(retained.id);
+    const now = new Date();
+    await prisma.user.updateMany({ where: { id: { in: [removed.id, retained.id] } }, data: {
+      freePlanExpiresAt: new Date(now.getTime() + 86_400_000),
+    } });
+    const originalFindMany = prisma.user.findMany.bind(prisma.user);
+    let removedAfterScan = false;
+    prisma.user.findMany = (async (...args: Parameters<typeof prisma.user.findMany>) => {
+      const rows = await originalFindMany(...args);
+      if (!removedAfterScan && rows.some(row => row.id === removed.id)) {
+        await prisma.user.delete({ where: { id: removed.id } });
+        removedAfterScan = true;
+      }
+      return rows;
+    }) as typeof prisma.user.findMany;
+    try {
+      await maintainProviderMemberships(now);
+      assert.equal(removedAfterScan, true);
+      assert.equal(await prisma.notification.count({ where: { userId: retained.id, title: 'Your Free Provider plan ends tomorrow' } }), 1);
+    } finally { prisma.user.findMany = originalFindMany; }
+  });
   await t.test('reminders and expiry notices are once per period; expired Free cannot restart', async () => {
     const person = await user('membershipreminder'); const first = await startProviderTrial(person.id); const end = first.freePlanExpiresAt!;
     const week = new Date(end.getTime() - 7 * 86400000); const tomorrow = new Date(end.getTime() - 86400000);
