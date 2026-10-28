@@ -211,6 +211,8 @@ model User {
   subscriptionStartedAt DateTime?
   subscriptionExpiresAt DateTime?
   subscriptionUpdatedAt DateTime                @default(now())
+  freePlanStartedAt     DateTime?
+  freePlanExpiresAt     DateTime?
   subscriptionPayments  SubscriptionPayment[]
   emailVerified        Boolean                 @default(false)
   onboardingStatus     OnboardingStatus        @default(PENDING)
@@ -291,11 +293,13 @@ model User {
   banAppealsReviewed     BanAppeal[]           @relation("BanAppealReviewer")
 
   @@index([subscriptionPlan, subscriptionExpiresAt], map: "users_subscription_expiry_idx")
+  @@index([freePlanExpiresAt], map: "users_free_membership_expiry_idx")
   @@map("users")
 }
 
 enum SubscriptionPlan {
   FREE
+  BASIC
   PRO
 }
 
@@ -333,6 +337,9 @@ model SubscriptionPayment {
   checkoutExpiresAt     DateTime
   checkoutClaimedAt     DateTime?
   failureReason         String?
+  billingAction         String                    @default("NEW")
+  quotedMembershipUpdatedAt DateTime?
+  quotedPeriodExpiresAt DateTime?
   subscriptionStartedAt DateTime?
   subscriptionExpiresAt DateTime?
   paidAt                DateTime?

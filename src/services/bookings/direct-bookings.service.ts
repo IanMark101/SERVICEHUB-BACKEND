@@ -1,3 +1,4 @@
+import { assertNewProviderBusiness } from '../provider-membership.service';
 import { resolveDirectArrangement, offerJobLocation } from '../../lib/service-arrangement';
 import type { JobLocation, BookingLocationMode } from '../../schema/location.schema';
 import { prisma } from "../../lib/prisma";
@@ -103,6 +104,7 @@ export async function createDirectRequest(params: {
 
   const { directRequest, booking, recorded } = await prisma.$transaction(async (tx) => {
     await lockAccountLifecycle(tx, seekerId, providerId);
+    await assertNewProviderBusiness(tx, providerId);
     if (!(await marketplaceParticipantsEligible(tx, seekerId, providerId))) {
       const err = new Error("Both participants must be eligible for a booking") as Error & { status?: number };
       err.status = 409;
@@ -227,6 +229,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
 
   if (accept) {
     const result = await prisma.$transaction(async (tx) => {
+      await lockAccountLifecycle(tx, providerId);
       if (targetBooking) await lockBookingLifecycle(tx, targetBooking.id);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`direct-response:${directRequest?.id || targetBooking?.id}`}))`;
       const provider = await tx.user.findUnique({
@@ -245,6 +248,7 @@ export async function respondToDirectBookingService(requestId: string, providerI
         err.code = "ACCEPT_BOOKING_NOT_ALLOWED";
         throw err;
       }
+      await assertNewProviderBusiness(tx, providerId);
       if (directRequest) {
         const freshRequest = await tx.directRequest.findUnique({ where: { id: directRequest.id }, select: { status: true } });
         if (freshRequest?.status !== "PENDING_APPROVAL") {
@@ -401,6 +405,7 @@ export async function createDirectFromOfferService(offerId: string, seekerId: st
   const { booking, losingProviderIds, progressEvent, recorded } = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${offer.requestId}`}))`;
     await lockAccountLifecycle(tx, seekerId, offer.providerId);
+    await assertNewProviderBusiness(tx, offer.providerId);
     if (!(await marketplaceParticipantsEligible(tx, seekerId, offer.providerId))) {
       const err = new Error("Both participants must be eligible for a booking") as Error & { status?: number };
       err.status = 409;

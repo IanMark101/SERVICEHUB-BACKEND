@@ -12,6 +12,7 @@ import { getUserTrustHistoryHandler } from "../controllers/auth.controller";
 import { submitOffer } from "../services/offers.service";
 import { createDirectRequest } from "../services/bookings/direct-bookings.service";
 import { updateManagedCategory } from "../services/admin-moderation.service";
+import { oneCalendarMonthFrom } from "../services/subscription-policy";
 
 test("listing concurrency, exact pricing and trust retries", async (t) => {
   const suffix = randomUUID();
@@ -51,7 +52,15 @@ test("listing concurrency, exact pricing and trust retries", async (t) => {
     serviceLocation: { latitude: 10.26, longitude: 123.95, label: 'Cordova, Cebu' }, coverageRadiusKm: 10,
     estimatedDurationMins: 30, queueLimit: 3, paymentMethods: { cash: true } });
   const results = await Promise.allSettled(Array.from({ length: 4 }, (_, index) => createService(provider.id, input(`Listing ${index} ${suffix}`))));
-  assert.equal(results.filter((result) => result.status === "fulfilled").length, 3);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const basicStartsAt = new Date();
+  await prisma.user.update({ where: { id: provider.id }, data: {
+    subscriptionPlan: 'BASIC', subscriptionStatus: 'ACTIVE',
+    subscriptionStartedAt: basicStartsAt, subscriptionExpiresAt: oneCalendarMonthFrom(basicStartsAt),
+  } });
+  const basicResults = await Promise.allSettled(Array.from({ length: 4 }, (_, index) => createService(provider.id, input(`Basic listing ${index} ${suffix}`))));
+  assert.equal(basicResults.filter((result) => result.status === 'fulfilled').length, 2);
+  assert.equal(await prisma.service.count({ where: { providerId: provider.id, status: 'ACTIVE' } }), 3);
   const first = results.find((result) => result.status === "fulfilled");
   assert.ok(first?.status === "fulfilled");
   const listing = first.value;

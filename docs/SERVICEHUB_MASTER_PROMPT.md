@@ -749,7 +749,7 @@ The legacy `queueLimit` input still defaults to 3 for compatibility, but does no
 
 ### Duplicate and volume limits
 - No two active listings (`ACTIVE`; indexes may retain legacy `PENDING_REVIEW` compatibility) from the same provider may have the same trimmed, case-folded title. Enforce this transactionally and preferably with a PostgreSQL partial unique index on `(provider_id, LOWER(title))` for those statuses. A normal `(provider_id, title)` constraint is not sufficient because it is case-sensitive and also blocks safe title reuse after archival.
-- **Standard volume limit:** Maximum **3 active listings** per provider at any time. This limits marketplace clutter/spam and does not multiply the provider's paid waiting capacity. To publish another service, pause or archive an existing listing.
+- **Plan limits:** An active 30-day Free trial allows 1 active listing; Basic (PHP 99/calendar month) allows 3; Pro (PHP 199/calendar month) allows unlimited listings. Membership expiry blocks new marketplace activity but preserves confirmed bookings and stored listings. GCash commissions are 10%, 8% and 5% respectively; Cash has no percentage commission. Plans do not multiply paid waiting capacity. See [Provider memberships](PROVIDER_MEMBERSHIPS.md) for enrollment, rollout, proration, renewal and verified implementation details.
 
 ### Provider-controlled publication and content checks
 

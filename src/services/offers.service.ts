@@ -1,3 +1,4 @@
+import { assertNewProviderBusiness } from './provider-membership.service';
 import { resolveOfferArrangement, publicOffer } from '../lib/service-arrangement';
 import type { BookingLocationMode, JobLocation } from '../schema/location.schema';
 import { prisma } from "../lib/prisma";
@@ -35,6 +36,7 @@ export async function submitOffer(providerId: string, params: {
   assertDistinctAccounts(providerId, request.seekerId, "submit offer");
   await lockAccountLifecycle(tx, providerId, request.seekerId);
   await assertOfferParticipant(tx, providerId, 'provider');
+  await assertNewProviderBusiness(tx, providerId);
   await assertOfferParticipant(tx, request.seekerId, 'seeker');
   assertOfferTarget(request, providerId, serviceId);
   if (request.targetServiceId && !request.preferredPaymentMethod && (message?.trim().length ?? 0) < 10) {
