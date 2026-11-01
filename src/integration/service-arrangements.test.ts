@@ -26,6 +26,13 @@ test('both marketplace directions persist the agreed arrangement, private pin an
     users.push(await prisma.user.create({ data: { name: role, email: `${role}-${suffix}@example.test`, passwordHash: 'test-only', phone: `09${suffix.slice(-8)}${users.length}`, gcashNumber: '09123456789', location: '', emailVerified: true, verificationStatus: 'APPROVED' } }));
   }
   const [provider, seekerA, seekerB, seekerC] = users;
+  // Arrangement coverage creates several listings; use the unlimited plan.
+  const membershipStart = new Date();
+  await prisma.user.update({ where: { id: provider.id }, data: {
+    subscriptionPlan: 'PRO', subscriptionStatus: 'ACTIVE',
+    subscriptionStartedAt: membershipStart,
+    subscriptionExpiresAt: new Date(membershipStart.getTime() + 30 * 86_400_000),
+  } });
   const service = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: 'LAPTOP REPAIR SERVICES', description: 'Repair a laptop at a workshop or job site.', titleNormalized: `arrangement-${suffix}`, price: 1500, priceType: 'FIXED', estimatedDurationMins: 60, paymentMethods: { cash: true, gcash: true }, status: 'ACTIVE', isAvailable: true, serviceLocationMode: 'BOTH', latitude: 10.3, longitude: 123.9, locationLabel: 'Cordova workshop', venueAddress: 'Private workshop entrance', coverageRadiusKm: 2, transportationFee: 75 } });
   const job = { latitude: 10.301, longitude: 123.901, label: 'Day-as job site', address: 'Private job entrance' };
   await t.test('fixed-price jobs outside an old travel radius book at posted terms and cannot enter quote negotiation', async () => {

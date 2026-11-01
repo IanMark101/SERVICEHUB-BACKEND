@@ -1,9 +1,10 @@
+import { requireProviderOpportunities } from './provider-membership.service';
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
-import { PUBLIC_SERVICE_WHERE } from './services.service';
+import { publicServiceWhere } from './services.service';
 import { publicRequestWhere } from './requests.service';
 import { distanceKm, locationFromRecord } from '../lib/proximity';
 import { resolveOfferArrangement } from '../lib/service-arrangement';
@@ -98,7 +99,7 @@ export async function matchProvidersToRequest(requestId:string,seekerId:string) 
   const request=await prisma.serviceRequest.findFirst({where:{id:requestId,seekerId},include:{category:true}});
   if(!request)throw Object.assign(new Error('Request not found.'),{status:404});
   if(request.targetServiceId || request.status!=='OPEN' || !request.category.isActive)return {suggestions:[],source:'computed',reason:'Matches are available for your open public requests.'};
-  const candidates=await prisma.service.findMany({where:{...PUBLIC_SERVICE_WHERE,categoryId:request.categoryId,category:{isActive:true},providerId:{not:seekerId},AND:[{provider:{role:'user',deactivatedAt:null}}]},include:{provider:{select:{id:true,name:true,trustScore:true}}},orderBy:[{provider:{trustScore:'desc'}},{id:'asc'}],take:200});
+  const candidates=await prisma.service.findMany({where:{...publicServiceWhere(),categoryId:request.categoryId,category:{isActive:true},providerId:{not:seekerId},AND:[{provider:{role:'user',deactivatedAt:null}}]},include:{provider:{select:{id:true,name:true,trustScore:true}}},orderBy:[{provider:{trustScore:'desc'}},{id:'asc'}],take:200});
   const stats=await ratings([...new Set(candidates.map(item=>item.providerId))],'provider');
   const matches=candidates.flatMap(service=>{
     const km=distance(request,service);
@@ -109,12 +110,13 @@ export async function matchProvidersToRequest(requestId:string,seekerId:string) 
   // One most relevant service per provider avoids duplicated recommendations.
   const unique=new Map<string,Match>();for(const match of matches){const old=unique.get(match.userId);if(!old||quality(match,request.title)>quality(old,request.title))unique.set(match.userId,match);}
   const result=await rank([...unique.values()],request.title,request.description,seekerId);
-  const live=await prisma.service.findMany({where:{...PUBLIC_SERVICE_WHERE,categoryId:request.categoryId,category:{isActive:true},id:{in:result.suggestions.map(item=>item.id)}},select:{id:true}});
+  const live=await prisma.service.findMany({where:{...publicServiceWhere(),categoryId:request.categoryId,category:{isActive:true},id:{in:result.suggestions.map(item=>item.id)}},select:{id:true}});
   const allowed=new Set(live.map(item=>item.id));
   return {...result,suggestions:result.suggestions.filter(item=>allowed.has(item.id)).map((item,index)=>({...item,rank:index+1}))};
 }
 
 export async function matchRequestsToService(serviceId:string,providerId:string) {
+  await requireProviderOpportunities(providerId);
   const service=await prisma.service.findFirst({where:{id:serviceId,providerId},include:{category:true}});
   if(!service)throw Object.assign(new Error('Service listing not found.'),{status:404});
   if(service.status!=='ACTIVE'||!service.isAvailable||!service.category.isActive)return {suggestions:[],source:'computed',reason:'Activate this service listing to find matching public requests.'};

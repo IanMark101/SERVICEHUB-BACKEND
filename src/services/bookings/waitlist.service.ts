@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma";
 import { assertDistinctAccounts } from "../../utils/security";
 import { lockProviderQueue } from "../queue.service";
+import { assertNewProviderBusiness } from '../provider-membership.service';
 
 export async function joinWaitlist(serviceId: string, seekerId: string) {
   return prisma.$transaction(async (tx) => {
@@ -25,6 +26,7 @@ export async function joinWaitlist(serviceId: string, seekerId: string) {
       throw error;
     }
     assertDistinctAccounts(seekerId, service.providerId, "join service waitlist");
+    await assertNewProviderBusiness(tx, service.providerId);
     await lockProviderQueue(tx, service.providerId);
 
     const activeBooking = await tx.booking.findFirst({

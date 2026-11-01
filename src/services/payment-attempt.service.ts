@@ -1,3 +1,4 @@
+import { assertNewProviderBusiness } from './provider-membership.service';
 import { resolveDirectArrangement, offerJobLocation } from '../lib/service-arrangement';
 import { JobLocationSchema, type JobLocation, type BookingLocationMode } from '../schema/location.schema';
 import crypto from "crypto";
@@ -98,6 +99,7 @@ export async function initiateOnlinePayment(params: {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`request:${targetOffer.requestId}`}))`;
     }
     await lockAccountLifecycle(tx, params.seekerId, providerId);
+    await assertNewProviderBusiness(tx, providerId);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment:${params.seekerId}:${params.offerId || serviceId}`}))`;
 
     const stale = await tx.paymentAttempt.findMany({
@@ -465,7 +467,7 @@ export async function finalizeSuccessfulPayment(params: {
       },
     }) : null;
     const provider = await tx.user.findUnique({ where: { id: fresh.providerId }, select: {
-      isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true, onlineQueueLimit: true,
+      isActive: true, moderationStatus: true, emailVerified: true, verificationStatus: true, onlineQueueLimit: true, ...subscriptionSelect,
     } });
     const participantsEligible = await marketplaceParticipantsEligible(tx, fresh.seekerId, fresh.providerId);
     const servingCount = await tx.queue.count({ where: { providerId: fresh.providerId, status: "SERVING" } });
@@ -481,6 +483,7 @@ export async function finalizeSuccessfulPayment(params: {
     if (
       (!fresh.offerId && !service) ||
       !participantsEligible ||
+      (provider && !subscriptionBenefits(provider).marketplaceAccess) ||
       (service && (service.providerId !== fresh.providerId || service.status !== "ACTIVE" || !service.isAvailable)) ||
       !provider?.isActive || provider.moderationStatus !== "ACTIVE" || !provider.emailVerified || provider.verificationStatus !== "APPROVED" ||
       waitingCount >= provider.onlineQueueLimit ||

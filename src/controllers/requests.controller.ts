@@ -11,6 +11,7 @@ import {
   getRequestRepostTemplate,
 } from "../services/requests.service";
 import { safeBroadcast, safeEmit } from "../lib/socket";
+import { publishPublicRequestChange } from '../lib/request-events';
 import { ServiceRequestSchema, ServiceRequestUpdateSchema } from "../schema/marketplace.schema";
 
 export async function create(req: Request, res: Response, next: NextFunction) {
@@ -28,8 +29,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
       paymentMethods, jobLocation, transportationFee, serviceLocationMode, photoIds,
     });
 
-    safeBroadcast("SERVICE_REQUEST_CREATED", publicLocation(request));
-    safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id });
+    publishPublicRequestChange('CREATED', request);
 
     res.status(201).json({ success: true, data: request });
   } catch (err: any) {
@@ -81,8 +81,7 @@ export async function update(req: Request, res: Response, next: NextFunction) {
     if (request.targetServiceId) {
       for (const userId of [request.seekerId, request.targetProviderId].filter(Boolean)) safeEmit(`user:${userId}`, 'SERVICE_REQUESTS_CHANGED', { id: request.id, status: request.status });
     } else {
-      safeBroadcast("SERVICE_REQUEST_UPDATED", publicLocation(request));
-      safeBroadcast("SERVICE_REQUESTS_CHANGED", { id: request.id, status: request.status });
+      publishPublicRequestChange('UPDATED', request);
     }
 
     res.json({ success: true, data: request });

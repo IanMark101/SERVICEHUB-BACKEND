@@ -15,6 +15,9 @@ test('Saved listings and report actions preserve marketplace privacy and ownersh
   const tag = randomUUID();
   const makeUser = (name: string, role = 'user') => prisma.user.create({ data: { name, email: `${name}-${tag}@example.test`, passwordHash: 'unused', phone: '', location: 'Cordova', role, emailVerified: true, verificationStatus: 'APPROVED' } });
   const [seeker, provider, other, admin] = await Promise.all([makeUser('Seeker'), makeUser('Provider'), makeUser('Other'), makeUser('Admin', 'admin')]);
+  await prisma.user.update({ where: { id: provider.id }, data: {
+    freePlanStartedAt: new Date(), freePlanExpiresAt: new Date(Date.now() + 30 * 86400000),
+  } });
   const category = await prisma.category.create({ data: { name: `Saved repairs ${tag}` } });
   const service = await prisma.service.create({ data: { providerId: provider.id, categoryId: category.id, title: 'LAPTOP REPAIR', titleNormalized: 'laptop repair', description: 'Laptop diagnostics and repair.', price: 500, estimatedDurationMins: 60, status: 'ACTIVE', isAvailable: true, paymentMethods: { cash: true, gcash: true }, latitude: 10.26, longitude: 123.95, locationLabel: 'Cordova', venueAddress: 'PRIVATE VENUE' } });
   const request = await prisma.serviceRequest.create({ data: { seekerId: seeker.id, categoryId: category.id, title: 'LAPTOP DOES NOT START', description: 'Check my laptop and repair the power issue.', budgetMin: 500, budgetMax: 1000, urgency: 'This Week', latitude: 10.26, longitude: 123.95, locationLabel: 'Cordova', privateAddress: 'PRIVATE HOME' } });

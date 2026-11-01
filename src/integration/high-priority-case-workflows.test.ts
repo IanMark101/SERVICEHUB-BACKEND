@@ -266,7 +266,8 @@ test("H1-H5 participant cases remain duplicate-safe, recoverable, and queue-corr
 
   // Re-audit gap 6: completion financial reservation sees every other case.
   const blockedEscalationBooking = await prisma.booking.create({ data: { seekerId: seeker.id, providerId: secondProvider.id, originType: "DIRECT_LISTING", paymentMethod: "On-site Cash", agreedAmount: 640, paymentStatus: "UNPAID", status: "AWAITING_CONFIRMATION", started: true, updatedAt: oldDate } });
-  const blockedEscalation = await createCompletionEscalation(blockedEscalationBooking.id, secondProvider.id, "Awaiting response for more than 72 hours.");
+  await assert.rejects(createCompletionEscalation(blockedEscalationBooking.id, secondProvider.id, "Awaiting response for more than 72 hours."), { code: 'CASH_COMPLETION_REVIEW_NOT_AVAILABLE' });
+  const blockedEscalation = await prisma.completionEscalation.create({ data: { bookingId: blockedEscalationBooking.id, requestedBy: secondProvider.id, reason: 'Historical cash case awaiting resolution.' } });
   await prisma.report.create({ data: { bookingId: blockedEscalationBooking.id, reporterId: seeker.id, reportedUserId: secondProvider.id, reason: "INAPPROPRIATE_BEHAVIOR", description: "Independent active blocker.", reportType: "SAFETY", status: "PENDING" } });
   await assert.rejects(resolveCompletionEscalation({ escalationId: blockedEscalation.id, adminId: admin.id, action: "refund_seeker", resolution: "Must not reserve while another case is active." }), (error: any) => error?.code === "OTHER_BLOCKING_CASES");
 });

@@ -1,3 +1,4 @@
+import { assertNewProviderBusiness } from './provider-membership.service';
 import { prisma } from '../lib/prisma';
 import { ListingInquirySchema } from '../schema/marketplace.schema';
 import { assertDistinctAccounts } from '../utils/security';
@@ -21,6 +22,7 @@ export async function createListingInquiry(seekerId: string, input: unknown) {
     await lockAccountLifecycle(tx, seekerId, source.providerId);
     await assertOfferParticipant(tx, seekerId, 'seeker');
     await assertOfferParticipant(tx, source.providerId, 'provider');
+    await assertNewProviderBusiness(tx, source.providerId);
     await tx.$queryRaw`SELECT id FROM services WHERE id = ${params.serviceId} FOR SHARE`;
     const service = await tx.service.findUnique({ where: { id: params.serviceId }, include: { category: true } });
     if (!service || service.providerId !== source.providerId || service.status !== 'ACTIVE' || !service.isAvailable || !service.category.isActive) throw fail('This listing is no longer available.', 404);

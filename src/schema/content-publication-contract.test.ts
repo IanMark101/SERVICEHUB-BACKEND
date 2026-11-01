@@ -11,7 +11,8 @@ test("new content publishes only after server moderation and committed records",
   assert.match(listings, /status: "ACTIVE"/);
   assert.doesNotMatch(listings, /awaitingAdmin|submittedForReview|SERVICE_LISTING_SUBMITTED/);
   assert.match(listings, /safeBroadcast\("SERVICE_LISTINGS_CHANGED", \{ id: created\.service\.id, status: "ACTIVE" \}\)/);
-  assert.match(requests, /const request = await createRequest\([\s\S]*?safeBroadcast\("SERVICE_REQUEST_CREATED", publicLocation\(request\)\)/);
+  assert.match(requests, /const request = await createRequest\([\s\S]*?publishPublicRequestChange\('CREATED', request\)/);
+  assert.match(requests, /const request = await updateRequest\([\s\S]*?publishPublicRequestChange\('UPDATED', request\)/);
 });
 
 test("content mutations keep authorization and account-scoped abuse limits", () => {

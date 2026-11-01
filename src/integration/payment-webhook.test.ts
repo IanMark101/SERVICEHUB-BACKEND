@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "../lib/prisma";
 import { env } from "../config/env";
 import { receivePaymongoWebhook } from "../controllers/payments.controller";
+import { startProviderTrial } from "../services/provider-membership.service";
 
 test("a signed successful webhook is idempotent and creates one booking and queue row", async (t) => {
   const suffix = randomUUID();
@@ -31,6 +32,8 @@ test("a signed successful webhook is idempotent and creates one booking and queu
     },
   });
   const category = await prisma.category.create({ data: { name: `Webhook ${suffix}` } });
+  // This fixture creates a payment attempt directly instead of using checkout.
+  await startProviderTrial(provider.id);
   const service = await prisma.service.create({
     data: {
       providerId: provider.id,
@@ -63,6 +66,7 @@ test("a signed successful webhook is idempotent and creates one booking and queu
   t.after(async () => {
     await prisma.processedWebhookEvent.deleteMany({ where: { eventId } });
     await prisma.notification.deleteMany({ where: { OR: [{ userId: provider.id }, { userId: seeker.id }] } });
+    await prisma.paymentRefund.deleteMany({ where: { requestedById: { in: [provider.id, seeker.id] } } });
     await prisma.booking.deleteMany({ where: { paymentAttemptId: attempt.id } });
     await prisma.paymentAttempt.deleteMany({ where: { id: attempt.id } });
     await prisma.service.deleteMany({ where: { id: service.id } });

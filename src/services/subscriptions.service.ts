@@ -3,7 +3,8 @@ import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
 import { lockAccountLifecycle, assertActiveMarketplaceAccount } from './account-lifecycle.service';
 import { attachPaymentMethod, createPaymentIntent, createPaymentMethod, createRefund, getPaymentIntent } from './paymongo.service';
-import { oneCalendarMonthFrom, PRO_MONTHLY_PRICE, subscriptionBenefits, subscriptionSelect } from './subscription-policy';
+import { oneCalendarMonthFrom, membershipQuote, PROVIDER_PLANS, subscriptionBenefits, subscriptionSelect, type PaidProviderPlan } from './subscription-policy';
+import { startProviderTrial } from './provider-membership.service';
 import type { SubscriptionPayment } from '@prisma/client';
 
 const fail = (message: string, status = 409) => Object.assign(new Error(message), { status });
@@ -18,20 +19,18 @@ export function subscriptionPaymentView(payment: SubscriptionPayment) {
     redirectUrl: validRedirect(payment.redirectUrl) ? payment.redirectUrl : null,
     isTestMode: payment.isTestMode, checkoutExpiresAt: payment.checkoutExpiresAt,
     subscriptionStartedAt: payment.subscriptionStartedAt, subscriptionExpiresAt: payment.subscriptionExpiresAt,
-    createdAt: payment.createdAt, paidAt: payment.paidAt };
+    billingAction: payment.billingAction, createdAt: payment.createdAt, paidAt: payment.paidAt };
 }
 
 export async function getProviderSubscription(providerId: string) {
   const now = new Date();
-  // Expiry is also checked by every benefit calculation; this write is only state maintenance.
-  await prisma.user.updateMany({ where: { id: providerId, subscriptionPlan: 'PRO', subscriptionStatus: { in: ['ACTIVE', 'CANCELLED'] }, subscriptionExpiresAt: { lte: now } },
-    data: { subscriptionStatus: 'EXPIRED', subscriptionUpdatedAt: now } });
   const [user, activeListings, payments] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: providerId }, select: { ...subscriptionSelect, subscriptionUpdatedAt: true } }),
     prisma.service.count({ where: { providerId, status: 'ACTIVE' } }),
     prisma.subscriptionPayment.findMany({ where: { providerId }, orderBy: { createdAt: 'desc' }, take: 30 }),
   ]);
-  return { ...user, ...subscriptionBenefits(user, now), activeListings, monthlyPrice: PRO_MONTHLY_PRICE,
+  const benefits = subscriptionBenefits(user, now);
+  return { ...user, ...benefits, subscriptionStatus: benefits.status, activeListings, plans: PROVIDER_PLANS,
     isTestMode: !env.PAYMONGO_SECRET_KEY?.startsWith('sk_live_'),
     payments: payments.map(subscriptionPaymentView) };
 }
@@ -41,22 +40,67 @@ export async function cancelProviderSubscription(providerId: string) {
     await lockAccountLifecycle(tx, providerId);
     await assertActiveMarketplaceAccount(tx, providerId);
     const user = await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect });
-    if (subscriptionBenefits(user).plan !== 'PRO') throw fail('There is no active Pro subscription to cancel.');
+    const benefits = subscriptionBenefits(user);
+    if (!benefits.marketplaceAccess || benefits.plan === 'FREE') throw fail('There is no active paid membership to cancel.');
     await tx.user.update({ where: { id: providerId }, data: { subscriptionStatus: 'CANCELLED', subscriptionUpdatedAt: new Date() } });
   });
   return getProviderSubscription(providerId);
 }
 
-export async function startSubscriptionCheckout(providerId: string) {
+interface QuotePayload {
+  providerId: string; plan: PaidProviderPlan; amount: string; billingAction: string;
+  membershipUpdatedAt: string; periodExpiresAt: string | null; validUntil: number;
+}
+function signQuote(payload: string) {
+  return crypto.createHmac('sha256', env.JWT_ACCESS_SECRET).update(payload).digest('base64url');
+}
+function parseQuote(token: string, providerId: string, plan: PaidProviderPlan): QuotePayload {
+  const [payload, signature] = token.split('.');
+  if (!payload || !signature) throw fail('Refresh the price before continuing.');
+  const expected = Buffer.from(signQuote(payload)); const supplied = Buffer.from(signature);
+  if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) throw fail('Refresh the price before continuing.');
+  let quote: QuotePayload;
+  try { quote = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { throw fail('Refresh the price before continuing.'); }
+  if (quote.providerId !== providerId || quote.plan !== plan || quote.validUntil <= Date.now()) throw fail('This price expired. Review your membership again.');
+  return quote;
+}
+export async function enrollProviderMembership(providerId: string) {
+  await startProviderTrial(providerId);
+  return getProviderSubscription(providerId);
+}
+export async function quoteProviderMembership(providerId: string, plan: PaidProviderPlan) {
+  return prisma.$transaction(async tx => {
+    await lockAccountLifecycle(tx, providerId);
+    await assertActiveMarketplaceAccount(tx, providerId);
+    const user = await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: { ...subscriptionSelect, subscriptionUpdatedAt: true } });
+    if (!user.freePlanStartedAt) throw fail('Enter the Provider workspace to start your Free plan before choosing a membership.', 403);
+    const quote = membershipQuote(user, plan);
+    const payload: QuotePayload = { providerId, plan, amount: quote.amount.toFixed(2), billingAction: quote.billingAction,
+      membershipUpdatedAt: user.subscriptionUpdatedAt.toISOString(), periodExpiresAt: quote.quotedPeriodExpiresAt?.toISOString() ?? null,
+      validUntil: Date.now() + 15 * 60_000 };
+    const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const activeListings = await tx.service.count({ where: { providerId, status: 'ACTIVE' } });
+    return { plan, amount: Number(quote.amount), billingAction: quote.billingAction,
+      periodExpiresAt: quote.quotedPeriodExpiresAt, monthlyPrice: PROVIDER_PLANS[plan].monthlyPrice,
+      listingsToPause: plan === 'BASIC' ? Math.max(0, activeListings - 3) : 0,
+      quoteToken: `${encoded}.${signQuote(encoded)}`, validUntil: new Date(payload.validUntil) };
+  });
+}
+
+export async function startSubscriptionCheckout(providerId: string, plan: PaidProviderPlan = 'PRO', quoteToken?: string) {
   if (!env.PAYMONGO_SECRET_KEY || !env.PAYMONGO_PUBLIC_KEY || !env.PAYMONGO_WEBHOOK_SECRET) throw fail('GCash checkout is unavailable. Please try again later.', 503);
   const now = new Date();
   const payment = await prisma.$transaction(async tx => {
     await lockAccountLifecycle(tx, providerId);
     await assertActiveMarketplaceAccount(tx, providerId);
-    const user = await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: subscriptionSelect });
-    if (subscriptionBenefits(user, now).plan === 'PRO') throw fail('Your Pro plan is already active. You can renew after it expires.');
+    const user = await tx.user.findUniqueOrThrow({ where: { id: providerId }, select: { ...subscriptionSelect, subscriptionUpdatedAt: true } });
+    if (!user.freePlanStartedAt) throw fail('Start your Free Provider plan before choosing a membership.', 403);
+    const signed = quoteToken ? parseQuote(quoteToken, providerId, plan) : null;
+    const quote = membershipQuote(user, plan, now);
+    if (signed && signed.membershipUpdatedAt !== user.subscriptionUpdatedAt.toISOString()) throw fail('Your membership changed. Review the price again.');
     // Never discard an unresolved charge to create another checkout.
     const existing = await tx.subscriptionPayment.findFirst({ where: { providerId, paymentStatus: 'PENDING' }, orderBy: { createdAt: 'desc' } });
+    if (existing && existing.plan !== plan) throw fail('Finish or cancel your pending membership payment before choosing another plan.');
     if (existing?.redirectUrl && existing.checkoutExpiresAt > now) return existing;
     if (existing?.checkoutClaimedAt && existing.checkoutClaimedAt.getTime() > now.getTime() - 60_000) throw fail('Your checkout is being prepared. Please try again in a moment.');
     if (existing && existing.checkoutExpiresAt <= now && !existing.providerIntentId) {
@@ -64,7 +108,9 @@ export async function startSubscriptionCheckout(providerId: string) {
       return tx.subscriptionPayment.update({ where: { id: existing.id }, data: { checkoutClaimedAt: now } });
     }
     if (existing) return tx.subscriptionPayment.update({ where: { id: existing.id }, data: { checkoutClaimedAt: now } });
-    return tx.subscriptionPayment.create({ data: { providerId, amount: PRO_MONTHLY_PRICE,
+    return tx.subscriptionPayment.create({ data: { providerId, plan, amount: signed?.amount ?? quote.amount,
+      billingAction: signed?.billingAction ?? quote.billingAction, quotedMembershipUpdatedAt: user.subscriptionUpdatedAt,
+      quotedPeriodExpiresAt: signed?.periodExpiresAt ? new Date(signed.periodExpiresAt) : quote.quotedPeriodExpiresAt,
       idempotencyKey: `servicehub-subscription-${crypto.randomUUID()}`,
       checkoutExpiresAt: new Date(now.getTime() + 15 * 60_000), checkoutClaimedAt: now,
       isTestMode: !env.PAYMONGO_SECRET_KEY?.startsWith('sk_live_') } });
@@ -73,7 +119,7 @@ export async function startSubscriptionCheckout(providerId: string) {
   try {
     const intent = payment.providerIntentId
       ? await getPaymentIntent(payment.providerIntentId)
-      : await createPaymentIntent({ amount: PRO_MONTHLY_PRICE, description: 'ServiceHub Pro — one month', paymentMethod: 'gcash', idempotencyKey: payment.idempotencyKey,
+      : await createPaymentIntent({ amount: Number(payment.amount), description: `ServiceHub ${payment.plan === 'BASIC' ? 'Basic' : 'Pro'} membership`, paymentMethod: 'gcash', idempotencyKey: payment.idempotencyKey,
         metadata: { servicehub_subscription_payment_id: payment.id, servicehub_provider_id: providerId, servicehub_purpose: 'provider_subscription' } });
     await prisma.subscriptionPayment.update({ where: { id: payment.id }, data: { providerIntentId: intent.id } });
     if (intent.status === 'succeeded') {
@@ -119,14 +165,28 @@ async function finalizeSubscriptionPayment(intent: Awaited<ReturnType<typeof get
     if (['SUCCEEDED', 'REFUNDED', 'REFUND_REQUIRED'].includes(current.paymentStatus)) return current;
     const user = await tx.user.findUniqueOrThrow({ where: { id: payment.providerId } });
     const now = new Date();
+    const currentBenefits = subscriptionBenefits(user, now);
+    const upgrade = current.billingAction === 'UPGRADE';
+    const sameQuote = !current.quotedMembershipUpdatedAt || current.quotedMembershipUpdatedAt.getTime() === user.subscriptionUpdatedAt.getTime();
+    const validUpgrade = currentBenefits.marketplaceAccess && user.subscriptionPlan === 'BASIC' && current.plan === 'PRO'
+      && current.quotedPeriodExpiresAt?.getTime() === user.subscriptionExpiresAt?.getTime();
     if (current.paymentStatus === 'CANCELLED' || user.role !== 'user' || !user.isActive || user.deactivatedAt || user.moderationStatus !== 'ACTIVE'
-      || subscriptionBenefits(user, now).plan === 'PRO') {
+      || !sameQuote || (upgrade ? !validUpgrade : currentBenefits.marketplaceAccess && currentBenefits.plan !== 'FREE')) {
       return tx.subscriptionPayment.update({ where: { id: payment.id }, data: { paymentStatus: 'REFUND_REQUIRED', paymentReference: intent.paymentId, paidAt: now, failureReason: 'PAID_SUBSCRIPTION_NOT_APPLIED' } });
     }
-    const expiresAt = oneCalendarMonthFrom(now);
-    await tx.user.update({ where: { id: payment.providerId }, data: { subscriptionPlan: 'PRO', subscriptionStatus: 'ACTIVE', subscriptionStartedAt: now, subscriptionExpiresAt: expiresAt, subscriptionUpdatedAt: now } });
+    const startsAt = upgrade ? user.subscriptionStartedAt! : now;
+    const expiresAt = upgrade ? current.quotedPeriodExpiresAt! : oneCalendarMonthFrom(now);
+    if (current.plan === 'BASIC') {
+      // Keep the oldest three published active listings. Never delete excess data.
+      const listings = await tx.service.findMany({ where: { providerId: user.id, status: 'ACTIVE' }, orderBy: [{ publishedAt: 'asc' }, { id: 'asc' }], select: { id: true } });
+      if (listings.length > 3) await tx.service.updateMany({ where: { id: { in: listings.slice(3).map(item => item.id) }, providerId: user.id }, data: { status: 'INACTIVE', isAvailable: false } });
+    }
+    await tx.user.update({ where: { id: payment.providerId }, data: { subscriptionPlan: current.plan, subscriptionStatus: 'ACTIVE', subscriptionStartedAt: startsAt, subscriptionExpiresAt: expiresAt, subscriptionUpdatedAt: now } });
+    await tx.notification.createMany({ data: [{ id: `membership-paid:${payment.id}`, userId: user.id,
+      title: current.billingAction === 'RENEWAL' ? 'Provider membership renewed' : `Your ${current.plan === 'BASIC' ? 'Basic' : 'Pro'} membership is active`,
+      body: current.plan === 'PRO' ? 'Unlimited listings, priority for featured placement and a 5% GCash fee are active.' : 'Up to 3 active listings, full analytics and an 8% GCash fee are active.', link: '/subscription' }], skipDuplicates: true });
     return tx.subscriptionPayment.update({ where: { id: payment.id }, data: { paymentStatus: 'SUCCEEDED', paymentReference: intent.paymentId,
-      paidAt: now, subscriptionStartedAt: now, subscriptionExpiresAt: expiresAt, failureReason: null, checkoutClaimedAt: null } });
+      paidAt: now, subscriptionStartedAt: startsAt, subscriptionExpiresAt: expiresAt, failureReason: null, checkoutClaimedAt: null } });
   });
 }
 
@@ -170,7 +230,7 @@ export async function handleSubscriptionWebhook(intentId: string) {
 
 export async function adminSubscriptionOverview(page: number, limit: number) {
   const now = new Date();
-  const [activeProProviders, expiredProSubscriptions, revenue, testRevenue, total, payments] = await Promise.all([
+  const [activeProProviders, expiredProSubscriptions, revenue, testRevenue, total, payments, activeBasicProviders, activeFreeProviders, memberships, membershipTotal] = await Promise.all([
     prisma.user.count({ where: { role: 'user', isActive: true, moderationStatus: 'ACTIVE', subscriptionPlan: 'PRO', subscriptionStatus: { in: ['ACTIVE', 'CANCELLED'] }, subscriptionStartedAt: { lte: now }, subscriptionExpiresAt: { gt: now } } }),
     prisma.user.count({ where: { role: 'user', subscriptionPlan: 'PRO', subscriptionExpiresAt: { lte: now } } }),
     prisma.subscriptionPayment.aggregate({ where: { paymentStatus: 'SUCCEEDED', isTestMode: false }, _sum: { amount: true } }),
@@ -178,8 +238,14 @@ export async function adminSubscriptionOverview(page: number, limit: number) {
     prisma.subscriptionPayment.count(),
     prisma.subscriptionPayment.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit,
       include: { provider: { select: { id: true, name: true } } } }),
+    prisma.user.count({ where: { role: 'user', isActive: true, moderationStatus: 'ACTIVE', subscriptionPlan: 'BASIC', subscriptionStatus: { in: ['ACTIVE', 'CANCELLED'] }, subscriptionStartedAt: { lte: now }, subscriptionExpiresAt: { gt: now } } }),
+    prisma.user.count({ where: { role: 'user', isActive: true, moderationStatus: 'ACTIVE', subscriptionPlan: 'FREE', freePlanStartedAt: { lte: now }, freePlanExpiresAt: { gt: now } } }),
+    prisma.user.findMany({ where: { role: 'user', OR: [{ freePlanStartedAt: { not: null } }, { subscriptionPlan: { in: ['BASIC', 'PRO'] } }] },
+      orderBy: [{ subscriptionUpdatedAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit,
+      select: { id: true, name: true, ...subscriptionSelect } }),
+    prisma.user.count({ where: { role: 'user', OR: [{ freePlanStartedAt: { not: null } }, { subscriptionPlan: { in: ['BASIC', 'PRO'] } }] } }),
   ]);
-  return { summary: { activeProProviders, expiredProSubscriptions, subscriptionRevenue: Number(revenue._sum.amount ?? 0), testSubscriptionTotal: Number(testRevenue._sum.amount ?? 0), isTestMode: !env.PAYMONGO_SECRET_KEY?.startsWith('sk_live_') },
+  return { membershipsPagination: { page, limit, total: membershipTotal, totalPages: Math.max(1, Math.ceil(membershipTotal / limit)) }, memberships: memberships.map(member => ({ id: member.id, name: member.name, ...subscriptionBenefits(member, now) })), summary: { activeBasicProviders, activeFreeProviders, activeProProviders, expiredProSubscriptions, subscriptionRevenue: Number(revenue._sum.amount ?? 0), testSubscriptionTotal: Number(testRevenue._sum.amount ?? 0), isTestMode: !env.PAYMONGO_SECRET_KEY?.startsWith('sk_live_') },
     payments: payments.map(payment => ({ ...subscriptionPaymentView(payment), provider: payment.provider })),
     pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
 }

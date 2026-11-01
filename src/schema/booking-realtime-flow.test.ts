@@ -59,7 +59,9 @@ test('booking lifecycle commits before realtime publication and does not wait fo
       updateMany: async ({ where, data }: Row) => { const rows = state[key].filter(row => matches(decorate(row), where)); rows.forEach(row => Object.assign(row, data)); return { count: rows.length }; },
     };
   };
-  const eligibility = { role: 'user', isActive: true, moderationStatus: 'ACTIVE', emailVerified: true, verificationStatus: 'APPROVED', onlineQueueLimit: 5, trustScore: 55 };
+  const eligibility = { role: 'user', isActive: true, moderationStatus: 'ACTIVE', emailVerified: true, verificationStatus: 'APPROVED', onlineQueueLimit: 5, trustScore: 55,
+    subscriptionPlan: 'FREE', subscriptionStatus: 'ACTIVE', subscriptionStartedAt: null, subscriptionExpiresAt: null,
+    freePlanStartedAt: new Date(Date.now() - 86400000), freePlanExpiresAt: new Date(Date.now() + 29 * 86400000) };
   const fake = {
     $executeRaw: async () => 0, $queryRaw: async () => [],
     booking: {
@@ -84,7 +86,7 @@ test('booking lifecycle commits before realtime publication and does not wait fo
     },
     queueNotify: { findFirst: async () => null, deleteMany: async () => ({ count: 0 }) },
     service: { findMany: async () => [], findUnique: async () => ({ providerId: 'provider', title: 'Repair', status: 'ACTIVE', isAvailable: true, priceType: 'FIXED', price: new Prisma.Decimal(500), estimatedDurationMins: 60, paymentMethods: { cash: true }, provider: eligibility }) },
-    user: { findUnique: async () => eligibility, findMany: async ({ where }: Row) => where.role === 'admin' ? admins.filter(row => matches(row, where)) : ['seeker', 'provider'].map(id => ({ id, ...eligibility })), update: async () => ({}) },
+    user: { findUnique: async () => eligibility, findUniqueOrThrow: async () => eligibility, findMany: async ({ where }: Row) => where.role === 'admin' ? admins.filter(row => matches(row, where)) : ['seeker', 'provider'].map(id => ({ id, ...eligibility })), update: async () => ({}) },
     paymentRefund: { ...table('refunds'), findUnique: async ({ where }: Row) => refundProcessing ? { status: 'PROCESSING' } : state.refunds.find(row => matches(row, where)) || null },
     notification: { create: async ({ data }: Row) => {
       assert.equal(inTransaction, true, 'durable notices belong to the transition transaction');

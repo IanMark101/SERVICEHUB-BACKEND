@@ -16,6 +16,7 @@ import { Prisma } from '@prisma/client';
 import { reviewEligibilitySql } from '../lib/review-eligibility';
 import { protectedRequestPaymentStatuses, requestDeletionEligibility } from "../lib/request-deletion";
 import { canArchiveCompletedRequest } from '../lib/request-archive';
+import { requireProviderOpportunities } from './provider-membership.service';
 
 export async function createRequest(seekerId: string, params: {
   photoIds?: string[];
@@ -117,6 +118,15 @@ async function inquiryServicePrices(requests: { targetServiceId: string | null }
 }
 
 export async function listRequests(categoryId?: string, providerId?: string, nearby?: NearbyQuery, ids?: string[]) {
+  // A direct URL must not bypass membership for new work. Members can still
+  // read their own Customer requests without starting or renewing Provider access.
+  // Confirmed booking/offer history retains its separate participant endpoints.
+  if (providerId) {
+    const ownsRequestedRecords = !!ids?.length && await prisma.serviceRequest.count({
+      where: { id: { in: ids }, seekerId: providerId },
+    }) === new Set(ids).size;
+    if (!ownsRequestedRecords) await requireProviderOpportunities(providerId);
+  }
   const requests = await prisma.serviceRequest.findMany({
     where: {
       ...publicRequestWhere(providerId),

@@ -8,6 +8,7 @@ import { expireStalePaymentAttempts } from "./services/payment-attempt.service";
 import { pruneSecurityHistory } from './services/security-history.service';
 import { pruneUnusedListingPhotos } from './services/listing-photos.service';
 import { logger } from './utils/logger';
+import { maintainProviderMemberships } from './services/provider-membership.service';
 
 const PORT = parseInt(env.PORT, 10);
 
@@ -45,6 +46,16 @@ async function main() {
       expireStalePaymentAttempts().catch((error) => console.error("Payment-attempt expiry job failed", error));
     }, 60_000);
     paymentExpiryTimer.unref();
+    let membershipMaintenanceRunning = false;
+    const maintainMemberships = () => {
+      if (membershipMaintenanceRunning) return;
+      membershipMaintenanceRunning = true;
+      maintainProviderMemberships().catch(() => logger.error('provider_membership_maintenance_failed'))
+        .finally(() => { membershipMaintenanceRunning = false; });
+    };
+    maintainMemberships();
+    const membershipTimer = setInterval(maintainMemberships, 3_600_000);
+    membershipTimer.unref();
     const securityHistoryTimer = setInterval(() => {
       pruneSecurityHistory().catch(() => logger.error('security_history_prune_failed'));
     }, 3_600_000);
@@ -60,6 +71,7 @@ async function main() {
     // Graceful shutdown
     const shutdown = async (signal: string) => {
       clearInterval(paymentExpiryTimer);
+      clearInterval(membershipTimer);
       clearInterval(securityHistoryTimer);
       clearInterval(listingPhotoTimer);
       console.log(`\n${signal} received — shutting down gracefully...`);

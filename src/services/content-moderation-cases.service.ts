@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { safeEmit } from "../lib/socket";
-import { PUBLIC_SERVICE_WHERE } from "./services.service";
+import { publicServiceWhere } from "./services.service";
 import { assertActiveMarketplaceAccount, lockAccountLifecycle } from "./account-lifecycle.service";
 import { readPublicContent, contentSnapshot, decideWorkspaceCase } from "./content-workspace.service";
 import { lockListingPhotos } from './listing-photos.service';
@@ -14,7 +14,7 @@ export async function submitContentCase(submitterId: string, input: ContentCaseI
     if (input.caseType === "REPORT") {
       if (!input.resourceId) throw Object.assign(new Error("Choose public content to report"), { status: 400 });
       if (input.contentType === "SERVICE_LISTING") {
-        const listing = await tx.service.findFirst({ where: { id: input.resourceId, ...PUBLIC_SERVICE_WHERE }, select: { providerId: true } });
+        const listing = await tx.service.findFirst({ where: { id: input.resourceId, ...publicServiceWhere() }, select: { providerId: true } });
         if (!listing) throw Object.assign(new Error("This listing is no longer public"), { status: 404 });
         if (listing.providerId === submitterId) throw Object.assign(new Error("You cannot report your own listing"), { status: 409 });
         await lockAccountLifecycle(tx, submitterId, listing.providerId);
